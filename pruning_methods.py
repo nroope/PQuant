@@ -3,6 +3,7 @@ import torch
 from argparse import Namespace    
 import keras_core as keras
 from keras import ops
+import numpy as np
 
 def get_pruning_layer(config, layer, out_size):
         if config.pruning_method == "dst":
@@ -21,8 +22,6 @@ def get_threshold_size(config, size, weight_shape):
         return (size, 1)
     elif config.threshold_type == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
-
-
 
 
 class PruningLayer(nn.Module):
@@ -54,6 +53,9 @@ class STR(PruningLayer):
         self.g = torch.sigmoid
 
     def forward(self, weight):
+        """
+        sign(W) * ReLu(|W| - g(s))
+        """
         mask = self.get_mask(weight)
         return torch.sign(weight) * mask.view(weight.shape) 
 
@@ -83,13 +85,19 @@ class AutoSparse(PruningLayer):
         self.threshold = nn.Parameter(torch.ones(threshold_size) * self.threshold.init)
         self.prune = AutoSparsePruner.apply
         self.config = config
+        self.alpha - self.config.alpha
 
     def forward(self, weight):
+        """
+        sign(W) * ReLu(|W| - threshold), with gradient:
+            1 if W > 0 else alpha.
+            Still missing decay function for alpha.
+        """
         mask = self.get_mask(weight)
         return torch.sign(weight) * mask 
 
     def get_mask(self, weight):
-        return self.prune((weight, self.threshold, self.config.alpha))
+        return self.prune((weight, self.threshold, self.alpha))
 
 
 class BinaryStep(torch.autograd.Function):
@@ -117,6 +125,12 @@ class DST(PruningLayer):
         self.config = config
 
     def forward(self, weight):
+        """
+        ReLu(|W| - T), with gradient:
+            2 - 4*|W| if |W| <= 0.4
+            0.4           if 0.4 < |W| <= 1
+            0             if |W| > 1
+        """
         mask = self.get_mask(weight)
         ratio = 1 - torch.sum(mask) / mask.numel() # % of pruned weights in tensor
         if ratio >= self.config.max_pruning_pct: # Reset threshold if pruning exceeds ratio
@@ -161,6 +175,12 @@ class DSTKeras(keras.layers.Layer):
         self.config = config
 
     def call(self, weight):
+        """
+        ReLu(|W| - T), with gradient:
+            2 - 4*|W| if |W| <= 0.4
+            0.4           if 0.4 < |W| <= 1
+            0             if |W| > 1
+        """
         mask = self.get_mask(weight)
         ratio = 1.0 - ops.sum(mask) / ops.size(mask)
         if ratio >= self.config.max_pruning_pct:
@@ -190,8 +210,6 @@ class DSTKeras(keras.layers.Layer):
 #### TESTS ####
 
 def test_autosparse_gradient():
-    from pruning_methods import AutoSparsePruner
-
     single_autopruner = AutoSparsePruner
     weight_tensor = torch.Tensor([-2, -1, -0.5, 0, 0.5, 1, 2])
     alpha = torch.Tensor([0.1])
@@ -211,4 +229,36 @@ def test_autosparse_gradient():
     lte_zero = (weight_tensor <= 0).long()
     gradients_alpha = (grads == alpha).long()
     assert torch.equal(lte_zero, gradients_alpha)
+    print("AutoSparse gradient tests passed")
 
+def test_binarystep_gradient():
+    weight_tensor = torch.Tensor([-2, -1, -0.5, 0.25, 0.7, 1, 2])
+    # 1 so we get only the gradients of the backward itself
+    grad_output = torch.ones(1,)
+    ctx = {"saved_tensors": (weight_tensor,)}
+    ctx = Namespace(**ctx)
+    print(ctx)
+    grads = BinaryStep.backward(ctx, grad_output)
+    # Weights with absolute value above 0 should have a gradient of 0
+    abs_weight_tensor = torch.abs(weight_tensor)
+    above_one = (abs_weight_tensor > 1).long()
+    gradients_zero = (grads == 0).long()
+    assert torch.equal(above_one, gradients_zero)
+
+    # Weights with absolute value between 0.4 and 1 should have a gradient equal to 0.4
+    from_04to1 = torch.logical_and((abs_weight_tensor <= 1.0), (abs_weight_tensor) > 0.4).long()
+    gradients_04 = (grads == 0.4).long()
+    assert torch.equal(from_04to1, gradients_04)
+
+    # Weights with absolute value under 0.4 should have a gradient equal to 2 - 4 * abs_weight_tensor
+    under_04 = (abs_weight_tensor <= 0.4).long()
+    grad = 1 # Only value under abs value 0.4 is 0.25. Expected value 2 - 4 * 0.25 = 1
+    gradients_24abs = (grads == grad).long()
+    torch.equal(under_04, gradients_24abs)
+    print("BinaryStep gradient tests passed")
+
+
+
+if __name__ == "__main__":
+    test_autosparse_gradient()
+    test_binarystep_gradient()

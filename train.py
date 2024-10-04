@@ -9,7 +9,8 @@ import tqdm
 from sparse_layers import  get_layer_keep_ratio, get_model_losses, add_pruning_to_model, call_post_epoch_function
 from parser import get_parser
 from data import get_cifar10_data
-
+import keras_core as keras
+keras.backend.set_image_data_format('channels_first')
 
 def test(model, testloader, device):
     correct = 0
@@ -59,6 +60,8 @@ if __name__ == "__main__":
     model = torchvision.models.resnet34()
     sparse_model = add_pruning_to_model(model, config)
     sparse_model = sparse_model.to(device)
+    from torchsummary import summary
+    summary(sparse_model, (3,32,32))
     trainloader, testloader = get_cifar10_data(config.batch_size)
     trained_sparse_model = train(sparse_model, config, trainloader, testloader, device)
 

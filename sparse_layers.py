@@ -11,9 +11,8 @@ class SparseLayerLinear(nn.Module):
         super(SparseLayerLinear, self).__init__()
         self.layer = layer
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
-        self.weight = nn.Parameter(torch.rand(layer.weight.shape))
-
-        self.bias = nn.Parameter(torch.rand(layer.bias.shape)) if layer.bias is not None else None
+        self.weight = nn.Parameter(layer.weight.clone())
+        self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
 
     def forward(self, x):
         masked_weight = self.pruning_layer(self.weight)
@@ -24,9 +23,8 @@ class SparseLayerConv2d(nn.Module):
     def __init__(self, config, layer):
         super(SparseLayerConv2d, self).__init__()
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
-        self.weight = nn.Parameter(torch.Tensor(layer.weight))
-
-        self.bias = nn.Parameter(torch.Tensor(layer.bias)) if layer.bias is not None else None
+        self.weight = nn.Parameter(layer.weight.clone())
+        self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.stride = layer.stride
         self.dilation = layer.dilation
         self.padding = layer.padding
@@ -70,19 +68,6 @@ class SparseLayerConv2dKeras(keras.layers.Layer):
 #####################################################################################
 
 
-def add_pruning_to_model(model, config):
-    for name, layer in model.named_children():
-        if isinstance(layer, nn.Linear):
-            sparse_layer = SparseLayerLinear(config, layer)
-            setattr(model, name, sparse_layer)
-        elif isinstance(layer, nn.Conv2d):
-            sparse_layer = SparseLayerConv2d(config, layer)
-            setattr(model, name, sparse_layer)
-        if layer.named_children(): # Check submodules
-            add_pruning_to_model(layer, config)
-    return model
-
-
 class SingleLinearLayer(nn.Module):
     def __init__(self):
         super(SingleLinearLayer, self).__init__()
@@ -105,15 +90,25 @@ class SingleConvLayer(nn.Module):
         return x
 
 
+def add_pruning_to_model(model, config):
+    for name, layer in model.named_children():
+        if isinstance(layer, nn.Linear):
+            setattr(model, name, SparseLayerLinear(config, layer))
+        elif isinstance(layer, nn.Conv2d):
+            setattr(model, name, SparseLayerConv2d(config, layer))
+        add_pruning_to_model(layer, config)
+    return model
+
+
 def call_post_epoch_function(model, epoch):
     for layer in model.modules():
-        if isinstance(layer, SparseLayerConv2d) or isinstance(layer, SparseLayerLinear):
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 layer.pruning_layer.post_epoch_function(epoch)
 
 
 def get_layer_keep_ratio(model, ratios):
     for layer in model.modules():
-        if isinstance(layer, SparseLayerConv2d) or isinstance(layer, SparseLayerLinear):
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 ratio = layer.pruning_layer.get_layer_sparsity(layer.weight)
                 ratios = torch.concat((ratios, torch.unsqueeze(ratio, 0)))
     return ratios
@@ -121,7 +116,7 @@ def get_layer_keep_ratio(model, ratios):
 
 def get_model_losses(model, losses):
     for layer in model.modules():
-        if isinstance(layer, SparseLayerConv2d) or isinstance(layer, SparseLayerLinear):
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 loss = layer.pruning_layer.calculate_additional_loss()                
                 losses += loss
     return losses
