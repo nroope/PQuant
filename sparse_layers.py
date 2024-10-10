@@ -1,3 +1,5 @@
+import os
+os.environ["KERAS_BACKEND"] = "torch"
 from parser import get_parser
 from pruning_methods import get_pruning_layer
 import torch
@@ -14,6 +16,11 @@ class SparseLayerLinear(nn.Module):
         self.weight = nn.Parameter(layer.weight.clone())
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
 
+    def save_weights(self):
+        self.init_weight = self.weight.clone()
+    def rewind_weights(self):
+        self.weight.data = self.init_weight.clone()
+
     def forward(self, x):
         masked_weight = self.pruning_layer(self.weight)
         return F.linear(x, masked_weight, self.bias)
@@ -24,11 +31,17 @@ class SparseLayerConv2d(nn.Module):
         super(SparseLayerConv2d, self).__init__()
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
         self.weight = nn.Parameter(layer.weight.clone())
+        self.init_weight = self.weight.clone()
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.stride = layer.stride
         self.dilation = layer.dilation
         self.padding = layer.padding
         self.groups = layer.groups
+
+    def save_weights(self):
+        self.init_weight = self.weight.clone()
+    def rewind_weights(self):
+        self.weight.data = self.init_weight.clone()
 
     def forward(self, x):
         masked_weight = self.pruning_layer(self.weight)
@@ -100,11 +113,30 @@ def add_pruning_to_model(model, config):
     return model
 
 
-def call_post_epoch_function(model, epoch):
+def call_post_epoch_function(model, epoch, total_epochs):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
-                layer.pruning_layer.post_epoch_function(epoch)
+                layer.pruning_layer.post_epoch_function(epoch, total_epochs)
 
+def call_post_round_function(model):
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+                layer.pruning_layer.post_round_function()
+
+def call_save_weights_function(model):
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+                layer.save_weights()
+
+def call_rewind_weights_function(model):
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+                layer.rewind_weights()
+
+def call_pre_finetune_function(model):
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+                layer.pruning_layer.pre_finetune_function()
 
 def get_layer_keep_ratio(model, ratios):
     for layer in model.modules():
@@ -137,5 +169,32 @@ def test_layer_replacing():
     print("LAYER REPLACING TESTS PASSED")
 
 
+def test_dst_dstkeras_equals():
+    # Test that DST (PyTorch) and DST(Keras) give same output
+    from parser import get_parser
+    from torchsummary import summary
+    device = "cuda" if  torch.cuda.is_available() else "cpu"
+    args = ["--pruning_method", "dst"]
+    parser = get_parser()
+    config = parser.parse_args(args=args)
+    model = SingleConvLayer()
+    model_keras = SingleConvLayer()
+    model.to(device)
+    model_keras.to(device)
+    model_keras.load_state_dict(model.state_dict())
+    test_input = torch.rand(2, 3, 32, 32).to(device)
+    summary(model, (3,32,32))
+    summary(model_keras, (3,32,32))
+    model = add_pruning_to_model(model, config)
+    config.pruning_method = "dstkeras"
+    model_keras = add_pruning_to_model(model_keras, config)
+    
+    output = model(test_input)
+    output_keras = model_keras(test_input)    
+    assert torch.equal(output, output_keras)
+
+
+
 if __name__ == "__main__":
     test_layer_replacing()
+    test_dst_dstkeras_equals()

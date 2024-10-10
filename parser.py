@@ -1,5 +1,12 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentTypeError
 
+def str2bool(w):
+    if w.lower() in ['true', 'y', 'yes']:
+        return True
+    elif w.lower() in ['false', 'no', 'n']:
+        return False
+    else:
+        raise ArgumentTypeError('Boolean value expected.')
 
 def get_parser():
     parser = ArgumentParser()
@@ -16,4 +23,9 @@ def get_parser():
     parser.add_argument("--momentum", type=float, default=0.9, help="Momentum for SGD optimizer")
     parser.add_argument("--epochs", type=int, default=100, help="Training epochs")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size used during training and validation")
+    parser.add_argument("--final_temp", type=float)
+    parser.add_argument("--rounds", type=int, default=1)
+    parser.add_argument("--save_weights_epoch", type=int, default=-1)
+    parser.add_argument("--rewind", type=str, choices=("round", "post-ticket-search", "never"), default="never", help="Whether to do weight rewind after each round, post-ticket search, or never.")
+    parser.add_argument("--fine_tune", type=str2bool, default=False, help="Whether to fine tune after training loop or not.")
     return parser
