@@ -14,7 +14,8 @@ def get_pruning_layer(config, layer, out_size):
             return AutoSparse(config, layer, out_size)
         elif config.pruning_method == "cs":
             return ContinuousSparsification(config, layer, out_size)
-
+        elif config.pruning_method == "pdp":
+            return PDP(config, layer, out_size)
 
 def get_threshold_size(config, size, weight_shape):
     if config.threshold_type == "layerwise":
@@ -24,13 +25,66 @@ def get_threshold_size(config, size, weight_shape):
     elif config.threshold_type == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
 
-        
+
+class PDP(keras.layers.Layer):
+    def __init__(self, config, layer, out_size, *args, **kwargs):
+        super(PDP, self).__init__(*args, **kwargs)
+        self.init_r = config.sparsity
+        self.r = config.sparsity
+        self.temp = config.temperature
+        self.is_pretraining = True
+        self.config = config
+
+    def build(self, input_shape):
+        input_shape_concatenated = list(input_shape) + [1]
+        self.softmax_shape = input_shape_concatenated
+        self.t = ops.ones(input_shape_concatenated) * 0.5
+        super().build(input_shape)
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False # Enables pruning
+
+    def pre_epoch_function(self, epoch, total_epochs):
+        if not self.is_pretraining:
+            self.r = ops.minimum(1., self.config.epsilon * (epoch + 1)) * self.init_r
+    
+    def get_mask(self, weight):
+        if self.is_pretraining:
+            return ops.ones(weight.shape)
+        weight_reshaped = ops.reshape(weight, self.softmax_shape)
+        abs_weight_flat = ops.reshape(ops.abs(weight), -1)
+        Wh, _ = ops.top_k(abs_weight_flat, int((1-self.r) * ops.size(abs_weight_flat)))
+        Wt, _ = ops.top_k(-abs_weight_flat, int(self.r * ops.size(abs_weight_flat)))
+        t = self.t * (ops.min(Wh) + ops.max(Wt)) 
+
+        soft_input = ops.concatenate((t ** 2, weight_reshaped ** 2), axis=-1) / self.temp
+        # Last dimension contains a single weight squared and the t-value squared, divided by temp
+        softmax_result = ops.softmax(soft_input, axis=-1)
+        zw, mw = ops.unstack(softmax_result, axis=-1)
+        mask = ops.reshape(mw, weight.shape)
+        return mask
+
+    def call(self, weight):
+        mask = self.get_mask(weight)
+        return mask * weight
+
+    def calculate_additional_loss(self):
+        return 0
+    
+    def get_layer_sparsity(self, weight):
+        masked_weight = self.get_mask(weight)
+        masked_weight_rounded = (masked_weight >= 0.5).float()
+        return torch.sum(masked_weight_rounded) / ops.size(weight)
+    
+    def post_epoch_function(self, epoch, total_epochs):
+        pass
+
 class ContinuousSparsification(keras.layers.Layer):
     def __init__(self, config, layer, out_size, *args, **kwargs):
         super(ContinuousSparsification, self).__init__(*args, **kwargs)
         self.config = config
         self.beta = config.beta
-        self.s = self.add_weight(layer.weight.shape, initializer="ones")
+        self.s = self.add_weight(name="threshold", shape=layer.weight.shape, initializer="ones")
         self.s.assign(config.threshold_init * self.s)
         self.s_init = config.threshold_init
         self.final_temp = config.final_temp
@@ -48,16 +102,22 @@ class ContinuousSparsification(keras.layers.Layer):
     def get_mask(self, weight):
         scaling = 1. / ops.sigmoid(self.config.threshold_init)
         if self.do_hard_mask:
-            mask = self.get_hard_mask(weight)
+            mask = self.get_hard_mask()
         else:
             mask = ops.sigmoid(self.beta * self.s) 
         return mask * scaling
     
-    def post_epoch_function(self, epoch, total_epochs):
-        self.beta *= (self.final_temp**(epoch/(total_epochs - 1)))
+    def post_pre_train_function(self):
+        pass
 
-    def get_hard_mask(self, weight):
-        return (weight > 0).float()
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+
+    def post_epoch_function(self, epoch, total_epochs):
+        self.beta *= (self.final_temp**(1/(total_epochs - 1)))
+
+    def get_hard_mask(self):
+        return (self.s > 0).float()
 
     def post_round_function(self):
         min_beta_s_s0 = ops.minimum(self.beta * self.s, self.s_init)
@@ -65,19 +125,25 @@ class ContinuousSparsification(keras.layers.Layer):
         self.beta = 1
 
     def calculate_additional_loss(self):
-        return 0.00000001 * ops.norm(ops.reshape(self.get_mask(self.mask), -1), ord=1)
+        return 0.00000001 * ops.norm(ops.reshape(self.mask, -1), ord=1)
     
     def get_layer_sparsity(self, weight):
-        return ops.sum(self.get_hard_mask(weight)) / ops.size(weight)
+        return ops.sum(self.get_hard_mask()) / ops.size(weight)
 
 
 @ops.custom_gradient
 def autosparse_prune(x, alpha):
     mask = ops.relu(x)
+    backward_sparsity = 0.5
+    x_flat = ops.reshape(x, -1)
+    k = int(ops.size(x_flat) * backward_sparsity)
+    topks, _ = ops.top_k(x_flat, k)
+    kth_value = topks[-1]
     def grad(*args, upstream=None):
         if upstream is None:
             (upstream,) = args
         grads = ops.where(x <= 0, alpha, 1.0)
+        grads = ops.where(x < kth_value, 0., grads)
         return grads * upstream, None
     return mask, grad
 
@@ -88,7 +154,8 @@ class AutoSparse(keras.layers.Layer):
         self.threshold = self.add_weight(name="threshold", shape=threshold_size, initializer="ones", trainable=True)
         self.threshold.assign(config.threshold_init * self.threshold)
         self.alpha = ops.convert_to_tensor(config.alpha, dtype="float32")
-        self.g = ops.sigmoid
+        self.g = ops.sigmoid if config.g == "sigmoid" else lambda x:x
+        self.config = config
 
     def call(self, weight):
         """
@@ -108,12 +175,17 @@ class AutoSparse(keras.layers.Layer):
         masked_count = ops.count_nonzero(masked_weight)
         return masked_count / ops.size(weight)
     
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+
     def calculate_additional_loss(*args, **kwargs):
         return 0
     
     def post_epoch_function(self, epoch, total_epochs, *args, **kwargs):
         # Decay alpha
-        self.alpha = self.alpha * cosine_sigmoid_decay(epoch, total_epochs)
+        self.alpha *= cosine_sigmoid_decay(epoch, total_epochs)
+        if epoch == self.config.alpha_reset_epoch:
+            self.alpha *= 0.
 
 
 @ops.custom_gradient
@@ -160,6 +232,9 @@ class DST(keras.layers.Layer):
         mask = ops.reshape(mask, weight_orig_shape)
         return mask
 
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+
     def get_layer_sparsity(self, weight):
         return ops.sum(self.get_mask(weight)) / ops.size(weight)
     
@@ -168,7 +243,8 @@ class DST(keras.layers.Layer):
 
     def post_epoch_function(self, epoch, total_epochs):
         pass
-
+    def post_pre_train_function(self):
+        pass
 
 def test_autosparse_gradient():
     device = "cuda" if torch.cuda.is_available() else "cpu"

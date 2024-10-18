@@ -3,27 +3,28 @@ os.environ["KERAS_BACKEND"] = "torch"
 import torch.nn as nn
 import torch
 import torchvision
-import torch.optim as optim
 import tqdm
 
-from sparse_layers import  get_layer_keep_ratio, get_model_losses, add_pruning_to_model, call_post_epoch_function, call_post_round_function, call_save_weights_function, call_rewind_weights_function, call_pre_finetune_function
+from sparse_layers import  get_layer_keep_ratio, get_model_losses, add_pruning_to_model, \
+post_epoch_functions, post_round_functions, save_weights_functions, rewind_weights_functions, \
+pre_finetune_functions, post_pretrain_functions, pre_epoch_functions
+from utils import get_scheduler, get_optimizer
 from parser import get_parser
 from data import get_cifar10_data
 import keras_core as keras
 keras.backend.set_image_data_format('channels_first')
 
 
-
-def post_round_functions(model, config, round):
+def call_post_round_functions(model, config, round):
         if config.rewind == "round":
-            call_rewind_weights_function(model)
+            rewind_weights_functions(model)
         elif config.rewind == "post-ticket-search" and round == config.rounds - 1:
-            call_rewind_weights_function(model)
+            rewind_weights_functions(model)
         if round < config.rounds - 1:
-            call_post_round_function(model)
+            post_round_functions(model)
 
 
-def test(model, testloader, device):
+def test(model, testloader, device, epoch):
     correct = 0
     total = 0
     with torch.no_grad():
@@ -36,28 +37,31 @@ def test(model, testloader, device):
             correct += (predicted == labels).sum().item()
         print(f'Accuracy of the network on the 10000 test images: {100 * correct // total} %')
         ratios = get_layer_keep_ratio(model, torch.Tensor([1.0]).to(device))
-        print("Remaining weights", torch.mean(ratios))
+        print("Remaining weights", ratios)
 
-
-def iterative_train(model, config, trainloader, testloader, device, criterion=None, optimizer=None, scheduler=None):
+def iterative_train(model, config, trainloader, testloader, device, criterion=None):
     if criterion is None:
-        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    if optimizer is None:
-        optimizer = optim.SGD(model.parameters(), momentum=config.momentum, lr=config.lr, weight_decay=config.l2_decay)
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[56,71], gamma=0.1)
+        criterion = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
+    if config.pretraining_epochs:
+        epochs = config.epochs
+        config.epochs = config.pretraining_epochs
+        train(model, config, trainloader, testloader, device, criterion, -1)
+        config.epochs = epochs
+        post_pretrain_functions(model, config)
     for r in range(config.rounds):
-        train(model, config, trainloader, testloader, device, criterion, optimizer, scheduler, r)
-        post_round_functions(model, config, r)
+        train(model, config, trainloader, testloader, device, criterion, r)
+        call_post_round_functions(model, config, r)
     if config.fine_tune:
-        call_pre_finetune_function(model)
-        train(model, config, trainloader, testloader, device, criterion, optimizer, scheduler, config.rounds)
+        pre_finetune_functions(model)
+        train(model, config, trainloader, testloader, device, criterion, config.rounds)
 
-def train(model, config, trainloader, testloader, device, criterion=None, optimizer=None, scheduler=None, round=0):
-    #lambda_reg = 0.0001
+def train(model, config, trainloader, testloader, device, criterion=None, round=0):
+    optimizer = get_optimizer(config, model)
+    scheduler = get_scheduler(optimizer, config)
     for epoch in range(config.epochs):  # loop over the dataset multiple times
+        pre_epoch_functions(model, epoch, config.epochs)
         if round == 0 and config.save_weights_epoch == epoch:
-            call_save_weights_function(model)
-
+            save_weights_functions(model)
         for data in tqdm.tqdm(trainloader):
             inputs, labels = data
             inputs, labels = inputs.to(device), labels.to(device)
@@ -67,19 +71,17 @@ def train(model, config, trainloader, testloader, device, criterion=None, optimi
             loss = criterion(outputs, labels)
             losses = get_model_losses(model, torch.tensor(0.).to(device))
             loss += losses
-            #L1-regularization
-            #for n, v in model.named_parameters():
-            #    if "pruning_layer" not in n:
-            #        loss += lambda_reg * v.abs().sum()
+            if config.pruning_method == "cs":
+                # L1-regularization used in CS
+                for n, v in model.named_parameters():
+                    if "pruning_layer" not in n:
+                        loss += 0.0001 * v.abs().sum()
             loss.backward()
-            #for n, v in model.named_parameters():
-                #print(n, v.grad)
             optimizer.step()
-
-        test(model, testloader, device)
-        call_post_epoch_function(model, epoch, config.epochs)
         if scheduler is not None:
             scheduler.step()
+        test(model, testloader, device, epoch)
+        post_epoch_functions(model, epoch, config.epochs)
     print('Finished Training')
     return model
 

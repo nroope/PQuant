@@ -91,7 +91,6 @@ class SingleLinearLayer(nn.Module):
         x = torch.relu(x)
         return x
 
-
 class SingleConvLayer(nn.Module):
     def __init__(self):
         super(SingleConvLayer, self).__init__()
@@ -112,39 +111,97 @@ def add_pruning_to_model(model, config):
         add_pruning_to_model(layer, config)
     return model
 
-
-def call_post_epoch_function(model, epoch, total_epochs):
+def post_epoch_functions(model, epoch, total_epochs):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 layer.pruning_layer.post_epoch_function(epoch, total_epochs)
 
-def call_post_round_function(model):
+def pre_epoch_functions(model, epoch, total_epochs):
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+                layer.pruning_layer.pre_epoch_function(epoch, total_epochs)
+
+def post_round_functions(model):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 layer.pruning_layer.post_round_function()
 
-def call_save_weights_function(model):
+def save_weights_functions(model):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 layer.save_weights()
 
-def call_rewind_weights_function(model):
+def rewind_weights_functions(model):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 layer.rewind_weights()
 
-def call_pre_finetune_function(model):
+def pre_finetune_functions(model):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 layer.pruning_layer.pre_finetune_function()
 
+def post_pretrain_functions(model, config):
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+                layer.pruning_layer.post_pre_train_function()
+    if config.pruning_method == "pdp":
+        pdp_setup(model, config)
+
+def pdp_setup(model, config):
+    """
+    Selects bottom % weights globally. Then calculates target sparsity for each layer, which will depend on how large % of
+    that layer's weights are also in the global bottom % of weights.
+    """
+    wp = None
+    for layer in model.modules():
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+            if wp is None:
+                 wp = layer.weight.flatten()
+            else:
+                wp = torch.concat((wp, layer.weight.flatten()))            
+    # Calculate smallest % of weights globally
+    wp, _ = torch.topk(-torch.abs(wp.flatten()), int((1-config.sparsity) * wp.numel()))
+    wp = torch.unique(wp)
+    wp = wp.unsqueeze(-1)
+    for layer in model.modules():
+        # Calculate the % of weights in each layer that are also in the global bottom % of weights
+        if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
+            weight = layer.weight.flatten()
+            w = torch.sum(weight.detach().cpu().apply_(lambda x: x in wp))
+            print(w/weight.numel())
+            layer.pruning_layer.init_r = w / weight.numel()
+            # Split weight tensor into smaller chunks to use less memory
+            #splits = get_splits(weight.shape[0])
+            #split_length = weight.shape[0] // splits 
+            #weight_total = 0
+            #for i in range(splits):
+            #    subset = weight[i * split_length : (i+1) * split_length]
+            #    weight_total += torch.sum(wp == subset)
+            #print(weight_total / weight.numel())
+            #layer.pruning_layer.init_r = weight_total / weight.numel() 
+
+
+def get_splits(shape):
+    splits = 1
+    max_splits = 2 ** 18
+    for i in range(1, max_splits + 1):
+        if shape % i == 0:
+              splits = i
+    print(shape, splits, shape // splits)
+    return splits
+
+
 def get_layer_keep_ratio(model, ratios):
+    total_w = 0
+    remaining_weights = 0
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
                 ratio = layer.pruning_layer.get_layer_sparsity(layer.weight)
+                total_w += layer.weight.numel()
+                remaining_weights += ratio * layer.weight.numel()
                 ratios = torch.concat((ratios, torch.unsqueeze(ratio, 0)))
-    return ratios
-
+    return remaining_weights / total_w
 
 def get_model_losses(model, losses):
     for layer in model.modules():
@@ -152,7 +209,6 @@ def get_model_losses(model, losses):
                 loss = layer.pruning_layer.calculate_additional_loss()                
                 losses += loss
     return losses
-
 
 def test_layer_replacing():
     parser = get_parser()
@@ -192,7 +248,6 @@ def test_dst_dstkeras_equals():
     output = model(test_input)
     output_keras = model_keras(test_input)    
     assert torch.equal(output, output_keras)
-
 
 
 if __name__ == "__main__":
