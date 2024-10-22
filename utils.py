@@ -42,7 +42,7 @@ def get_scheduler(optimizer, config):
     if config.lr_schedule is None:
         return None
     elif config.lr_schedule == "cosine":
-        return CosineAnnealingLR(optimizer, config.epochs)
+        return CosineAnnealingLR(optimizer, config.cosine_tmax)
     elif config.lr_schedule == "multistep":
         return MultiStepLR(optimizer, config.milestones, gamma=config.gamma)
     return None

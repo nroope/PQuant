@@ -35,9 +35,8 @@ def test(model, testloader, device, epoch):
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-        print(f'Accuracy of the network on the 10000 test images: {100 * correct // total} %')
-        ratios = get_layer_keep_ratio(model, torch.Tensor([1.0]).to(device))
-        print("Remaining weights", ratios)
+        print(f'Accuracy of the network on the 10000 test images: {100 * correct / total} %')
+        get_layer_keep_ratio(model)
 
 def iterative_train(model, config, trainloader, testloader, device, criterion=None):
     if criterion is None:

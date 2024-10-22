@@ -39,4 +39,5 @@ def get_parser():
     parser.add_argument("--milestones", type=int, nargs="+", help="When to drop learning rate in multistep scheduler")
     parser.add_argument("--gamma", type=float, default=0.1, help="How much to drop learning rate in multistep scheduler")
     parser.add_argument("--warmup_length", type=int, default=0, help="Warmup length for cosine annealing scheduler")
+    parser.add_argument("--cosine_tmax", type=int, default=200, help="T_max value for CosineAnnealingLR. How many epochs does it take for learning rate to go to 0 and back.")
     return parser

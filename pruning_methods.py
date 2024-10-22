@@ -53,8 +53,8 @@ class PDP(keras.layers.Layer):
             return ops.ones(weight.shape)
         weight_reshaped = ops.reshape(weight, self.softmax_shape)
         abs_weight_flat = ops.reshape(ops.abs(weight), -1)
-        Wh, _ = ops.top_k(abs_weight_flat, int((1-self.r) * ops.size(abs_weight_flat)))
-        Wt, _ = ops.top_k(-abs_weight_flat, int(self.r * ops.size(abs_weight_flat)))
+        Wh, _ = ops.top_k(abs_weight_flat, max(1, int((1-self.r) * ops.size(abs_weight_flat))))
+        Wt, _ = ops.top_k(-abs_weight_flat, max(1, int(self.r * ops.size(abs_weight_flat))))
         t = self.t * (ops.min(Wh) + ops.max(Wt)) 
 
         soft_input = ops.concatenate((t ** 2, weight_reshaped ** 2), axis=-1) / self.temp
@@ -92,20 +92,21 @@ class ContinuousSparsification(keras.layers.Layer):
         self.do_hard_mask = False
 
     def call(self, weight):
-        mask = self.get_mask(weight)
+        mask = self.get_mask()
         self.mask = mask
         return mask * weight
 
     def pre_finetune_function(self):
         self.do_hard_mask = True
     
-    def get_mask(self, weight):
-        scaling = 1. / ops.sigmoid(self.config.threshold_init)
+    def get_mask(self):
         if self.do_hard_mask:
             mask = self.get_hard_mask()
+            return mask
         else:
+            scaling = 1. / ops.sigmoid(self.config.threshold_init)
             mask = ops.sigmoid(self.beta * self.s) 
-        return mask * scaling
+            return mask * scaling
     
     def post_pre_train_function(self):
         pass
@@ -125,7 +126,7 @@ class ContinuousSparsification(keras.layers.Layer):
         self.beta = 1
 
     def calculate_additional_loss(self):
-        return 0.00000001 * ops.norm(ops.reshape(self.mask, -1), ord=1)
+        return self.config.threshold_decay * ops.norm(ops.reshape(self.mask, -1), ord=1)
     
     def get_layer_sparsity(self, weight):
         return ops.sum(self.get_hard_mask()) / ops.size(weight)

@@ -192,7 +192,7 @@ def get_splits(shape):
     return splits
 
 
-def get_layer_keep_ratio(model, ratios):
+def get_layer_keep_ratio(model):
     total_w = 0
     remaining_weights = 0
     for layer in model.modules():
@@ -200,7 +200,7 @@ def get_layer_keep_ratio(model, ratios):
                 ratio = layer.pruning_layer.get_layer_sparsity(layer.weight)
                 total_w += layer.weight.numel()
                 remaining_weights += ratio * layer.weight.numel()
-                ratios = torch.concat((ratios, torch.unsqueeze(ratio, 0)))
+    print(f"Remaining weights: {remaining_weights}/{total_w} = {remaining_weights / total_w}")
     return remaining_weights / total_w
 
 def get_model_losses(model, losses):
