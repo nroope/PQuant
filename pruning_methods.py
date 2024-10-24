@@ -53,12 +53,14 @@ class PDP(keras.layers.Layer):
             return ops.ones(weight.shape)
         weight_reshaped = ops.reshape(weight, self.softmax_shape)
         abs_weight_flat = ops.reshape(ops.abs(weight), -1)
-        Wh, _ = ops.top_k(abs_weight_flat, max(1, int((1-self.r) * ops.size(abs_weight_flat))))
-        Wt, _ = ops.top_k(-abs_weight_flat, max(1, int(self.r * ops.size(abs_weight_flat))))
-        t = self.t * (ops.min(Wh) + ops.max(Wt)) 
+        # Do top_k for all weights. Returns sorted array, just use the values on both sides of the threshold (sparsity * size(weight)) to calculate t directly
+        all, _ = ops.top_k(abs_weight_flat, ops.size(abs_weight_flat))
+        lim = max(0, int((1-self.r) * ops.size(abs_weight_flat)) - 1)
 
+        Wh = all[lim]
+        Wt = all[lim + 1]
+        t = self.t * (Wh + Wt) 
         soft_input = ops.concatenate((t ** 2, weight_reshaped ** 2), axis=-1) / self.temp
-        # Last dimension contains a single weight squared and the t-value squared, divided by temp
         softmax_result = ops.softmax(soft_input, axis=-1)
         zw, mw = ops.unstack(softmax_result, axis=-1)
         mask = ops.reshape(mw, weight.shape)

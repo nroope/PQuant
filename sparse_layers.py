@@ -150,46 +150,29 @@ def post_pretrain_functions(model, config):
 
 def pdp_setup(model, config):
     """
-    Selects bottom % weights globally. Then calculates target sparsity for each layer, which will depend on how large % of
-    that layer's weights are also in the global bottom % of weights.
+    Calculates a global sparsity threshold. Initializes target sparsity for each layer, which depends on 
+    how large percentage of weights in the layer is smaller than the global threshold
     """
-    wp = None
+    global_weights = None
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
-            if wp is None:
-                 wp = layer.weight.flatten()
+            if global_weights is None:
+                 global_weights = layer.weight.flatten()
             else:
-                wp = torch.concat((wp, layer.weight.flatten()))            
-    # Calculate smallest % of weights globally
-    wp, _ = torch.topk(-torch.abs(wp.flatten()), int((1-config.sparsity) * wp.numel()))
-    wp = torch.unique(wp)
-    wp = wp.unsqueeze(-1)
+                global_weights = torch.concat((global_weights, layer.weight.flatten()))
+
+    abs_global_weights = torch.abs(global_weights)
+    global_weight_topk, _ = torch.topk(abs_global_weights, abs_global_weights.numel())
+    threshold = global_weight_topk[int((1-config.sparsity) * global_weight_topk.numel())]
+    global_weights_below_threshold = torch.where(abs_global_weights < threshold, 1, 0)
+    
+    idx = 0
     for layer in model.modules():
-        # Calculate the % of weights in each layer that are also in the global bottom % of weights
         if isinstance(layer, (SparseLayerConv2d, SparseLayerLinear)):
-            weight = layer.weight.flatten()
-            w = torch.sum(weight.detach().cpu().apply_(lambda x: x in wp))
-            print(w/weight.numel())
-            layer.pruning_layer.init_r = w / weight.numel()
-            # Split weight tensor into smaller chunks to use less memory
-            #splits = get_splits(weight.shape[0])
-            #split_length = weight.shape[0] // splits 
-            #weight_total = 0
-            #for i in range(splits):
-            #    subset = weight[i * split_length : (i+1) * split_length]
-            #    weight_total += torch.sum(wp == subset)
-            #print(weight_total / weight.numel())
-            #layer.pruning_layer.init_r = weight_total / weight.numel() 
-
-
-def get_splits(shape):
-    splits = 1
-    max_splits = 2 ** 18
-    for i in range(1, max_splits + 1):
-        if shape % i == 0:
-              splits = i
-    print(shape, splits, shape // splits)
-    return splits
+            weight_size = layer.weight.numel()
+            w = torch.sum(global_weights_below_threshold[idx:idx+weight_size])
+            layer.pruning_layer.init_r = w / weight_size
+            idx += weight_size
 
 
 def get_layer_keep_ratio(model):
