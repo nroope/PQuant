@@ -48,6 +48,10 @@ class PDP(keras.layers.Layer):
         if not self.is_pretraining:
             self.r = ops.minimum(1., self.config.epsilon * (epoch + 1)) * self.init_r
     
+    def get_hard_mask(self, weight):
+        mask = self.get_mask(weight)
+        return (mask >= 0.5).float()
+
     def get_mask(self, weight):
         if self.is_pretraining:
             return ops.ones(weight.shape)
@@ -166,7 +170,11 @@ class AutoSparse(keras.layers.Layer):
             1 if W > 0 else alpha. Alpha is decayed after each epoch.
         """
         mask = self.get_mask(weight)
+        self.mask = ops.reshape(mask, weight.shape)
         return ops.sign(weight) * ops.reshape(mask, weight.shape)
+
+    def get_hard_mask(self, weight):
+        return self.mask
 
     def get_mask(self, weight):
         weight_reshaped = ops.reshape(weight, (weight.shape[0], -1)) 
@@ -227,12 +235,16 @@ class DST(keras.layers.Layer):
         masked_weight = weight * mask
         return masked_weight
     
+    def get_hard_mask(self, weight):
+        return self.mask
+
     def get_mask(self, weight):
         weight_orig_shape = weight.shape
         weights_reshaped = ops.reshape(weight, (weight.shape[0], -1))
         pre_binarystep_weights = ops.abs(weights_reshaped) - self.threshold
         mask = binary_step(pre_binarystep_weights)
         mask = ops.reshape(mask, weight_orig_shape)
+        self.mask = mask
         return mask
 
     def pre_epoch_function(self, epoch, total_epochs):

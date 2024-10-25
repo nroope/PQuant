@@ -7,7 +7,7 @@ import tqdm
 
 from sparse_layers import  get_layer_keep_ratio, get_model_losses, add_pruning_to_model, \
 post_epoch_functions, post_round_functions, save_weights_functions, rewind_weights_functions, \
-pre_finetune_functions, post_pretrain_functions, pre_epoch_functions
+pre_finetune_functions, post_pretrain_functions, pre_epoch_functions, remove_pruning_from_model
 from utils import get_scheduler, get_optimizer
 from parser import get_parser
 from data import get_cifar10_data
@@ -24,7 +24,7 @@ def call_post_round_functions(model, config, round):
             post_round_functions(model)
 
 
-def test(model, testloader, device, epoch):
+def test(model, testloader, device):
     correct = 0
     total = 0
     with torch.no_grad():
@@ -53,6 +53,7 @@ def iterative_train(model, config, trainloader, testloader, device, criterion=No
     if config.fine_tune:
         pre_finetune_functions(model)
         train(model, config, trainloader, testloader, device, criterion, config.rounds)
+    return model
 
 def train(model, config, trainloader, testloader, device, criterion=None, round=0):
     optimizer = get_optimizer(config, model)
@@ -79,7 +80,7 @@ def train(model, config, trainloader, testloader, device, criterion=None, round=
             optimizer.step()
         if scheduler is not None:
             scheduler.step()
-        test(model, testloader, device, epoch)
+        test(model, testloader, device)
         post_epoch_functions(model, epoch, config.epochs)
     print('Finished Training')
     return model
@@ -96,4 +97,10 @@ if __name__ == "__main__":
     summary(sparse_model, (3,32,32), device=device)
     trainloader, testloader = get_cifar10_data(config.batch_size)
     trained_sparse_model = iterative_train(sparse_model, config, trainloader, testloader, device)
+    trained_model = remove_pruning_from_model(sparse_model, config)
+    summary(trained_model, (3,32,32))
+    #torch.save(trained_model.state_dict(), "test_model.pt")
+    #torch.save(trained_model, "test_model_full.pth")
+    print("TESTING FINAL MODEL")
+    test(trained_model, testloader, device)
 
