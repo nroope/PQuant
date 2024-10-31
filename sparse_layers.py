@@ -54,36 +54,31 @@ class SparseLayerConv2d(nn.Module):
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
-##################################### KERAS WIP #####################################
-class SparseLayerLinearKeras(keras.layers.Layer):
+class SparseLayerConv1d(nn.Module):
     def __init__(self, config, layer):
-        super(SparseLayerLinearKeras, self).__init__()
-        self.layer = layer
-        self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
-        self.weight = self.add_weight(shape=(layer.weight.shape), trainable=True)
-        self.bias = self.add_weight(shape=layer.bias.shape) if layer.bias is not None else None
-
-    def call(self, x):
-        masked_weight = self.pruning_layer(self.weight)
-        return F.linear(x, masked_weight, self.bias)
-
-
-class SparseLayerConv2dKeras(keras.layers.Layer):
-    def __init__(self, config, layer):
-        super(SparseLayerConv2dKeras, self).__init__()
+        super(SparseLayerConv1d, self).__init__()
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
-        self.weight = self.add_weight(shape = layer.weight.shape, trainable=True)
-        self.bias = self.add_weight(shape=layer.bias.shape) if layer.bias is not None else None
+        self.weight = nn.Parameter(layer.weight.clone())
+        self.init_weight = self.weight.clone()
+        self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.stride = layer.stride
         self.dilation = layer.dilation
         self.padding = layer.padding
         self.groups = layer.groups
+        self.in_channels = layer.in_channels
+        self.out_channels = layer.out_channels
+        self.kernel_size = layer.kernel_size
+        self.padding_mode = layer.padding_mode
 
-    def call(self, x):
+    def save_weights(self):
+        self.init_weight = self.weight.clone()
+    def rewind_weights(self):
+        self.weight.data = self.init_weight.clone()
+
+    def forward(self, x):
         masked_weight = self.pruning_layer(self.weight)
-        return F.conv2d(input=x, weight = masked_weight, bias=self.bias, stride=self.stride, 
+        return F.conv1d(input=x, weight=masked_weight, bias=self.bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
-#####################################################################################
 
 
 class SingleLinearLayer(nn.Module):
@@ -113,6 +108,8 @@ def add_pruning_to_model(module, config):
             setattr(module, name, SparseLayerLinear(config, layer))
         elif isinstance(layer, nn.Conv2d):
             setattr(module, name, SparseLayerConv2d(config, layer))
+        elif isinstance(layer, nn.Conv1d):
+            setattr(module, name, SparseLayerConv1d(config, layer))
         add_pruning_to_model(layer, config)
     return module
 

@@ -59,7 +59,7 @@ class PDP(keras.layers.Layer):
         abs_weight_flat = ops.reshape(ops.abs(weight), -1)
         # Do top_k for all weights. Returns sorted array, just use the values on both sides of the threshold (sparsity * size(weight)) to calculate t directly
         all, _ = ops.top_k(abs_weight_flat, ops.size(abs_weight_flat))
-        lim = max(0, int((1-self.r) * ops.size(abs_weight_flat)) - 1)
+        lim = ops.clip(int((1-self.r) * ops.size(abs_weight_flat)), 0, ops.size(abs_weight_flat) -2)
 
         Wh = all[lim]
         Wt = all[lim + 1]
@@ -89,7 +89,7 @@ class ContinuousSparsification(keras.layers.Layer):
     def __init__(self, config, layer, out_size, *args, **kwargs):
         super(ContinuousSparsification, self).__init__(*args, **kwargs)
         self.config = config
-        self.beta = config.beta
+        self.beta = 1
         self.s = self.add_weight(name="threshold", shape=layer.weight.shape, initializer="ones")
         self.s.assign(config.threshold_init * self.s)
         self.s_init = config.threshold_init
@@ -161,7 +161,7 @@ class AutoSparse(keras.layers.Layer):
         self.threshold = self.add_weight(name="threshold", shape=threshold_size, initializer="ones", trainable=True)
         self.threshold.assign(config.threshold_init * self.threshold)
         self.alpha = ops.convert_to_tensor(config.alpha, dtype="float32")
-        self.g = ops.sigmoid if config.g == "sigmoid" else lambda x:x
+        self.g = ops.sigmoid
         self.config = config
 
     def call(self, weight):
