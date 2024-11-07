@@ -138,6 +138,8 @@ class ContinuousSparsification(keras.layers.Layer):
         return ops.sum(self.get_hard_mask()) / ops.size(weight)
 
 
+BACKWARD_SPARSITY = False
+
 @ops.custom_gradient
 def autosparse_prune(x, alpha):
     mask = ops.relu(x)
@@ -150,7 +152,8 @@ def autosparse_prune(x, alpha):
         if upstream is None:
             (upstream,) = args
         grads = ops.where(x <= 0, alpha, 1.0)
-        grads = ops.where(x < kth_value, 0., grads)
+        if BACKWARD_SPARSITY:
+            grads = ops.where(x < kth_value, 0., grads)
         return grads * upstream, None
     return mask, grad
 
@@ -163,6 +166,8 @@ class AutoSparse(keras.layers.Layer):
         self.alpha = ops.convert_to_tensor(config.alpha, dtype="float32")
         self.g = ops.sigmoid
         self.config = config
+        global BACKWARD_SPARSITY
+        BACKWARD_SPARSITY = config.backward_sparsity
 
     def call(self, weight):
         """
@@ -192,11 +197,16 @@ class AutoSparse(keras.layers.Layer):
     def calculate_additional_loss(*args, **kwargs):
         return 0
     
-    def post_epoch_function(self, epoch, total_epochs, *args, **kwargs):
+    def post_epoch_function(self, epoch, total_epochs, alpha_multiplier, autotune_epochs=0, writer=None, global_step=0):
         # Decay alpha
-        self.alpha *= cosine_sigmoid_decay(epoch, total_epochs)
+        if epoch >= autotune_epochs:
+            self.alpha *= cosine_sigmoid_decay(epoch - autotune_epochs, total_epochs)
+        else:
+            self.alpha *= alpha_multiplier
         if epoch == self.config.alpha_reset_epoch:
             self.alpha *= 0.
+        if writer is not None:
+            writer.write_scalars([(f"Autosparse_alpha", self.alpha, global_step)])
 
 
 @ops.custom_gradient

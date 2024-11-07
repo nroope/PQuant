@@ -4,17 +4,18 @@ import torch.nn as nn
 import torch
 import torchvision
 import tqdm
-
+import numpy as np
+from argparse import Namespace
 from sparse_layers import  get_layer_keep_ratio, get_model_losses, add_pruning_to_model, \
 post_epoch_functions, post_round_functions, save_weights_functions, rewind_weights_functions, \
 pre_finetune_functions, post_pretrain_functions, pre_epoch_functions, remove_pruning_from_model
 from utils import get_scheduler, get_optimizer
-from parser import get_parser
+from parser import parse_cmdline_args, write_config_to_yaml
 from data import get_cifar10_data
-from torch.utils.tensorboard import SummaryWriter
+from weaver.train import train_load, model_setup
+from weaver.utils.nn.tools import train_classification, evaluate_classification, TensorboardHelper
 import keras_core as keras
 keras.backend.set_image_data_format('channels_first')
-
 
 
 def get_model(config, device):
@@ -36,13 +37,13 @@ def call_post_round_functions(model, config, round):
             post_round_functions(model)
 
 
-def plot_training_loss(loss, losses, config, global_step):
+def plot_training_loss(loss, losses, config, global_step, writer):
     if global_step % config.plot_frequency == 0:
-        writer.add_scalar(f"train_output_loss", loss.item(), global_step)
-        writer.add_scalar(f"train_sparse_loss", losses, global_step)
+        writer.write_scalars([(f"train_output_loss", loss.item(), global_step)])
+        writer.write_scalars([(f"train_sparse_loss", losses, global_step)])
 
 
-def validation(model, testloader, device, criterion, global_step):
+def validation(model, testloader, device, criterion, global_step, writer):
     correct = 0
     total = 0
     with torch.no_grad():
@@ -57,38 +58,81 @@ def validation(model, testloader, device, criterion, global_step):
             correct += (predicted == labels).sum().item()
         print(f'Accuracy of the network on the 10000 test images: {100 * correct / total} %')
         ratio = get_layer_keep_ratio(model)
-        writer.add_scalar(f"validation_output_loss", loss.item(), global_step)
-        writer.add_scalar(f"validation_sparse_loss", losses, global_step)
-        writer.add_scalar(f"validation_acc", correct / total, global_step)
-        writer.add_scalar(f"validation_remaining_weights", ratio, global_step)
+        writer.write_scalars([(f"validation_output_loss", loss.item(), global_step)])
+        writer.write_scalars([(f"validation_sparse_loss", losses, global_step)])
+        writer.write_scalars([(f"validation_acc", correct / total, global_step)])
+        writer.write_scalars([(f"validation_remaining_weights", ratio, global_step)])
 
 
-def iterative_train(model, config, trainloader, testloader, device, criterion, writer):
+# Built on top of weaver training loop
+def iterative_train_parT(model, config, output_dir, trainloader, testloader, device, loss_func, writer):
+    if type(config) is dict:
+        config = Namespace(**config)
     global_step = torch.tensor(0)
     if config.pretraining_epochs:
         epochs = config.epochs
         config.epochs = config.pretraining_epochs
-        train(model, config, trainloader, testloader, device, criterion, -1, writer, global_step)
+        optimizer = get_optimizer(config, model)
+        scheduler = get_scheduler(optimizer, config)
+        for epoch in range(config.epochs):  
+            pre_epoch_functions(model, epoch, config.epochs)
+            train_classification(model, loss_func, optimizer, scheduler, trainloader, device, 0, config.steps_per_epoch, None, writer)
         config.epochs = epochs
         post_pretrain_functions(model, config)
         print('Pretraining finished')
-
     for r in range(config.rounds):
-        train(model, config, trainloader, testloader, device, criterion, r, writer, global_step)
+        optimizer = get_optimizer(config, model)
+        scheduler = get_scheduler(optimizer, config)
+        for epoch in range(config.epochs):
+            if round == 0 and config.save_weights_epoch == epoch:
+                save_weights_functions(model)   
+            pre_epoch_functions(model, epoch, config.epochs) 
+            train_classification(model, loss_func, optimizer, scheduler , trainloader, device, epoch, config.steps_per_epoch, None, writer)
+            evaluate_classification(model, testloader, device, epoch, True, loss_func, config.steps_per_epoch_val, tb_helper=writer)
+            post_epoch_functions(model, epoch, config.epochs)
+            ratio = get_layer_keep_ratio(model)
+            print("RATIO", ratio)
+            writer.write_scalars([("Validation_remaining_weights", ratio,  r + epoch)])
+        torch.save(model.state_dict(), f"pre_post_round_{r}.pt")
         call_post_round_functions(model, config, r)
     print("Training finished")
     if config.fine_tune:
-        global_step = torch.tensor(0)
         pre_finetune_functions(model)
-        train(model, config, trainloader, testloader, device, criterion, config.rounds, writer, global_step)
+        scheduler = get_scheduler(optimizer, config)
+        for epoch in range(config.epochs):    
+            pre_epoch_functions(model, epoch, config.epochs)
+            train_classification(model, loss_func, optimizer, scheduler, trainloader, device, 0, config.steps_per_epoch, None, writer)
+    print("Fine-tuning finished")
+    return model
+
+
+def iterative_train(model, config, trainloader, testloader, device, loss_func, writer):
+    if type(config) is dict:
+        config = Namespace(**config)
+    global_step = torch.tensor(0)
+    if config.pretraining_epochs:
+        epochs = config.epochs
+        config.epochs = config.pretraining_epochs
+        train(model, config, trainloader, testloader, device, loss_func, -1, writer, global_step)
+        config.epochs = epochs
+        post_pretrain_functions(model, config)
+        print('Pretraining finished')
+    for r in range(config.rounds):
+        train(model, config, trainloader, testloader, device, loss_func, r, writer, global_step)
+        call_post_round_functions(model, config, r)
+        torch.save(model.state_dict(), f"{writer.writer.get_logdir()}/model_round_{r}.pt")
+    print("Training finished")
+    if config.fine_tune:
+        pre_finetune_functions(model)
+        train(model, config, trainloader, testloader, device, loss_func, config.rounds, writer, global_step)
         print("Fine-tuning finished")
     return model
 
 
-def train(model, config, trainloader, testloader, device, criterion, round, writer, global_step):
+def train(model, config, trainloader, testloader, device, loss_func, round, writer, global_step):
     optimizer = get_optimizer(config, model)
     scheduler = get_scheduler(optimizer, config)
-    for epoch in range(config.epochs):  # loop over the dataset multiple times
+    for epoch in range(config.epochs):
         pre_epoch_functions(model, epoch, config.epochs)
         if round == 0 and config.save_weights_epoch == epoch:
             save_weights_functions(model)
@@ -97,9 +141,9 @@ def train(model, config, trainloader, testloader, device, criterion, round, writ
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            loss = loss_func(outputs, labels)
             losses = get_model_losses(model, torch.tensor(0.).to(device))
-            plot_training_loss(loss, losses, config, global_step)
+            plot_training_loss(loss, losses, config, global_step, writer)
             loss += losses
             loss.backward()
             optimizer.step()
@@ -108,31 +152,109 @@ def train(model, config, trainloader, testloader, device, criterion, round, writ
         if scheduler is not None:
             scheduler.step()
 
-        validation(model, testloader, device, criterion, global_step)
+        validation(model, testloader, device, loss_func, global_step, writer)
         post_epoch_functions(model, epoch, config.epochs)
     return model
 
 
-if __name__ == "__main__":
-    parser = get_parser()
-    config = parser.parse_args()
+def autosparse_autotune(model, sparse_model, config, trainloader, testloader, device, loss_func, writer):
+    # WIP AutoSparse alpha-autotuning training
+    optimizer = get_optimizer(config, model)
+    scheduler = get_scheduler(optimizer, config)
+    if type(config) is dict:
+        config = Namespace(**config)
+    global_step = torch.tensor(0)
+    dense_losses = []
+    autotune_epochs = config.autotune_epochs
+    print("TRAINING DENSE")
+    for epoch in range(autotune_epochs): 
+        dense_losses_avg = []
+        pre_epoch_functions(model, epoch, config.epochs)
+        for data in tqdm.tqdm(trainloader):
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = loss_func(outputs, labels)
+            dense_losses_avg.append(loss.item())
+            plot_training_loss(loss, 0., config, global_step, writer)
+            loss.backward()
+            optimizer.step()
+            global_step += 1
+        dense_losses.append(np.mean(dense_losses_avg))
+    optimizer = get_optimizer(config, sparse_model)
+    scheduler = get_scheduler(optimizer, config)
+    print("TRAINING SPARSE")
+    for epoch in range(config.epochs):
+        outputs_avg = []
+        for data in tqdm.tqdm(trainloader):
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = sparse_model(inputs)
+            loss = loss_func(outputs, labels)
+            losses = get_model_losses(sparse_model, torch.tensor(0.).to(device))
+            plot_training_loss(loss, losses, config, global_step, writer)
+            loss += losses
+            outputs_avg.append(loss.item())
+            loss.backward()
+            optimizer.step()
+            global_step += 1
+
+        if scheduler is not None:
+            scheduler.step()
+        validation(sparse_model, testloader, device, loss_func, global_step, writer)
+        loss_avg = np.mean(outputs_avg)
+        alpha_multiplier = 1.
+        if epoch < autotune_epochs: 
+                dense_loss = float(dense_losses[epoch]) 
+                eps_0 = 0.01 
+                eps_1 = 0.05 
+                eps_2 = 0.005 
+                if loss_avg > dense_loss * (1.0 + eps_0): 
+                    alpha_multiplier = 1.0 + eps_1
+                else: 
+                    alpha_multiplier = 1.0 - eps_2
+        post_epoch_functions(sparse_model, epoch, config.epochs, alpha_multiplier=alpha_multiplier, autotune_epochs=autotune_epochs, writer=writer, global_step=global_step)
+
+
+def get_model_data_loss_func(config, device):
+    if config.dataset == "cifar10":
+        train_loader, val_loader = get_cifar10_data(config.batch_size)
+    else:
+        train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(config)
+    if config.model == "parT":
+        model, model_info, loss_func = model_setup(config, data_config, device=device)
+    else:
+        model = get_model(config, device)   
+        loss_func = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
+    return model, train_loader, val_loader, loss_func
+
+def main(config):
+    if type(config) is dict:
+        config = Namespace(**config)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     comment = f"_{config.model}_{config.pruning_method}"
-    writer = SummaryWriter(comment=comment)
-    output_dir = writer.get_logdir()
-    model = get_model(config, device)
-    
-    sparse_model = add_pruning_to_model(model, config)
+    writer = TensorboardHelper(tb_comment=comment, tb_custom_fn=None)
+    output_dir = writer.writer.get_logdir()
+    write_config_to_yaml(config, output_dir)
+
+    sparse_model, train_loader, val_loader, loss_func = get_model_data_loss_func(config, device)
+    if config.do_pruning:
+        sparse_model = add_pruning_to_model(sparse_model, config)
     sparse_model = sparse_model.to(device)
-    from torchsummary import summary
-    summary(sparse_model, (3,32,32), device=device)
-    trainloader, testloader = get_cifar10_data(config.batch_size)
-    criterion = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
-
-    trained_sparse_model = iterative_train(sparse_model, config, trainloader, testloader, device, criterion, writer)
-    trained_model = remove_pruning_from_model(sparse_model, config)
-    summary(trained_model, (3,32,32))
-    #torch.save(trained_model.state_dict(), "test_model.pt")
-    torch.save(trained_model, f"{output_dir}/model.pth")
+    if config.model == "parT":
+        trained_sparse_model = iterative_train_parT(sparse_model, config, output_dir, train_loader, val_loader, device, loss_func, writer)
+    elif config.pruning_method == "autosparse": # WIP, use only for resnets
+        model = get_model(config, device)
+        trained_sparse_model = autosparse_autotune(model, sparse_model, config, train_loader, val_loader, device, loss_func, writer)
+    else:
+        trained_sparse_model = iterative_train(sparse_model, config, train_loader, val_loader, device, loss_func, writer)
+    sparse_model = remove_pruning_from_model(trained_sparse_model, config)
+    torch.save(sparse_model.state_dict(), f"{output_dir}/final_model.pt")
     
 
+if __name__ == "__main__":
+    config = parse_cmdline_args()
+    main(config)
+    

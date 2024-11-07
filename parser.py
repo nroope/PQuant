@@ -1,4 +1,7 @@
-from argparse import ArgumentParser, ArgumentTypeError
+from argparse import ArgumentParser, Namespace, ArgumentTypeError
+import yaml
+import os
+
 
 def str2bool(w):
     if w.lower() in ['true', 'y', 'yes']:
@@ -8,36 +11,36 @@ def str2bool(w):
     else:
         raise ArgumentTypeError('Boolean value expected.')
 
-def get_parser():
+def parse_cmdline_args(args=None):
     parser = ArgumentParser()
-    parser.add_argument("--pruning_method", type=str, default="dst", help="Which pruning method to use. DST | AutoSparse | STR.")
-    parser.add_argument("--max_pruning_pct", type=float, default=0.99, help="Maximum pruning percentage for DST pruning method")
-    parser.add_argument("--alpha", type=float, default=0.3, help="Value for alpha-hyperparameter used in AutoSparse and DST pruning methods.")
-    parser.add_argument("--beta", type=float, default=0.3, help="Value for beta-hyperparameter used in CS pruning method.")
-    parser.add_argument("--threshold_type", type=str, default="channelwise", help="For threshold based pruning, defines whether pruning is done layerwise, channel/neuronwise, or weightwise")
-    parser.add_argument("--threshold_init", type=float, default=1, help="Initial value for thresholds")
-    parser.add_argument("--sparsity", type=float, default=0.8, help="Target sparsity for a model")
-    parser.add_argument("--temperature", type=float, default=1., help="Temperature parameter for softmax function")
-    parser.add_argument("--l2_decay", type=float, default=0.001, help="l2 regularization weight-decay value")
-    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate used during training")
-    parser.add_argument("--momentum", type=float, default=0.9, help="Momentum for SGD optimizer")
-    parser.add_argument("--epochs", type=int, default=100, help="Training epochs")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size used during training and validation")
-    parser.add_argument("--final_temp", type=float, help="Target temperature in CS")
-    parser.add_argument("--rounds", type=int, default=1, help="Number of rounds in iterative pruning")
-    parser.add_argument("--save_weights_epoch", type=int, default=-1, help="When to save weights. Weights are rewinded in CS to these weights.")
-    parser.add_argument("--rewind", type=str, choices=("round", "post-ticket-search", "never"), default="never", help="Whether to do weight rewind after each round, post-ticket search, or never.")
-    parser.add_argument("--fine_tune", type=str2bool, default=False, help="Whether to fine tune after training loop or not.")
-    parser.add_argument("--epsilon", type=float, default=0.015, help="Used in PDP to scale layer pruning ratios")
-    parser.add_argument("--pretraining_epochs", default=0, type=int, help="Number of pretraining epochs")
-    parser.add_argument("--alpha_reset_epoch", type=int, default=-1, help="When to reset alpha parameter in AutoSparse")
-    parser.add_argument("--label_smoothing", type=float, default=0, help="Label smoothing value for cross entropy loss")
-    parser.add_argument("--threshold_decay", type=float, help="Decay value for learnable threshold")
-    parser.add_argument("--optimizer", type=str, default="sgd")
-    parser.add_argument("--lr_schedule", type=str, default=None, help="Learning rate schedule policy")
-    parser.add_argument("--milestones", type=int, nargs="+", help="When to drop learning rate in multistep scheduler")
-    parser.add_argument("--gamma", type=float, default=0.1, help="How much to drop learning rate in multistep scheduler")
-    parser.add_argument("--cosine_tmax", type=int, default=200, help="T_max value for CosineAnnealingLR. How many epochs does it take for learning rate to go to 0 and back.")
-    parser.add_argument("--plot_frequency", type=int, default=100)
-    parser.add_argument("--model", type=str, help="Which model to use. resnet18 | resnet34 | resnet50 | vgg16")
-    return parser
+    parser.add_argument("--dataset", default=None, help="If not using data from config, use this dataset")
+    parser.add_argument("--model_config_path", default=None, help="If not None, use model defined by the given config file.")
+    parser.add_argument("--model", default="resnet18", help="If not using model from config, use this model.")
+    parser.add_argument("--pruning_config_path", type=str, default=None, help="Path to pruning config file")
+    parser.add_argument("--do_pruning", type=str2bool, default=True)
+    config = parser.parse_args(args=args).__dict__
+    config = config | get_model_config(config)
+    config = config | get_pruning_config(config)
+    config = Namespace(**config)
+    return config
+
+def write_config_to_yaml(config, output_dir):
+    with open(f"{output_dir}/config.yaml", "w") as f:
+        yaml.dump(config.__dict__, f)
+
+def get_pruning_config(config):    
+    with open(config["pruning_config_path"], "r") as f:
+        pruning_config = yaml.safe_load(f)
+        if config["do_pruning"]:
+            training_pruning_params = pruning_config["pruning_parameters"] | pruning_config["training_parameters"]
+        else:
+            training_pruning_params = pruning_config["training_parameters"] | {"pruning_method": "no_pruning"}
+        return training_pruning_params
+
+def get_model_config(config):
+    if config["model_config_path"] is not None:
+        with open(config["model_config_path"], "r") as f:
+            model_config = yaml.safe_load(f)
+            model_config["local_rank"] = None if model_config["backend"] is None else int(os.environ.get("LOCAL_RANK", "0"))
+            return model_config
+    return {}
