@@ -77,6 +77,7 @@ def iterative_train_parT(model, config, output_dir, trainloader, testloader, dev
         for epoch in range(config.epochs):  
             pre_epoch_functions(model, epoch, config.epochs)
             train_classification(model, loss_func, optimizer, scheduler, trainloader, device, 0, config.steps_per_epoch, None, writer)
+            global_step += 1
         config.epochs = epochs
         post_pretrain_functions(model, config)
         print('Pretraining finished')
@@ -84,16 +85,16 @@ def iterative_train_parT(model, config, output_dir, trainloader, testloader, dev
         optimizer = get_optimizer(config, model)
         scheduler = get_scheduler(optimizer, config)
         for epoch in range(config.epochs):
-            if round == 0 and config.save_weights_epoch == epoch:
+            if r == 0 and config.save_weights_epoch == epoch:
                 save_weights_functions(model)   
             pre_epoch_functions(model, epoch, config.epochs) 
-            train_classification(model, loss_func, optimizer, scheduler , trainloader, device, epoch, config.steps_per_epoch, None, writer)
-            evaluate_classification(model, testloader, device, epoch, True, loss_func, config.steps_per_epoch_val, tb_helper=writer)
+            train_classification(model, loss_func, optimizer, scheduler , trainloader, device, global_step, config.steps_per_epoch, None, writer)
+            evaluate_classification(model, testloader, device, global_step, True, loss_func, config.steps_per_epoch_val, tb_helper=writer)
             post_epoch_functions(model, epoch, config.epochs)
             ratio = get_layer_keep_ratio(model)
-            print("RATIO", ratio)
-            writer.write_scalars([("Validation_remaining_weights", ratio,  r + epoch)])
-        torch.save(model.state_dict(), f"pre_post_round_{r}.pt")
+            writer.write_scalars([("validation_remaining_weights", ratio,  global_step)])
+            global_step += 1
+        torch.save(model.state_dict(), f"{output_dir}/pre_post_round_{r}.pt")
         call_post_round_functions(model, config, r)
     print("Training finished")
     if config.fine_tune:
@@ -101,7 +102,9 @@ def iterative_train_parT(model, config, output_dir, trainloader, testloader, dev
         scheduler = get_scheduler(optimizer, config)
         for epoch in range(config.epochs):    
             pre_epoch_functions(model, epoch, config.epochs)
-            train_classification(model, loss_func, optimizer, scheduler, trainloader, device, 0, config.steps_per_epoch, None, writer)
+            train_classification(model, loss_func, optimizer, scheduler, trainloader, device, global_step, config.steps_per_epoch, None, writer)
+            evaluate_classification(model, testloader, device, global_step, True, loss_func, config.steps_per_epoch_val, tb_helper=writer)
+            global_step += 1
     print("Fine-tuning finished")
     return model
 
@@ -257,4 +260,5 @@ def main(config):
 if __name__ == "__main__":
     config = parse_cmdline_args()
     main(config)
+
     
