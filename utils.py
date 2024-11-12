@@ -5,7 +5,7 @@ import yaml
 import os
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingLR
 from argparse import Namespace
-
+from p_optim import pAdam, pSGD
 pi = ops.convert_to_tensor(np.pi)
 L0 = ops.convert_to_tensor(-6.0)
 L1 = ops.convert_to_tensor(6.0)
@@ -52,6 +52,28 @@ def get_optimizer(config, model):
             weight_decay=config.l2_decay)
     elif config.optimizer == "adam":
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr)
+
+    elif config.optimizer == "psgd":
+        # CS already has L1-regularization for threshold parameters
+        threshold_decay = 0 if config.pruning_method == "cs" else config.threshold_decay 
+    
+        parameters = list(model.named_parameters())
+        threshold_params = [v for n, v in parameters if "threshold" in n and v.requires_grad]
+        rest_params = [v for n, v in parameters if "threshold" not in n and v.requires_grad]
+        optimizer = pSGD(
+            [{
+                "params": threshold_params,
+            },
+            {   "params": rest_params, 
+            },
+            ],
+            config.lr,
+            momentum=config.momentum,
+            lambda_p=config.lambda_p,
+            p_norm=config.pnorm,
+            weight_decay=config.l2_decay)
+    elif config.optimizer == "padam":
+        optimizer = pAdam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr)
     return optimizer
 
 def get_scheduler(optimizer, config):

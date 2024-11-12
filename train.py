@@ -51,17 +51,19 @@ def validation(model, testloader, device, criterion, global_step, writer):
             images, labels = data
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
-            loss = criterion(outputs, labels)
-            losses = get_model_losses(model, torch.tensor(0.).to(device))
+            if criterion is not None:
+                loss = criterion(outputs, labels)
+                losses = get_model_losses(model, torch.tensor(0.).to(device))
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
         print(f'Accuracy of the network on the 10000 test images: {100 * correct / total} %')
         ratio = get_layer_keep_ratio(model)
-        writer.write_scalars([(f"validation_output_loss", loss.item(), global_step)])
-        writer.write_scalars([(f"validation_sparse_loss", losses, global_step)])
-        writer.write_scalars([(f"validation_acc", correct / total, global_step)])
-        writer.write_scalars([(f"validation_remaining_weights", ratio, global_step)])
+        if writer is not None:
+            writer.write_scalars([(f"validation_output_loss", loss.item(), global_step)])
+            writer.write_scalars([(f"validation_sparse_loss", losses, global_step)])
+            writer.write_scalars([(f"validation_acc", correct / total, global_step)])
+            writer.write_scalars([(f"validation_remaining_weights", ratio, global_step)])
 
 
 # Built on top of weaver training loop
@@ -219,6 +221,7 @@ def autosparse_autotune(model, sparse_model, config, trainloader, testloader, de
                 else: 
                     alpha_multiplier = 1.0 - eps_2
         post_epoch_functions(sparse_model, epoch, config.epochs, alpha_multiplier=alpha_multiplier, autotune_epochs=autotune_epochs, writer=writer, global_step=global_step)
+    return sparse_model
 
 
 def get_model_data_loss_func(config, device):

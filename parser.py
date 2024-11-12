@@ -18,7 +18,10 @@ def parse_cmdline_args(args=None):
     parser.add_argument("--model", default="resnet18", help="If not using model from config, use this model.")
     parser.add_argument("--pruning_config_path", type=str, default=None, help="Path to pruning config file")
     parser.add_argument("--do_pruning", type=str2bool, default=True)
+    parser.add_argument("--validation_config_folder", type=str, default=None)
     config = parser.parse_args(args=args).__dict__
+    if config["validation_config_folder"] is not None: # Use validation config instead
+        return read_config_yaml(config)
     config = config | get_model_config(config)
     config = config | get_pruning_config(config)
     config = Namespace(**config)
@@ -27,6 +30,13 @@ def parse_cmdline_args(args=None):
 def write_config_to_yaml(config, output_dir):
     with open(f"{output_dir}/config.yaml", "w") as f:
         yaml.dump(config.__dict__, f)
+
+def read_config_yaml(config):
+    path = f"{config["validation_config_folder"]}/config.yaml"
+    with open(path, "r") as f:
+        val_config = yaml.safe_load(f)
+        val_config["validation_config_folder"] = config["validation_config_folder"]
+        return Namespace(**val_config)
 
 def get_pruning_config(config):    
     with open(config["pruning_config_path"], "r") as f:
