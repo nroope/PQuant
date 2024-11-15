@@ -15,6 +15,7 @@ class SparseLayerLinear(nn.Module):
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
         self.weight = nn.Parameter(layer.weight.clone())
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
+        self.init_weight = self.weight.clone()
 
     def save_weights(self):
         self.init_weight = self.weight.clone()

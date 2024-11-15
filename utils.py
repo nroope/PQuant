@@ -48,8 +48,7 @@ def get_optimizer(config, model):
             },
             ],
             config.lr,
-            momentum=config.momentum,
-            weight_decay=config.l2_decay)
+            momentum=config.momentum)
     elif config.optimizer == "adam":
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr)
 

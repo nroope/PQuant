@@ -8,11 +8,9 @@ import torch
 
 def validate(config, device):
     model, _, val_loader, _ = get_model_data_loss_func(config, device)
-    model.load_state_dict(torch.load(f"{config.validation_config_folder}/final_model.pt"))
-    model = model.to(device)
     start = datetime.now()
     if config.model == "parT":
-        evaluate_classification(model, val_loader, device, 0, False, None, 100000, tb_helper=None)
+        evaluate_classification(model, val_loader, device, 0, False, None, 1000, tb_helper=None)
     else:
         validation(model, val_loader, device, None, 0, None)
     end = datetime.now()

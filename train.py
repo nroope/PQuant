@@ -2,7 +2,6 @@ import os
 os.environ["KERAS_BACKEND"] = "torch"
 import torch.nn as nn
 import torch
-import torchvision
 import tqdm
 import numpy as np
 from argparse import Namespace
@@ -11,22 +10,46 @@ post_epoch_functions, post_round_functions, save_weights_functions, rewind_weigh
 pre_finetune_functions, post_pretrain_functions, pre_epoch_functions, remove_pruning_from_model
 from utils import get_scheduler, get_optimizer
 from parser import parse_cmdline_args, write_config_to_yaml
-from data import get_cifar10_data
+from data import get_cifar10_data, get_imagenet_data
 from weaver.train import train_load, model_setup
 from weaver.utils.nn.tools import train_classification, evaluate_classification, TensorboardHelper
 import keras_core as keras
 keras.backend.set_image_data_format('channels_first')
+from torchinfo import summary
+from resnet_cifar import resnet20, resnet32, resnet44, resnet56, resnet110, resnet1202
+from torchvision.models import resnet18, resnet34, resnet50, resnet101, resnet152, vgg16
 
+def get_resnet_model(config, device):
+    if config.dataset == "imagenet":
+        if config.model == "resnet18":
+            model = resnet18().to(device)
+        elif config.model == "resnet34":
+            model = resnet34().to(device)
+        elif config.model == "resnet50":
+            model = resnet50().to(device)
+        elif config.model == "resnet101":
+            model = resnet101().to(device)
+        elif config.model == "resnet152":
+            model = resnet152().to(device)
+        elif config.model == "vgg16":
+            model = vgg16().to(device)
+        summary(model, (1,3,224,224))
+    elif config.dataset == "cifar10":
+        if config.model == "resnet20":
+            model = resnet20().to(device)
+        elif config.model == "resnet32":
+            model = resnet32().to(device)
+        elif config.model == "resnet44":
+            model = resnet44().to(device)
+        elif config.model == "resnet56":
+            model = resnet56().to(device)
+        elif config.model == "resnet110":
+            model = resnet110().to(device)
+        elif config.model == "resnet1202":
+            model = resnet1202().to(device)
+        summary(model, (1,3,32,32))
 
-def get_model(config, device):
-    if config.model == "resnet18":
-        return torchvision.models.resnet18().to(device)
-    elif config.model == "resnet34":
-        return torchvision.models.resnet34().to(device)
-    elif config.model == "resnet50":
-        return torchvision.models.resnet50().to(device)
-    elif config.model == "vgg16":
-        return torchvision.models.vgg16().to(device)
+    return model
 
 def call_post_round_functions(model, config, round):
         if config.rewind == "round":
@@ -133,13 +156,12 @@ def iterative_train(model, config, trainloader, testloader, device, loss_func, w
         print("Fine-tuning finished")
     return model
 
-
-def train(model, config, trainloader, testloader, device, loss_func, round, writer, global_step):
+def train(model, config, trainloader, testloader, device, loss_func, r, writer, global_step):
     optimizer = get_optimizer(config, model)
     scheduler = get_scheduler(optimizer, config)
     for epoch in range(config.epochs):
         pre_epoch_functions(model, epoch, config.epochs)
-        if round == 0 and config.save_weights_epoch == epoch:
+        if r == 0 and config.save_weights_epoch == epoch:
             save_weights_functions(model)
         for data in tqdm.tqdm(trainloader):
             inputs, labels = data
@@ -227,12 +249,14 @@ def autosparse_autotune(model, sparse_model, config, trainloader, testloader, de
 def get_model_data_loss_func(config, device):
     if config.dataset == "cifar10":
         train_loader, val_loader = get_cifar10_data(config.batch_size)
+    elif config.dataset == "imagenet":
+        train_loader, val_loader = get_imagenet_data(config)
     else:
         train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(config)
     if config.model == "parT":
         model, model_info, loss_func = model_setup(config, data_config, device=device)
     else:
-        model = get_model(config, device)   
+        model = get_resnet_model(config, device)   
         loss_func = nn.CrossEntropyLoss(label_smoothing=config.label_smoothing)
     return model, train_loader, val_loader, loss_func
 
@@ -252,7 +276,7 @@ def main(config):
     if config.model == "parT":
         trained_sparse_model = iterative_train_parT(sparse_model, config, output_dir, train_loader, val_loader, device, loss_func, writer)
     elif config.pruning_method == "autosparse": # WIP, use only for resnets
-        model = get_model(config, device)
+        model = get_resnet_model(config, device)
         trained_sparse_model = autosparse_autotune(model, sparse_model, config, train_loader, val_loader, device, loss_func, writer)
     else:
         trained_sparse_model = iterative_train(sparse_model, config, train_loader, val_loader, device, loss_func, writer)

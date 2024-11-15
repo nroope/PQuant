@@ -1,0 +1,21 @@
+training_parameters:
+  batch_size: 256
+  cosine_tmax: 200
+  epochs: 200
+  fine_tune: false
+  gamma: 0.01
+  l2_decay: 0.0001
+  label_smoothing: 0.0
+  lr: 0.1
+  lr_schedule: multistep
+  milestones:
+  - 100
+  - 150
+  momentum: 0.9
+  optimizer: sgd
+  plot_frequency: 100
+  pretraining_epochs: 0
+  rewind: never
+  rounds: 1
+  save_weights_epoch: -1
+  threshold_decay: 0.0
