@@ -69,6 +69,7 @@ def plot_training_loss(loss, losses, config, global_step, writer):
 def validation(model, testloader, device, criterion, global_step, writer):
     correct = 0
     total = 0
+    model.eval()
     with torch.no_grad():
         for data in testloader:
             images, labels = data
@@ -160,6 +161,7 @@ def train(model, config, trainloader, testloader, device, loss_func, r, writer, 
     optimizer = get_optimizer(config, model)
     scheduler = get_scheduler(optimizer, config)
     for epoch in range(config.epochs):
+        model.train()
         pre_epoch_functions(model, epoch, config.epochs)
         if r == 0 and config.save_weights_epoch == epoch:
             save_weights_functions(model)
@@ -178,7 +180,6 @@ def train(model, config, trainloader, testloader, device, loss_func, r, writer, 
 
         if scheduler is not None:
             scheduler.step()
-
         validation(model, testloader, device, loss_func, global_step, writer)
         post_epoch_functions(model, epoch, config.epochs)
     return model
@@ -195,6 +196,7 @@ def autosparse_autotune(model, sparse_model, config, trainloader, testloader, de
     autotune_epochs = config.autotune_epochs
     print("TRAINING DENSE")
     for epoch in range(autotune_epochs): 
+        model.train()
         dense_losses_avg = []
         pre_epoch_functions(model, epoch, config.epochs)
         for data in tqdm.tqdm(trainloader):
@@ -213,6 +215,7 @@ def autosparse_autotune(model, sparse_model, config, trainloader, testloader, de
     scheduler = get_scheduler(optimizer, config)
     print("TRAINING SPARSE")
     for epoch in range(config.epochs):
+        sparse_model.train()
         outputs_avg = []
         for data in tqdm.tqdm(trainloader):
             inputs, labels = data
@@ -288,4 +291,4 @@ if __name__ == "__main__":
     config = parse_cmdline_args()
     main(config)
 
-    
+
