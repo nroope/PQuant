@@ -34,11 +34,13 @@ class PDP(keras.layers.Layer):
         self.temp = config.temperature
         self.is_pretraining = True
         self.config = config
+        self.fine_tuning = False
 
     def build(self, input_shape):
         input_shape_concatenated = list(input_shape) + [1]
         self.softmax_shape = input_shape_concatenated
         self.t = ops.ones(input_shape_concatenated) * 0.5
+        self.mask = ops.ones(input_shape)
         super().build(input_shape)
 
     def post_pre_train_function(self):
@@ -48,13 +50,24 @@ class PDP(keras.layers.Layer):
         if not self.is_pretraining:
             self.r = ops.minimum(1., self.config.epsilon * (epoch + 1)) * self.init_r
     
+    def post_round_function(self):
+        pass
+
     def get_hard_mask(self, weight):
+        if self.fine_tuning:
+            return (self.mask >= 0.5).float()
         mask = self.get_mask(weight)
+        self.mask = (mask >= 0.5).float()
         return (mask >= 0.5).float()
+    
+    def pre_finetune_function(self):
+        self.fine_tuning = True
+        self.mask = (self.mask  >= 0.5).float()
 
     def get_mask(self, weight):
         if self.is_pretraining:
-            return ops.ones(weight.shape)
+            self.mask = ops.ones(weight.shape)
+            return self.mask
         weight_reshaped = ops.reshape(weight, self.softmax_shape)
         abs_weight_flat = ops.reshape(ops.abs(weight), -1)
         # Do top_k for all weights. Returns sorted array, just use the values on both sides of the threshold (sparsity * size(weight)) to calculate t directly
@@ -68,17 +81,21 @@ class PDP(keras.layers.Layer):
         softmax_result = ops.softmax(soft_input, axis=-1)
         zw, mw = ops.unstack(softmax_result, axis=-1)
         mask = ops.reshape(mw, weight.shape)
+        self.mask = mask
         return mask
 
     def call(self, weight):
-        mask = self.get_mask(weight)
+        if self.fine_tuning:
+            mask = self.mask
+        else:
+            mask = self.get_mask(weight)
         return mask * weight
 
     def calculate_additional_loss(self):
         return 0
     
     def get_layer_sparsity(self, weight):
-        masked_weight = self.get_mask(weight)
+        masked_weight = self.mask
         masked_weight_rounded = (masked_weight >= 0.5).float()
         return torch.sum(masked_weight_rounded) / ops.size(weight)
     
@@ -96,11 +113,11 @@ class ContinuousSparsification(keras.layers.Layer):
         self.final_temp = config.final_temp
         self.init_weight = layer.weight.clone()
         self.do_hard_mask = False
+        self.mask = None
 
     def call(self, weight):
-        mask = self.get_mask()
-        self.mask = mask
-        return mask * weight
+        self.mask = self.get_mask()
+        return self.mask * weight
 
     def pre_finetune_function(self):
         self.do_hard_mask = True
@@ -112,7 +129,8 @@ class ContinuousSparsification(keras.layers.Layer):
         else:
             scaling = 1. / ops.sigmoid(self.config.threshold_init)
             mask = ops.sigmoid(self.beta * self.s) 
-            return mask * scaling
+            mask = mask * scaling
+            return mask
     
     def post_pre_train_function(self):
         pass

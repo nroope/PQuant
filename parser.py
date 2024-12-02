@@ -14,15 +14,14 @@ def str2bool(w):
 def parse_cmdline_args(args=None):
     parser = ArgumentParser()
     parser.add_argument("--dataset", default=None, help="If not using data from config, use this dataset")
-    parser.add_argument("--model_config_path", default=None, help="If not None, use model defined by the given config file.")
     parser.add_argument("--model", default="resnet18", help="If not using model from config, use this model.")
-    parser.add_argument("--pruning_config_path", type=str, default=None, help="Path to pruning config file")
+    parser.add_argument("--pruning_config", type=str, default=None, help="Path to pruning config file")
     parser.add_argument("--do_pruning", type=str2bool, default=True)
     parser.add_argument("--validation_config_folder", type=str, default=None)
     config = parser.parse_args(args=args).__dict__
     if config["validation_config_folder"] is not None: # Use validation config instead
         return read_config_yaml(config)
-    config = config | get_model_config(config)
+    config = config | get_particle_transformer_model_config()
     config = config | get_pruning_config(config)
     config = Namespace(**config)
     return config
@@ -39,7 +38,7 @@ def read_config_yaml(config):
         return Namespace(**val_config)
 
 def get_pruning_config(config):    
-    with open(config["pruning_config_path"], "r") as f:
+    with open(config["pruning_config"], "r") as f:
         pruning_config = yaml.safe_load(f)
         if config["do_pruning"]:
             training_pruning_params = pruning_config["pruning_parameters"] | pruning_config["training_parameters"]
@@ -47,10 +46,9 @@ def get_pruning_config(config):
             training_pruning_params = pruning_config["training_parameters"] | {"pruning_method": "no_pruning"}
         return training_pruning_params
 
-def get_model_config(config):
-    if config["model_config_path"] is not None:
-        with open(config["model_config_path"], "r") as f:
-            model_config = yaml.safe_load(f)
-            model_config["local_rank"] = None if model_config["backend"] is None else int(os.environ.get("LOCAL_RANK", "0"))
-            return model_config
+def get_particle_transformer_model_config():
+    with open("configs/particle_transformer.yaml", "r") as f:
+        model_config = yaml.safe_load(f)
+        model_config["local_rank"] = None if model_config["backend"] is None else int(os.environ.get("LOCAL_RANK", "0"))
+        return model_config
     return {}

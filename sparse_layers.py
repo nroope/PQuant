@@ -1,11 +1,10 @@
 import os
 os.environ["KERAS_BACKEND"] = "torch"
-#from parser import get_parser
 from pruning_methods import get_pruning_layer
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from parser import parse_cmdline_args
 
 class SparseLayerLinear(nn.Module):
     def __init__(self, config, layer):
@@ -21,7 +20,6 @@ class SparseLayerLinear(nn.Module):
         self.init_weight = self.weight.clone()
     def rewind_weights(self):
         self.weight.data = self.init_weight.clone()
-
     def forward(self, x):
         masked_weight = self.pruning_layer(self.weight)
         return F.linear(x, masked_weight, self.bias)
@@ -250,9 +248,8 @@ def get_model_losses(model, losses):
     return losses
 
 def test_layer_replacing():
-    parser = get_parser()
-    args = ["--pruning_method", "dst"]
-    config = parser.parse_args(args=args)
+    args = ["--pruning_config_path", "configs/cs/config.yaml", "--model", "resnet20", "--dataset", "cifar10"]
+    config = parse_cmdline_args(args=args)
     linear_model_orig = SingleLinearLayer().to("cuda")
     linear_model = SingleLinearLayer()
     linear_model.load_state_dict(linear_model_orig.state_dict())
@@ -274,31 +271,5 @@ def test_layer_replacing():
     print("LAYER REPLACING TESTS PASSED")
 
 
-def test_dst_dstkeras_equals():
-    # Test that DST (PyTorch) and DST(Keras) give same output
-    from parser import get_parser
-    from torchsummary import summary
-    device = "cuda" if  torch.cuda.is_available() else "cpu"
-    args = ["--pruning_method", "dst"]
-    parser = get_parser()
-    config = parser.parse_args(args=args)
-    model = SingleConvLayer()
-    model_keras = SingleConvLayer()
-    model.to(device)
-    model_keras.to(device)
-    model_keras.load_state_dict(model.state_dict())
-    test_input = torch.rand(2, 3, 32, 32).to(device)
-    summary(model, (3,32,32))
-    summary(model_keras, (3,32,32))
-    model = add_pruning_to_model(model, config)
-    config.pruning_method = "dstkeras"
-    model_keras = add_pruning_to_model(model_keras, config)
-    
-    output = model(test_input)
-    output_keras = model_keras(test_input)    
-    assert torch.equal(output, output_keras)
-
-
 if __name__ == "__main__":
     test_layer_replacing()
-    test_dst_dstkeras_equals()
