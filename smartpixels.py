@@ -575,8 +575,8 @@ if __name__=="__main__":
 
 def get_smartpixel_data_and_model():
     training_generator = OptimizedDataGenerator(
-    data_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/data/",
-    labels_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/labels/",
+    data_directory_path = "path_to_data",
+    labels_directory_path = "path_to_labels",
     is_directory_recursive = False,
     file_type = "parquet",
     data_format = "3D",
@@ -587,19 +587,19 @@ def get_smartpixel_data_and_model():
     labels_list = ['x-midplane','y-midplane','cotAlpha','cotBeta'],
     scaling_list = [75.0, 18.75, 10.0, 1.22],
     input_shape = (20,13,21),
-    transpose = (0,2,3,1),
+    transpose = None,
     files_from_end=True,
     shuffle= True,
     
-    load_from_tfrecords_dir = "/home/nroope/Documents/smart-pixels-ml/tfrecords/tfrecords_20t_train_50x12P5x100_bnorm1",
+    load_from_tfrecords_dir = "train_tfrecords",
     use_time_stamps = -1, #-1
     max_workers = 2, # Don't make this too large (will use up all RAM)
     seed = 10,
     quantize = False # Quantization ON
     )
     validation_generator = OptimizedDataGenerator(
-    data_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/data/",
-    labels_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/labels/",
+    data_directory_path = "path_to_data",
+    labels_directory_path = "path_to_labels",
     is_directory_recursive = False,
     file_type = "parquet",
     data_format = "3D",
@@ -610,11 +610,11 @@ def get_smartpixel_data_and_model():
     labels_list = ['x-midplane','y-midplane','cotAlpha','cotBeta'],
     scaling_list = [75.0, 18.75, 10.0, 1.22],
     input_shape = (20,13,21),
-    transpose = (0,2,3,1),
+    transpose = None,
     files_from_end=True,
     shuffle= True,
 
-    load_from_tfrecords_dir = "/home/nroope/Documents/smart-pixels-ml/tfrecords/tfrecords_20t_val_50x12P5x100_bnorm1",
+    load_from_tfrecords_dir = "val_tfrecords",
     use_time_stamps = -1, #-1
     max_workers = 1, # Don't make this too large (will use up all RAM)
     seed = 10,

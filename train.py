@@ -90,7 +90,6 @@ def get_resnet_model_data(config, device):
 def train_smartpixel(model, train_data, optimizer, device, epoch, writer=None, *args, **kwargs):
     for (inputs, target) in tqdm.tqdm(train_data):
         inputs = torch.tensor(inputs.numpy())
-        inputs = inputs.permute(0,3,2,1)
         target = torch.tensor(target.numpy())
             
         inputs = inputs.to(device)
@@ -105,9 +104,8 @@ def train_smartpixel(model, train_data, optimizer, device, epoch, writer=None, *
     writer.write_scalars([("training_loss", loss.item(),  epoch)])
 
 def validate_smartpixel(model, validation_data, device, epoch, writer=None, *args, **kwargs):
-    for (inputs, target) in enumerate((validation_data)):
+    for (inputs, target) in (validation_data):
         inputs = torch.tensor(inputs.numpy())
-        inputs = inputs.permute(0,3,2,1)
         target = torch.tensor(target.numpy())
             
         inputs = inputs.to(device)
@@ -286,7 +284,7 @@ def main(config):
         optimizer = get_optimizer(config, sparse_model)
         trained_sparse_model = iterative_train(model = sparse_model, config = config, train_func = train_smartpixel, 
                                                 valid_func = validate_smartpixel, train_data = train_loader, validation_data = val_loader, 
-                                                device = device, writer = None, 
+                                                device = device, writer = writer, 
                                                 optimizer = optimizer
                                                 )
     elif "resnet" in config.model:
