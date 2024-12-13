@@ -2,7 +2,7 @@ training_parameters:
   batch_size: 256
   cosine_tmax: 200
   epochs: 200
-  fine_tune: false
+  fine_tuning_epochs: 0
   gamma: 0.01
   l2_decay: 0.0001
   label_smoothing: 0.0

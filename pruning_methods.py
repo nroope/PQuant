@@ -288,6 +288,8 @@ class DST(keras.layers.Layer):
         pass
     def post_pre_train_function(self):
         pass
+    def post_round_function(self):
+        pass
 
 def test_autosparse_gradient():
     device = "cuda" if torch.cuda.is_available() else "cpu"

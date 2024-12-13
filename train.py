@@ -101,7 +101,8 @@ def train_smartpixel(model, train_data, optimizer, device, epoch, writer=None, *
         loss += losses
         loss.backward()
         optimizer.step()
-    writer.write_scalars([("training_loss", loss.item(),  epoch)])
+    if writer is not None:
+        writer.write_scalars([("training_loss", loss.item(),  epoch)])
 
 def validate_smartpixel(model, validation_data, device, epoch, writer=None, *args, **kwargs):
     for (inputs, target) in (validation_data):
@@ -114,12 +115,18 @@ def validate_smartpixel(model, validation_data, device, epoch, writer=None, *arg
         loss = custom_loss(outputs, target)
         losses = get_model_losses(model, torch.tensor(0.).to(device))
         loss += losses
-    writer.write_scalars([("validation_loss", loss.item(), epoch)])
+    ratio = get_layer_keep_ratio(model)
+    if writer is not None:
+        writer.write_scalars([("validation_remaining_weights", ratio, epoch)])
+        writer.write_scalars([("validation_loss", loss.item(), epoch)])
+    
 
-def autosparse_autotune_resnet(model, sparse_model, config, trainloader, testloader, device, loss_func, writer, optimizer, scheduler):
+def autosparse_autotune_resnet(model, sparse_model, config, trainloader, testloader, device, loss_func, writer):
     # WIP AutoSparse alpha-autotuning training, for ResNets
     if type(config) is dict:
         config = Namespace(**config)
+    optimizer = get_optimizer(config, sparse_model)
+    scheduler = get_scheduler(optimizer, config)
     global_step = torch.tensor(0)
     dense_losses = []
     autotune_epochs = config.autotune_epochs
@@ -133,6 +140,17 @@ def autosparse_autotune_resnet(model, sparse_model, config, trainloader, testloa
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
+            loss = loss_func(outputs, labels)
+            dense_losses_avg.append(loss.item())
+            
+            loss.backward()
+            optimizer.step()
+            global_step += 1
+        dense_losses.append(np.mean(dense_losses_avg))
+    optimizer = get_optimizer(config, sparse_model)
+    scheduler = get_scheduler(optimizer, config)
+    print("TRAINING SPARSE")
+    for epoch in range(config.epochs):
         sparse_model.train()
         outputs_avg = []
         for data in tqdm.tqdm(trainloader):
@@ -142,7 +160,7 @@ def autosparse_autotune_resnet(model, sparse_model, config, trainloader, testloa
             outputs = sparse_model(inputs)
             loss = loss_func(outputs, labels)
             losses = get_model_losses(sparse_model, torch.tensor(0.).to(device))
-            plot_training_loss(loss, losses, config, global_step, writer)
+            plot_training_loss(loss, losses, global_step, writer)
             loss += losses
             outputs_avg.append(loss.item())
             loss.backward()
@@ -178,7 +196,7 @@ def validate_particle_transformer(model, steps_per_epoch_val, test_loader, loss_
     evaluate_classification(model, test_loader, dev, epoch, True, loss_func, steps_per_epoch_val, tb_helper=writer)
 
 def train_resnet(model, trainloader, device, loss_func, writer, epoch, optimizer, scheduler, *args, **kwargs):
-    """ Training ResNets for 1 epoch """
+    """ Train ResNets for 1 epoch """
     for data in tqdm.tqdm(trainloader):
         inputs, labels = data
         inputs, labels = inputs.to(device), labels.to(device)
@@ -274,11 +292,10 @@ def main(config):
     output_dir = writer.writer.get_logdir()
     write_config_to_yaml(config, output_dir)
     sparse_model, train_loader, val_loader, loss_func = get_model_data_loss_func(config, device)
-
     if config.do_pruning:
         sparse_model = add_pruning_to_model(sparse_model, config)
     if config.pruning_method == "autosparse" and "resnet" in config.model: # WIP, use only for resnets
-        model, _, _, _, _, _ = get_model_data_loss_func(config, device)
+        model, _, _, _ = get_model_data_loss_func(config, device)
         trained_sparse_model = autosparse_autotune_resnet(model, sparse_model, config, train_loader, val_loader, device, loss_func, writer)
     elif config.model == "smartpixel":
         optimizer = get_optimizer(config, sparse_model)
@@ -312,5 +329,4 @@ def main(config):
 if __name__ == "__main__":
     config = parse_cmdline_args()
     main(config)
-
 

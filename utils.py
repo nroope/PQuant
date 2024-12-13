@@ -58,8 +58,8 @@ def get_optimizer(config, model):
         threshold_decay = 0 if config.pruning_method == "cs" else config.threshold_decay 
     
         parameters = list(model.named_parameters())
-        threshold_params = [v for n, v in parameters if "threshold" in n and v.requires_grad]
-        rest_params = [v for n, v in parameters if "threshold" not in n and v.requires_grad]
+        threshold_params = [v for n, v in parameters if "torch_params" in n and v.requires_grad]
+        rest_params = [v for n, v in parameters if "torch_params" not in n and v.requires_grad]
         optimizer = pSGD(
             [{
                 "params": threshold_params,
