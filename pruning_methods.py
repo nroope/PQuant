@@ -5,7 +5,8 @@ import keras_core as keras
 from keras import ops
 import numpy as np
 from utils import cosine_sigmoid_decay
-
+import torch
+import torch.nn as nn
 
 def get_pruning_layer(config, layer, out_size):
         if config.pruning_method == "dst":
@@ -290,6 +291,204 @@ class DST(keras.layers.Layer):
         pass
     def post_round_function(self):
         pass
+
+
+
+############ Torch implementations of Autosparse, CS, DST ############
+class AutoSparsePruner(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, alpha):
+        #x, alpha = input
+        mask = torch.relu(x)
+        backward_sparsity = 0.5
+        x_flat = x.view(-1)
+        k = int(x_flat.numel() * backward_sparsity)
+        topks, _ = torch.topk(x_flat, k)
+        kth_value = topks[-1]
+        ctx.save_for_backward(x, alpha, kth_value)
+        return mask.view(x.shape)
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, alpha, kth_value = ctx.saved_tensors
+        grads = torch.ones(x.shape).to("cuda")
+        grads[x <= 0] = alpha
+        if BACKWARD_SPARSITY:
+            grads[x <= kth_value] = 0
+        return grads * grad_output, None
+
+class AutoSparseTorch(keras.layers.Layer):
+    def __init__(self, config, layer, out_size, *args, **kwargs):
+        super(AutoSparseTorch, self).__init__(*args, **kwargs)
+        threshold_size = get_threshold_size(config, out_size, layer.weight.shape)
+        self.threshold = nn.Parameter(torch.ones(threshold_size) * config.threshold_init)
+        self.alpha = torch.tensor(config.alpha, requires_grad=False).to(device="cuda")
+        self.g = torch.sigmoid
+        self.prune = AutoSparsePruner.apply
+        self.config = config
+        global BACKWARD_SPARSITY
+        BACKWARD_SPARSITY = config.backward_sparsity
+
+    def forward(self, weight):
+        """
+        sign(W) * ReLu(X), where X = |W| - sigmoid(threshold), with gradient:
+            1 if W > 0 else alpha. Alpha is decayed after each epoch.
+        """
+        mask = self.get_mask(weight)
+        self.mask = mask.view(weight.shape)
+        return torch.sign(weight) * mask.view(weight.shape)
+
+    def get_hard_mask(self, weight):
+        return self.mask
+
+    def get_mask(self, weight):
+        weight_reshaped = weight.view(weight.shape[0], -1)
+        w_t = torch.abs(weight_reshaped) - self.g(self.threshold)
+        return self.prune(w_t, self.alpha)
+
+    def get_layer_sparsity(self, weight):
+        masked_weight = self.get_mask(weight)
+        masked_count = ops.count_nonzero(masked_weight)
+        return masked_count / ops.size(weight)
+    
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+
+    def calculate_additional_loss(*args, **kwargs):
+        return 0
+    
+    def post_epoch_function(self, epoch, total_epochs, alpha_multiplier, autotune_epochs=0, writer=None, global_step=0):
+        # Decay alpha
+        if epoch >= autotune_epochs:
+            self.alpha *= cosine_sigmoid_decay(epoch - autotune_epochs, total_epochs)
+        else:
+            self.alpha *= alpha_multiplier
+        if epoch == self.config.alpha_reset_epoch:
+            self.alpha *= 0.
+        if writer is not None:
+            writer.write_scalars([(f"Autosparse_alpha", self.alpha, global_step)])
+
+
+class BinaryStep(torch.autograd.Function):
+    @staticmethod 
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        return (input>0.).float()
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        abs_input = torch.abs(input)
+        grads = 2 - 4 * abs_input  
+        grads[torch.bitwise_and(abs_input > 0.4, abs_input <= 1.0)] = 0.4
+        grads[abs_input > 1.0] = 0.0
+        return grad_input * grads
+
+
+class DSTTorch(nn.Module):
+    def __init__(self, config, layer, out_size, *args, **kwargs):
+        super(DSTTorch, self).__init__(*args, **kwargs)
+        threshold_size = get_threshold_size(config, out_size, layer.weight.shape)
+        self.threshold = nn.Parameter(torch.zeros(threshold_size))
+        self.config = config
+        self.step = BinaryStep.apply
+
+    def forward(self, weight):
+        """
+        ReLu(|W| - T), with gradient:
+            2 - 4*|W| if |W| <= 0.4
+            0.4           if 0.4 < |W| <= 1
+            0             if |W| > 1
+        """
+        mask = self.get_mask(weight)
+        ratio = 1.0 - torch.sum(mask) / mask.numel()
+        if ratio >= self.config.max_pruning_pct:
+            self.threshold.assign(torch.zeros(self.threshold.shape))
+            mask = self.get_mask(weight)
+        masked_weight = weight * mask
+        return masked_weight
+    
+    def get_hard_mask(self, weight):
+        return self.mask
+
+    def get_mask(self, weight):
+        weight_orig_shape = weight.shape
+        weights_reshaped = weight.view(weight.shape[0], -1)
+        pre_binarystep_weights = torch.abs(weights_reshaped) - self.threshold
+        mask = self.step(pre_binarystep_weights)
+        mask = mask.view(weight_orig_shape)
+        self.mask = mask
+        return mask
+
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+
+    def get_layer_sparsity(self, weight):
+        return torch.sum(self.get_mask(weight)) / weight.numel()
+    
+    def calculate_additional_loss(self):
+        return self.config.alpha * torch.sum(torch.exp(-self.threshold))
+
+    def post_epoch_function(self, epoch, total_epochs):
+        pass
+    def post_pre_train_function(self):
+        pass
+    def post_round_function(self):
+        pass
+
+class ContinuousSparsificationTorch(nn.Module):
+    def __init__(self, config, layer, out_size, *args, **kwargs):
+        super(ContinuousSparsificationTorch, self).__init__(*args, **kwargs)
+        self.config = config
+        self.beta = torch.tensor(1.)
+        self.final_temp = config.final_temp
+        self.init_weight = layer.weight.clone()
+        self.do_hard_mask = False
+        self.mask = None
+        self.s_init = torch.tensor(config.threshold_init)
+        self.s = nn.Parameter(torch.ones(layer.weight.shape) * self.s_init, requires_grad=True)
+
+
+    def forward(self, weight):
+        self.mask = self.get_mask()
+        return self.mask * weight
+
+    def pre_finetune_function(self):
+        self.do_hard_mask = True
+    
+    def get_mask(self):
+        if self.do_hard_mask:
+            mask = self.get_hard_mask()
+            return mask
+        else:
+            scaling = torch.tensor(1.) / torch.sigmoid(self.s_init)
+            mask = torch.nn.functional.sigmoid(self.beta * self.s)
+            mask = mask * scaling
+            return mask
+    
+    def post_pre_train_function(self):
+        pass
+
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+
+    def post_epoch_function(self, epoch, total_epochs):
+        self.beta *= (self.final_temp**(1/(total_epochs - 1)))
+
+    def get_hard_mask(self):
+        return (self.s > 0).float()
+
+    def post_round_function(self):
+        min_beta_s_s0 = torch.minimum(self.beta * self.s, self.s_init)
+        self.s.data = min_beta_s_s0
+        self.beta = 1
+
+    def calculate_additional_loss(self):
+        return self.config.threshold_decay * torch.norm(self.mask.view(-1), p=1)
+    
+    def get_layer_sparsity(self, weight):
+        return torch.sum(self.get_hard_mask()) / weight.numel()
+
+
 
 def test_autosparse_gradient():
     device = "cuda" if torch.cuda.is_available() else "cpu"

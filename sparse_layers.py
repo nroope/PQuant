@@ -102,19 +102,20 @@ class SingleConvLayer(nn.Module):
 
 def add_pruning_to_model(module, config):
     for name, layer in module.named_children():
-        if isinstance(layer, nn.Linear):
+        if layer.__class__ is nn.Linear:
             sparse_layer = SparseLayerLinear(config, layer)
             sparse_layer.pruning_layer.build(layer.weight.shape)
             setattr(module, name, sparse_layer)
-        elif isinstance(layer, nn.Conv2d):
+        elif layer.__class__ is nn.Conv2d:
             sparse_layer = SparseLayerConv2d(config, layer)
             sparse_layer.pruning_layer.build(layer.weight.shape)
             setattr(module, name, sparse_layer)
-        elif isinstance(layer, nn.Conv1d):
+        elif layer.__class__ is nn.Conv1d:
             sparse_layer = SparseLayerConv1d(config, layer)
             sparse_layer.pruning_layer.build(layer.weight.shape)
             setattr(module, name, sparse_layer)
-        add_pruning_to_model(layer, config)
+        else:
+            add_pruning_to_model(layer, config)
     return module
 
 def remove_pruning_from_model(module, config):
@@ -129,9 +130,9 @@ def remove_pruning_from_model(module, config):
             bias_values = layer.bias
             bias = True if bias_values is not None else False
             setattr(module, name, nn.Linear(in_features=in_features, out_features=out_features, bias=bias))
-            getattr(module, name).weight.data = masked_weight
+            getattr(module, name).weight.data.copy_(masked_weight)
             if getattr(module, name).bias is not None:
-                getattr(module, name).bias.data = bias_values
+                getattr(module, name).bias.data.copy_(layer.bias.data)
         elif isinstance(layer, SparseLayerConv2d):
             if config.pruning_method == "pdp": #Find better solution later
                  masked_weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
@@ -142,9 +143,9 @@ def remove_pruning_from_model(module, config):
             setattr(module, name, nn.Conv2d(layer.in_channels, layer.out_channels, layer.kernel_size, 
                                            layer.stride, layer.padding, layer.dilation, layer.groups,
                                            bias, layer.padding_mode))
-            getattr(module, name).weight.data = masked_weight
+            getattr(module, name).weight.data.copy_(masked_weight)
             if getattr(module, name).bias is not None:
-                getattr(module, name).bias.data = bias_values
+                getattr(module, name).bias.data.copy_(layer.bias.data)
         elif isinstance(layer, SparseLayerConv1d):
             if config.pruning_method == "pdp": #Find better solution later
                  masked_weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
@@ -155,10 +156,11 @@ def remove_pruning_from_model(module, config):
             setattr(module, name, nn.Conv1d(layer.in_channels, layer.out_channels, layer.kernel_size, 
                                            layer.stride, layer.padding, layer.dilation, layer.groups,
                                            bias, layer.padding_mode))
-            getattr(module, name).weight.data = masked_weight
+            getattr(module, name).weight.data.copy_(masked_weight)
             if getattr(module, name).bias is not None:
-                getattr(module, name).bias.data = bias_values
-        remove_pruning_from_model(layer, config)
+                getattr(module, name).bias.data.copy_(layer.bias.data)
+        else:
+            remove_pruning_from_model(layer, config)
     return module
 
 def post_epoch_functions(model, epoch, total_epochs, **kwargs):

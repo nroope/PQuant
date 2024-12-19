@@ -37,7 +37,7 @@ def call_post_round_functions(model, rewind, rounds, r):
 ########################################################
 
 def get_model_data_loss_func(config, device):
-    if "resnet" in config.model:
+    if "resnet" in config.model or "vgg" in config.model:
         model, train_loader, val_loader, loss_func = get_resnet_model_data(config, device)   
     elif config.model == "particle_transformer":
         train_loader, val_loader, data_config, _, _ = train_load(config)
@@ -75,6 +75,8 @@ def get_resnet_model_data(config, device):
             model = resnet110().to(device)
         elif config.model == "resnet1202":
             model = resnet1202().to(device)
+        elif config.model == "vgg16":
+            model = vgg16().to(device)
         summary(model, (1,3,32,32))
     if config.dataset == "cifar10":
         train_loader, val_loader = get_cifar10_data(config.batch_size)
@@ -266,6 +268,7 @@ def iterative_train(model, config, train_func, valid_func, *args, **kwargs):
             model.eval()
             valid_func(model, epoch=epoch, *args, **kwargs)
             post_epoch_functions(model, e, config.epochs)
+            get_layer_keep_ratio(model)
             epoch += 1
         call_post_round_functions(model, config.rewind, config.rounds, r)
     print("Training finished")
@@ -294,6 +297,7 @@ def main(config):
     sparse_model, train_loader, val_loader, loss_func = get_model_data_loss_func(config, device)
     if config.do_pruning:
         sparse_model = add_pruning_to_model(sparse_model, config)
+        sparse_model = sparse_model.to(device)
     if config.pruning_method == "autosparse" and "resnet" in config.model: # WIP, use only for resnets
         model, _, _, _ = get_model_data_loss_func(config, device)
         trained_sparse_model = autosparse_autotune_resnet(model, sparse_model, config, train_loader, val_loader, device, loss_func, writer)
@@ -304,7 +308,7 @@ def main(config):
                                                 device = device, writer = writer, 
                                                 optimizer = optimizer
                                                 )
-    elif "resnet" in config.model:
+    elif "resnet" in config.model or "vgg" in config.model:
         optimizer = get_optimizer(config, sparse_model)
         scheduler = get_scheduler(optimizer, config)
         trained_sparse_model = iterative_train(model = sparse_model, config = config, train_func = train_resnet, 
