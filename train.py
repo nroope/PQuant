@@ -187,8 +187,9 @@ def autosparse_autotune_resnet(model, sparse_model, config, trainloader, testloa
     return sparse_model
 
 def plot_training_loss(loss, losses, global_step, writer):
-        writer.write_scalars([(f"train_output_loss", loss.item(), global_step)])
-        writer.write_scalars([(f"train_sparse_loss", losses, global_step)])
+        if writer is not None:
+            writer.write_scalars([(f"train_output_loss", loss.item(), global_step)])
+            writer.write_scalars([(f"train_sparse_loss", losses, global_step)])
 
 def train_particle_transformer(model, steps_per_epoch, train_loader, loss_func, dev, writer, epoch, optimizer, scheduler, *args, **kwargs):
     """Train particle transformer for 1 epoch"""

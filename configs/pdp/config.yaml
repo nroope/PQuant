@@ -3,6 +3,7 @@ pruning_parameters:
   pruning_method: pdp
   sparsity: 0.8
   temperature: 1.0e-05
+  structured_pruning: false
 training_parameters:
   batch_size: 256
   cosine_tmax: 200
