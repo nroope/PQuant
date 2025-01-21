@@ -4,6 +4,10 @@ pruning_parameters:
   sparsity: 0.8
   temperature: 1.0e-05
   structured_pruning: false
+quantization_parameters:
+  default_integer_bits: 0.
+  default_fractional_bits: 7.
+  layer_specific: []
 training_parameters:
   batch_size: 256
   cosine_tmax: 200
@@ -21,6 +25,7 @@ training_parameters:
   optimizer: sgd
   plot_frequency: 100
   pretraining_epochs: 16
+  pruning_first: false
   rewind: never
   rounds: 1
   save_weights_epoch: -1

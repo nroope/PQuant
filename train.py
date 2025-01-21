@@ -3,9 +3,9 @@ os.environ["KERAS_BACKEND"] = "torch"
 import torch
 import torch.nn as nn
 from argparse import Namespace
-from sparse_layers import  add_pruning_to_model, \
+from sparse_layers import  add_pruning_to_model, add_layer_specific_quantization_to_model, \
 post_epoch_functions, post_round_functions, save_weights_functions, rewind_weights_functions, \
-pre_finetune_functions, post_pretrain_functions, pre_epoch_functions, remove_pruning_from_model, get_model_losses, get_layer_keep_ratio
+pre_finetune_functions, post_pretrain_functions, pre_epoch_functions, remove_pruning_from_model, get_model_losses, get_layer_keep_ratio, get_layer_weight_uniques
 from utils import get_scheduler, get_optimizer, plot_weights_per_layer
 from parser import parse_cmdline_args, write_config_to_yaml
 from weaver.utils.nn.tools import TensorboardHelper
@@ -18,7 +18,6 @@ from torchinfo import summary
 from resnet_cifar import resnet20, resnet32, resnet44, resnet56, resnet110, resnet1202
 from torchvision.models import resnet18, resnet34, resnet50, resnet101, resnet152, vgg16
 from smartpixels import get_smartpixel_data_and_model
-
 from data import get_cifar10_data, get_imagenet_data
 from weaver.train import train_load, model_setup
 keras.backend.set_image_data_format('channels_first')
@@ -86,16 +85,20 @@ def get_resnet_model_data(config, device):
     return model, train_loader, val_loader, loss_func
 
 
+from quantizers import FixedQ
+input_quantizer = FixedQ(torch.tensor(4.0), torch.tensor(1.0), torch.tensor(1.0), overflow="SAT")
 ########################################################
 ################ Training loops ########################
 ########################################################
 def train_smartpixel(model, train_data, optimizer, device, epoch, writer=None, *args, **kwargs):
-    for (inputs, target) in tqdm.tqdm(train_data):
-        inputs = torch.tensor(inputs.numpy())
-        target = torch.tensor(target.numpy())
-            
-        inputs = inputs.to(device)
-        target = target.to(device)
+    import random
+    random.shuffle(train_data)
+    for training_file in tqdm.tqdm(train_data):
+        inputs, target = training_file
+        inputs = torch.tensor(inputs).to(dtype=torch.float32, device=device)
+        target = torch.tensor(target).to(dtype=torch.float32, device=device)
+
+        inputs = input_quantizer(inputs)
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = custom_loss(outputs, target)
@@ -106,17 +109,35 @@ def train_smartpixel(model, train_data, optimizer, device, epoch, writer=None, *
     if writer is not None:
         writer.write_scalars([("training_loss", loss.item(),  epoch)])
 
-def validate_smartpixel(model, validation_data, device, epoch, writer=None, *args, **kwargs):
-    for (inputs, target) in (validation_data):
-        inputs = torch.tensor(inputs.numpy())
-        target = torch.tensor(target.numpy())
-            
+
+def validate_smartpixel(model, validation_data, device, epoch, writer=None, save_outputs=False, *args, **kwargs):
+    complete_truth = None
+    p_test = None
+    for training_file in tqdm.tqdm(validation_data):
+        inputs, target = training_file
+        inputs = torch.tensor(inputs).to(dtype=torch.float32, device=device)
+        target = torch.tensor(target).to(dtype=torch.float32, device=device)
+
         inputs = inputs.to(device)
         target = target.to(device)
+        inputs = input_quantizer(inputs).to(device)
+
         outputs = model(inputs)
         loss = custom_loss(outputs, target)
         losses = get_model_losses(model, torch.tensor(0.).to(device))
         loss += losses
+        if save_outputs:
+            if p_test is None:
+                complete_truth = target.numpy()
+                p_test = outputs.detach().cpu().numpy()
+            else:
+                p_test = np.concatenate((p_test, outputs.detach().cpu().numpy()), axis=0)
+                complete_truth = np.concatenate((complete_truth, target), axis=0)
+
+    if save_outputs:
+        np.savez("complete_truth.npz", complete_truth=complete_truth)
+        np.savez("p_test.npz", p_test=p_test)
+    
     ratio = get_layer_keep_ratio(model)
     if writer is not None:
         writer.write_scalars([("validation_remaining_weights", ratio, epoch)])
@@ -298,6 +319,7 @@ def main(config):
     sparse_model, train_loader, val_loader, loss_func = get_model_data_loss_func(config, device)
     if config.do_pruning:
         sparse_model = add_pruning_to_model(sparse_model, config)
+        sparse_model = add_layer_specific_quantization_to_model(sparse_model, config)
         sparse_model = sparse_model.to(device)
     if config.pruning_method == "autosparse" and "resnet" in config.model: # WIP, use only for resnets
         model, _, _, _ = get_model_data_loss_func(config, device)
@@ -334,4 +356,3 @@ def main(config):
 if __name__ == "__main__":
     config = parse_cmdline_args()
     main(config)
-

@@ -6,6 +6,10 @@ pruning_parameters:
   pruning_method: autosparse
   threshold_init: -5.0
   threshold_type: channelwise
+quantization_parameters:
+  default_integer_bits: 0.
+  default_fractional_bits: 7.
+  layer_specific: []
 training_parameters:
   batch_size: 256
   cosine_tmax: 200
@@ -23,6 +27,7 @@ training_parameters:
   optimizer: sgd
   plot_frequency: 100
   pretraining_epochs: 0
+  pruning_first: false
   rewind: never
   rounds: 1
   save_weights_epoch: -1.0

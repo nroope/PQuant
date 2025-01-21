@@ -3,6 +3,10 @@ pruning_parameters:
   pruning_method: cs
   threshold_decay: 1.0e-09
   threshold_init: 0
+quantization_parameters:
+  default_integer_bits: 0.
+  default_fractional_bits: 7.
+  layer_specific: []
 training_parameters:
   batch_size: 128
   cosine_tmax: 200
@@ -20,6 +24,7 @@ training_parameters:
   optimizer: sgd
   plot_frequency: 100
   pretraining_epochs: 0
+  pruning_first: false
   rewind: post-ticket-search
   rounds: 3
   save_weights_epoch: 2

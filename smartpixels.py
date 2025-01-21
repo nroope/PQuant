@@ -1,29 +1,36 @@
 import torch.nn as nn
 import torch
+from quantizer import QuantizedTanh, hard_tanh
 
 class SmartPixelModel(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.sep_conv = depthwise_separable_conv(input_channels=20, output_channels=5)
         self.act = nn.Tanh()
+        self.q_act4 = QuantizedTanh(4)
+        self.q_act8 = QuantizedTanh(8)
+        self.hard_tanh = hard_tanh
         self.conv = nn.Conv2d(in_channels=5, out_channels=5, kernel_size=1)
         self.avg = nn.AvgPool2d(3)
         self.flat = nn.Flatten(1)
         self.dense1 = nn.Linear(90, 16)
         self.dense2 = nn.Linear(16,16)
         self.dense3 = nn.Linear(16, 14)
+
     def forward(self, x):
         x = self.sep_conv(x)
-        x = self.act(x)
+        x = self.q_act4(x)
         x = self.conv(x)
-        x = self.act(x)
+        x = self.q_act4(x)
         
         x = self.avg(x)
+        x = self.q_act8(x)
+    
         x = self.flat(x)
         x = self.dense1(x)
-        x = self.act(x)
+        x = self.q_act8(x)
         x = self.dense2(x)
-        x = self.act(x)
+        x = self.q_act8(x)
         x = self.dense3(x)
         return x
 
@@ -573,10 +580,10 @@ if __name__=="__main__":
     print(custom_loss(out, b))
 
 
-def get_smartpixel_data_and_model():
-    training_generator = OptimizedDataGenerator(
-    data_directory_path = "path_to_data",
-    labels_directory_path = "path_to_labels",
+def get_smartpixel_data_and_model(data=True):
+    """training_generator = OptimizedDataGenerator(
+    data_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/data/",
+    labels_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/labels/",
     is_directory_recursive = False,
     file_type = "parquet",
     data_format = "3D",
@@ -592,14 +599,15 @@ def get_smartpixel_data_and_model():
     shuffle= True,
     
     load_from_tfrecords_dir = "train_tfrecords",
+    tfrecords_dir=None,
     use_time_stamps = -1, #-1
     max_workers = 2, # Don't make this too large (will use up all RAM)
     seed = 10,
     quantize = False # Quantization ON
     )
     validation_generator = OptimizedDataGenerator(
-    data_directory_path = "path_to_data",
-    labels_directory_path = "path_to_labels",
+    data_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/data/",
+    labels_directory_path = "/home/nroope/Documents/smart-pixels-ml/dataset8/unflipped/labels/",
     is_directory_recursive = False,
     file_type = "parquet",
     data_format = "3D",
@@ -619,8 +627,32 @@ def get_smartpixel_data_and_model():
     max_workers = 1, # Don't make this too large (will use up all RAM)
     seed = 10,
     quantize = False # Quantization ON
-    )
+    )"""
     model = SmartPixelModel().to(device="cuda")
     loss_func = custom_loss
-    return model, training_generator, validation_generator, loss_func
+    training_dataset_files = glob.glob("data/smartpixel/train/*")
+
+    if not data:
+        return model, loss_func
+    import random
+    random.shuffle(training_dataset_files)
+    tdata = []
+    vdata = []
+    for f in tqdm(training_dataset_files):
+        data = np.load(f)
+        inputs = data["inputs"].astype(np.float16)
+        target = data["target"].astype(np.float16)
+        tdata.append((inputs, target))
+    
+    validation_dataset_files = glob.glob("data/smartpixel/validation/*")
+    for f in tqdm(validation_dataset_files):
+        data = np.load(f)
+        inputs = data["inputs"].astype(np.float16)
+        target = data["target"].astype(np.float16)
+        vdata.append((inputs, target))
+        
+        
+
+
+    return model, tdata, vdata, loss_func
 

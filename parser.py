@@ -24,6 +24,7 @@ def parse_cmdline_args(args=None):
     config = config | get_particle_transformer_model_config()
     config = config | get_pruning_config(config)
     config = Namespace(**config)
+
     return config
 
 def write_config_to_yaml(config, output_dir):
@@ -42,6 +43,14 @@ def get_pruning_config(config):
         pruning_config = yaml.safe_load(f)
         if config["do_pruning"]:
             training_pruning_params = pruning_config["pruning_parameters"] | pruning_config["training_parameters"]
+            layer_specific = pruning_config["quantization_parameters"]["layer_specific"]
+            training_pruning_params = training_pruning_params | pruning_config["quantization_parameters"]
+            layer_specific_flat = {}
+            for l in layer_specific:
+                layer_name = list(l.keys())[0]
+                values = l[layer_name][0] | l[layer_name][1]
+                layer_specific_flat = layer_specific_flat | {layer_name : values}
+            training_pruning_params["layer_specific"] = layer_specific_flat
         else:
             training_pruning_params = pruning_config["training_parameters"] | {"pruning_method": "no_pruning"}
         return training_pruning_params
