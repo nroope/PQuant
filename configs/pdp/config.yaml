@@ -1,4 +1,5 @@
 pruning_parameters:
+  enable_pruning: true
   epsilon: 0.015
   pruning_method: pdp
   sparsity: 0.8
@@ -7,6 +8,7 @@ pruning_parameters:
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  enable_quantization: true
   layer_specific: []
 training_parameters:
   batch_size: 256

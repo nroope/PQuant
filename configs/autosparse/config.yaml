@@ -3,12 +3,14 @@ pruning_parameters:
   alpha_reset_epoch: 90
   autotune_epochs: 10
   backward_sparsity: false
+  enable_pruning: true
   pruning_method: autosparse
   threshold_init: -5.0
   threshold_type: channelwise
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  enable_quantization: true
   layer_specific: []
 training_parameters:
   batch_size: 256

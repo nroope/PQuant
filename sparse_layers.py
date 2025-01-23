@@ -22,23 +22,37 @@ class SparseLayerLinear(nn.Module):
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.init_weight = self.weight.clone()
         self.pruning_first = config.pruning_first
-
+        self.enable_quantization = config.enable_quantization
+        self.enable_pruning = config.enable_pruning
+        
     def save_weights(self):
         self.init_weight = self.weight.clone()
     def rewind_weights(self):
         self.weight.data = self.init_weight.clone()
 
-    def forward(self, x):
-        if self.pruning_first:
-            weight = self.pruning_layer(self.weight)
+    def quantize(self, weight, bias):
+        if self.enable_quantization:
             weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            bias = None if self.bias is None else quantizer(self.bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            x = F.linear(x, weight, bias)
-        else:
-            weight = quantizer(self.weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            bias = None if self.bias is None else quantizer(self.bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+            bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+        return weight, bias
+
+    def prune(self, weight):
+        if self.enable_pruning:
             weight = self.pruning_layer(weight)
-            x = F.linear(x, weight, bias)
+        return weight
+
+    def prune_and_quantize(self, weight, bias):
+        if self.pruning_first:
+            weight = self.prune(weight)
+            weight, bias = self.quantize(weight, bias)
+        else:
+            weight, bias = self.quantize(weight, bias)
+            weight = self.prune(weight)
+        return weight, bias
+        
+    def forward(self, x):
+        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        x = F.linear(x, weight, bias)
         return x
 
 class SparseLayerConv2d(nn.Module):
@@ -59,24 +73,37 @@ class SparseLayerConv2d(nn.Module):
         self.kernel_size = layer.kernel_size
         self.padding_mode = layer.padding_mode
         self.pruning_first = config.pruning_first
+        self.enable_quantization = config.enable_quantization
+        self.enable_pruning = config.enable_pruning
 
     def save_weights(self):
         self.init_weight = self.weight.clone()
     def rewind_weights(self):
         self.weight.data = self.init_weight.clone()
 
-    def forward(self, x):
-        if self.pruning_first:
-            weight = self.pruning_layer(self.weight)
+    def quantize(self, weight, bias):
+        if self.enable_quantization:
             weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            bias = None if self.bias is None else quantizer(self.bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            x = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, 
-                        padding=self.padding, dilation=self.dilation, groups=self.groups)
-        else:
-            weight = quantizer(self.weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            bias = None if self.bias is None else quantizer(self.bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+            bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+        return weight, bias
+
+    def prune(self, weight):
+        if self.enable_pruning:
             weight = self.pruning_layer(weight)
-            x = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, 
+        return weight
+
+    def prune_and_quantize(self, weight, bias):
+        if self.pruning_first:
+            weight = self.prune(weight)
+            weight, bias = self.quantize(weight, bias)
+        else:
+            weight, bias = self.quantize(weight, bias)
+            weight = self.prune(weight)
+        return weight, bias
+
+    def forward(self, x):
+        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        x = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
 
         return x
@@ -100,25 +127,37 @@ class SparseLayerConv1d(nn.Module):
         self.kernel_size = layer.kernel_size
         self.padding_mode = layer.padding_mode
         self.pruning_first = config.pruning_first
-
+        self.enable_quantization = config.enable_quantization
+        self.enable_pruning = config.enable_pruning
 
     def save_weights(self):
         self.init_weight = self.weight.clone()
     def rewind_weights(self):
         self.weight.data = self.init_weight.clone()
 
-    def forward(self, x):
-        if self.pruning_first:
-            weight = self.pruning_layer(self.weight)
+    def quantize(self, weight, bias):
+        if self.enable_quantization:
             weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            bias = None if self.bias is None else quantizer(self.bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            x = F.conv1d(input=x, weight=weight, bias=bias, stride=self.stride, 
-                        padding=self.padding, dilation=self.dilation, groups=self.groups)
-        else:
-            weight = quantizer(self.weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-            bias = None if self.bias is None else quantizer(self.bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+            bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+        return weight, bias
+
+    def prune(self, weight):
+        if self.enable_pruning:
             weight = self.pruning_layer(weight)
-            x = F.conv1d(input=x, weight=weight, bias=bias, stride=self.stride, 
+        return weight
+
+    def prune_and_quantize(self, weight, bias):
+        if self.pruning_first:
+            weight = self.prune(weight)
+            weight, bias = self.quantize(weight, bias)
+        else:
+            weight, bias = self.quantize(weight, bias)
+            weight = self.prune(weight)
+        return weight, bias
+
+    def forward(self, x):
+        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        x = F.conv1d(input=x, weight=weight, bias=bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
 
         return x
@@ -178,17 +217,12 @@ def remove_pruning_from_model(module, config):
             if config.pruning_method == "pdp": #Find better solution later
                 if config.pruning_first:
                     weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
-                    weight = quantizer(weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
+                    weight, bias = layer.quantize(weight, bias)
                 else:
-                    weight = quantizer(layer.weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
+                    weight, bias = layer.quantize(layer.weight, layer.bias)
                     weight = layer.pruning_layer.get_hard_mask(weight) * weight
             else:
-                if config.pruning_first:
-                    weight = layer.pruning_layer(layer.weight)
-                    weight = quantizer(weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
-                else:
-                    weight = quantizer(layer.weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
-                    weight = layer.pruning_layer(weight)
+                weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
             out_features = layer.out_features
             bias_values = layer.bias
             in_features = layer.in_features
@@ -196,23 +230,17 @@ def remove_pruning_from_model(module, config):
             setattr(module, name, nn.Linear(in_features=in_features, out_features=out_features, bias=bias))
             getattr(module, name).weight.data.copy_(weight)
             if getattr(module, name).bias is not None:
-                getattr(module, name).bias.data.copy_(layer.bias.data)
+                getattr(module, name).bias.data.copy_(bias.data)
         elif isinstance(layer, SparseLayerConv2d):
             if config.pruning_method == "pdp": #Find better solution later
                 if config.pruning_first:
                     weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
-                    weight = quantizer(weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
+                    weight, bias = layer.quantize(weight, bias)
                 else:
-                    weight = quantizer(layer.weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
+                    weight, bias = layer.quantize(layer.weight, layer.bias)
                     weight = layer.pruning_layer.get_hard_mask(weight) * weight
-
             else:
-                if config.pruning_first:
-                    weight = layer.pruning_layer(layer.weight)
-                    weight = quantizer(weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
-                else:
-                    weight = quantizer(layer.weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
-                    weight = layer.pruning_layer(weight)
+                weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
             bias_values = layer.bias
             bias = True if bias_values is not None else False
             setattr(module, name, nn.Conv2d(layer.in_channels, layer.out_channels, layer.kernel_size, 
@@ -220,23 +248,17 @@ def remove_pruning_from_model(module, config):
                                            bias, layer.padding_mode))
             getattr(module, name).weight.data.copy_(weight)
             if getattr(module, name).bias is not None:
-                getattr(module, name).bias.data.copy_(layer.bias.data)
+                getattr(module, name).bias.data.copy_(bias.data)
         elif isinstance(layer, SparseLayerConv1d):
             if config.pruning_method == "pdp": #Find better solution later
                 if config.pruning_first:
                     weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
-                    weight = quantizer(weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
+                    weight, bias = layer.quantize(weight, bias)
                 else:
-                    weight = quantizer(layer.weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
+                    weight, bias = layer.quantize(layer.weight, layer.bias)
                     weight = layer.pruning_layer.get_hard_mask(weight) * weight
-
             else:
-                if config.pruning_first:
-                    weight = layer.pruning_layer(layer.weight)
-                    weight = quantizer(weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
-                else:
-                    weight = quantizer(layer.weight, k=torch.tensor(1.), i=layer.i, f=layer.f, training=True)
-                    weight = layer.pruning_layer(weight)
+                weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
             bias_values = layer.bias
             bias = True if bias_values is not None else False
             setattr(module, name, nn.Conv1d(layer.in_channels, layer.out_channels, layer.kernel_size, 
@@ -244,7 +266,7 @@ def remove_pruning_from_model(module, config):
                                            bias, layer.padding_mode))
             getattr(module, name).weight.data.copy_(weight)
             if getattr(module, name).bias is not None:
-                getattr(module, name).bias.data.copy_(layer.bias.data)
+                getattr(module, name).bias.data.copy_(bias.data)
         else:
             remove_pruning_from_model(layer, config)
     return module

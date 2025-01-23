@@ -1,5 +1,6 @@
 pruning_parameters:
   alpha: 5.0e-06
+  enable_pruning: true
   max_pruning_pct: 0.99
   pruning_method: dst
   threshold_init: 0.0
@@ -7,6 +8,7 @@ pruning_parameters:
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  enable_quantization: true
   layer_specific: []
 training_parameters:
   batch_size: 64
