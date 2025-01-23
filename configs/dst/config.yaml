@@ -9,7 +9,9 @@ quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
   enable_quantization: true
+  hgq_gamma: 0.0003
   layer_specific: []
+  use_high_granularity_quantization: false
 training_parameters:
   batch_size: 64
   cosine_tmax: 200
