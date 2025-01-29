@@ -16,7 +16,6 @@ def parse_cmdline_args(args=None):
     parser.add_argument("--dataset", default=None, help="If not using data from config, use this dataset")
     parser.add_argument("--model", default="resnet18", help="If not using model from config, use this model.")
     parser.add_argument("--pruning_config", type=str, default=None, help="Path to pruning config file")
-    parser.add_argument("--do_pruning", type=str2bool, default=True)
     parser.add_argument("--validation_config_folder", type=str, default=None)
     config = parser.parse_args(args=args).__dict__
     if config["validation_config_folder"] is not None: # Use validation config instead
@@ -41,19 +40,9 @@ def read_config_yaml(config):
 def get_pruning_config(config):    
     with open(config["pruning_config"], "r") as f:
         pruning_config = yaml.safe_load(f)
-        if config["do_pruning"]:
-            training_pruning_params = pruning_config["pruning_parameters"] | pruning_config["training_parameters"]
-            layer_specific = pruning_config["quantization_parameters"]["layer_specific"]
-            training_pruning_params = training_pruning_params | pruning_config["quantization_parameters"]
-            layer_specific_flat = {}
-            for l in layer_specific:
-                layer_name = list(l.keys())[0]
-                values = l[layer_name][0] | l[layer_name][1]
-                layer_specific_flat = layer_specific_flat | {layer_name : values}
-            training_pruning_params["layer_specific"] = layer_specific_flat
-        else:
-            training_pruning_params = pruning_config["training_parameters"] | {"pruning_method": "no_pruning"}
-        return training_pruning_params
+        params = pruning_config["pruning_parameters"] | pruning_config["training_parameters"]
+        params = params | pruning_config["quantization_parameters"]
+        return params
 
 def get_particle_transformer_model_config():
     with open("configs/particle_transformer.yaml", "r") as f:

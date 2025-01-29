@@ -3,9 +3,9 @@ os.environ["KERAS_BACKEND"] = "torch"
 import torch
 import torch.nn as nn
 from argparse import Namespace
-from sparse_layers import  add_pruning_to_model, add_layer_specific_quantization_to_model, \
-post_epoch_functions, post_round_functions, save_weights_functions, rewind_weights_functions, \
-pre_finetune_functions, post_pretrain_functions, pre_epoch_functions, remove_pruning_from_model, get_model_losses, get_layer_keep_ratio, get_layer_weight_uniques
+from sparse_layers import  add_pruning_and_quantization, post_epoch_functions, post_round_functions, \
+save_weights_functions, rewind_weights_functions,pre_finetune_functions, post_pretrain_functions, \
+pre_epoch_functions, remove_pruning_from_model, get_model_losses, get_layer_keep_ratio
 from utils import get_scheduler, get_optimizer, plot_weights_per_layer
 from parser import parse_cmdline_args, write_config_to_yaml
 from weaver.utils.nn.tools import TensorboardHelper
@@ -317,10 +317,8 @@ def main(config):
     output_dir = writer.writer.get_logdir()
     write_config_to_yaml(config, output_dir)
     sparse_model, train_loader, val_loader, loss_func = get_model_data_loss_func(config, device)
-    if config.do_pruning:
-        sparse_model = add_pruning_to_model(sparse_model, config)
-        sparse_model = add_layer_specific_quantization_to_model(sparse_model, config)
-        sparse_model = sparse_model.to(device)
+    sparse_model = add_pruning_and_quantization(sparse_model, config)
+    sparse_model = sparse_model.to(device)
     if config.pruning_method == "autosparse" and "resnet" in config.model: # WIP, use only for resnets
         model, _, _, _ = get_model_data_loss_func(config, device)
         trained_sparse_model = autosparse_autotune_resnet(model, sparse_model, config, train_loader, val_loader, device, loss_func, writer)

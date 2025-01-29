@@ -93,13 +93,19 @@ def plot_weights_per_layer(sparse_model, output_dir):
     nonzeros = []
     for n, m in sparse_model.named_modules():
         if isinstance(m, (torch.nn.Conv1d, torch.nn.Conv2d, torch.nn.Linear)):
+            fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+            ax.hist(m.weight.detach().cpu().numpy().flatten())
             names.append(n)
             nonzero = np.count_nonzero(m.weight.detach().cpu())
             remaining_pct = nonzero/ m.weight.numel()
             remaining.append(remaining_pct)
             total_w.append(m.weight.numel())
             nonzeros.append(nonzero)
-
+            ax.title.set_text(f"{n} weight distribution")
+            plt.tight_layout()
+            plt.savefig(f"{output_dir}/{n.replace(".", "_")}_weight_hist.png")
+            plt.cla()
+            plt.clf()
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     ax.bar(range(len(names)), remaining)
     ax.set_xticks(range(len(names)))

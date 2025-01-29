@@ -6,8 +6,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from parser import parse_cmdline_args
 from quantizers import get_fixed_quantizer
+from quantizer import QuantizedReLU, QuantizedTanh, quantized_relu, quantized_tanh
 from squark.quantizer import Quantizer
 import numpy as np
+from torch.fx import symbolic_trace
+
 
 quantizer = get_fixed_quantizer(overflow_mode="SAT")
 
@@ -38,6 +41,12 @@ class SparseLayerLinear(nn.Module):
     def rewind_weights(self):
         self.weight.data = self.init_weight.clone()
 
+    def hgq_loss(self):
+        if self.pruning_layer.is_pretraining:
+            return 0.
+        loss = (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.hgq_gamma
+        return loss
+
     def quantize(self, weight, bias):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
@@ -47,11 +56,6 @@ class SparseLayerLinear(nn.Module):
                 weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
                 bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
         return weight, bias
-
-    def hgq_loss(self):
-        loss = (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.hgq_gamma
-        return loss
-
 
     def prune(self, weight):
         if self.enable_pruning:
@@ -228,15 +232,61 @@ class SingleConvLayer(nn.Module):
         return x
 
 
+def add_pruning_and_quantization(model, config):
+    model = add_quantized_activations_to_model(model, config)
+    model = add_pruning_to_model(model, config)
+    model = add_layer_specific_quantization_to_model(model, config)
+    return model
+
 def add_layer_specific_quantization_to_model(module, config):
     for name, layer in module.named_modules():
         if layer.__class__ in [SparseLayerLinear, SparseLayerConv2d, SparseLayerConv1d]:
             if name in config.layer_specific:
-                int_bits, float_bits = config.layer_specific[name]["integer_bits"], config.layer_specific[name]["float_bits"]
+                int_bits, fractional_bits = config.layer_specific[name]["integer_bits"], config.layer_specific[name]["fractional_bits"]
                 layer.i = torch.tensor(int_bits)
-                layer.f = torch.tensor(float_bits)
+                layer.f = torch.tensor(fractional_bits)
     return module
+            
 
+def add_quantized_activations_to_model(module, config):
+    # Replaces ReLU and Tanh layers with quantized versions
+    for name, layer in module.named_children():
+        if layer.__class__ in [nn.ReLU]:
+            if name in config.layer_specific:
+                bits = config.layer_specific[name]["bits"]
+            else:
+                bits = 8
+            relu = QuantizedReLU(bits = float(bits))
+            setattr(module, name, relu)
+        elif layer.__class__ in [nn.Tanh]:
+            if name in config.layer_specific:
+                bits = config.layer_specific[name]["bits"]
+            else:
+                bits = 8
+            tanh = QuantizedTanh(bits = bits)
+            setattr(module, name, tanh)
+
+
+    # Replaces functional activation calls with quantized versions
+    traced_model = symbolic_trace(module)
+    for node in traced_model.graph.nodes:
+        if node.op in ["call_method", "call_function"] and (node.target == "tanh" or "function relu" in str(node.target)):
+            with traced_model.graph.inserting_after(node):
+                if node.name in config.layer_specific:
+                    bits = config.layer_specific[node.name]["bits"]
+                else:
+                    bits = config.default_integer_bits + config.default_fractional_bits + 1 # 1 sign bit
+                kwargs = {"bits":bits}
+                if node.target == "tanh":
+                    new_node = traced_model.graph.call_function(quantized_tanh, node.args, kwargs)
+                else:
+                    new_node = traced_model.graph.call_function(quantized_relu, node.args, kwargs)
+                node.replace_all_uses_with(new_node)
+            traced_model.graph.erase_node(node)
+
+    traced_model.graph.lint()
+    traced_model.recompile()
+    return traced_model
 
 def add_pruning_to_model(module, config):
     for name, layer in module.named_children():
@@ -446,6 +496,19 @@ def test_layer_replacing():
     assert torch.equal(linear_model_orig.linear.bias, desparse_linear_model.linear.bias)
     print("LAYER REPLACING TESTS PASSED")
 
+
+def get_names_for_quantization(model):
+    names = []
+    for n, layer in model.named_modules():
+        if layer.__class__ in [nn.Linear, nn.Conv1d, nn.Conv2d, nn.ReLU, nn.Tanh]:
+            names.append(n)
+    traced_model = symbolic_trace(model)
+    for node in traced_model.graph.nodes:
+        if node.op == "call_method" and node.target == "tanh":
+            names.append(node.name)
+        elif node.op == "call_function" and "function relu" == str(node.target):
+            names.append(node.name)
+    return names
 
 if __name__ == "__main__":
     test_layer_replacing()

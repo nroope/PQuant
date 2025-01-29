@@ -37,7 +37,7 @@ class SmartPixelModel(nn.Module):
 class depthwise_separable_conv(nn.Module):
     def __init__(self, input_channels, output_channels):
         super(depthwise_separable_conv, self).__init__()
-        self.depthwise = nn.Conv2d(input_channels, input_channels, kernel_size=3, padding=0, groups=input_channels)
+        self.depthwise = nn.Conv2d(input_channels, input_channels, kernel_size=3, padding=0, groups=input_channels, bias=False)
         self.pointwise = nn.Conv2d(input_channels, output_channels, kernel_size=1)
 
     def forward(self, x):
