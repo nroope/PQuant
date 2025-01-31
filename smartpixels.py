@@ -1,15 +1,12 @@
 import torch.nn as nn
 import torch
-from quantizer import QuantizedTanh, hard_tanh
+from activations_quantizer import QuantizedTanh, hard_tanh
+import torch.nn.functional as F
 
 class SmartPixelModel(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.sep_conv = depthwise_separable_conv(input_channels=20, output_channels=5)
-        self.act = nn.Tanh()
-        self.q_act4 = QuantizedTanh(4)
-        self.q_act8 = QuantizedTanh(8)
-        self.hard_tanh = hard_tanh
         self.conv = nn.Conv2d(in_channels=5, out_channels=5, kernel_size=1)
         self.avg = nn.AvgPool2d(3)
         self.flat = nn.Flatten(1)
@@ -19,18 +16,18 @@ class SmartPixelModel(nn.Module):
 
     def forward(self, x):
         x = self.sep_conv(x)
-        x = self.q_act4(x)
+        x = F.tanh(x)
         x = self.conv(x)
-        x = self.q_act4(x)
+        x = F.tanh(x)
         
         x = self.avg(x)
-        x = self.q_act8(x)
+        x = F.tanh(x)
     
         x = self.flat(x)
         x = self.dense1(x)
-        x = self.q_act8(x)
+        x = F.tanh(x)
         x = self.dense2(x)
-        x = self.q_act8(x)
+        x = F.tanh(x)
         x = self.dense3(x)
         return x
 

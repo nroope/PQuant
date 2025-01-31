@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from parser import parse_cmdline_args
 from quantizers import get_fixed_quantizer
-from quantizer import QuantizedReLU, QuantizedTanh, quantized_relu, quantized_tanh
+from activations_quantizer import QuantizedReLU, QuantizedTanh, quantized_relu, quantized_tanh
 from squark.quantizer import Quantizer
 import numpy as np
 from torch.fx import symbolic_trace
