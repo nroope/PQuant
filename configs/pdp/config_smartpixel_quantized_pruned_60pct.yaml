@@ -1,6 +1,6 @@
 pruning_parameters:
   enable_pruning: true
-  epsilon: 0.005
+  epsilon: 0.003
   pruning_method: pdp
   sparsity: 0.4
   temperature: 1.0e-05
@@ -20,6 +20,10 @@ quantization_parameters:
     conv:
       integer_bits: 0
       fractional_bits: 3
+    tanh:
+      bits: 4
+    tanh_1:
+      bits: 4
   use_high_granularity_quantization: false
 training_parameters:
   batch_size: 256 #Dataset has inbuilt batch size of 5000
@@ -30,7 +34,7 @@ training_parameters:
   l2_decay: 0.01
   label_smoothing: 0.0
   lr: 0.001
-  lr_schedule: cosine
+  lr_schedule: multistep
   milestones: # Never drop
   - 1000
   - 1000

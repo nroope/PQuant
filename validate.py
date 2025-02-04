@@ -4,10 +4,11 @@ from parser import parse_cmdline_args
 from train import get_model_data_loss_func
 from datetime import datetime
 import torch
-from sparse_layers import get_layer_keep_ratio, get_layer_weight_uniques
+from sparse_layers import get_layer_keep_ratio, get_layer_weight_uniques, add_quantized_activations_to_model
 
 def validate(config, device):
     model, _, val_loader, _ = get_model_data_loss_func(config, device)
+    model = add_quantized_activations_to_model(model, config)
     model.to("cuda")
     model.load_state_dict(torch.load(f"{config.validation_config_folder}/final_model.pt"))
     get_layer_keep_ratio(model)
