@@ -10,7 +10,7 @@ def quantized_tanh(x, bits=8.):
   m = torch.pow(torch.tensor(2.0), non_sign_bits).to(x.device)
   p = torch.tanh(x)
   round_x = round_ste(p * m) / m
-  x_clipped = torch.clip(round_x, -1.0 / m, 1.0 - 1.0 / m)
+  x_clipped = torch.clip(round_x, -1.0, 1.0 - 1.0 / m)
   return x_clipped
 
 class QuantizedTanh(nn.Module):
