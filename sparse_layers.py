@@ -17,15 +17,18 @@ quantizer = get_fixed_quantizer(overflow_mode="SAT")
 class SparseLayerLinear(nn.Module):
     def __init__(self, config, layer):
         super(SparseLayerLinear, self).__init__()
-        self.f = torch.tensor(config.default_fractional_bits)
-        self.i = torch.tensor(config.default_integer_bits)  
+        self.f_weight = torch.tensor(config.default_fractional_bits)
+        self.i_weight = torch.tensor(config.default_integer_bits)  
+        self.f_bias = torch.tensor(config.default_fractional_bits)
+        self.i_bias = torch.tensor(config.default_integer_bits)  
+
         self.in_features = layer.in_features
         self.out_features = layer.out_features
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
 
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
         self.hgq.build(self.weight.shape)
         self.hgq_gamma = config.hgq_gamma
         
@@ -51,10 +54,10 @@ class SparseLayerLinear(nn.Module):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
                 weight = self.hgq(weight)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
             else:
-                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
         return weight, bias
 
     def prune(self, weight):
@@ -79,13 +82,15 @@ class SparseLayerLinear(nn.Module):
 class SparseLayerConv2d(nn.Module):
     def __init__(self, config, layer):
         super(SparseLayerConv2d, self).__init__()
-        self.f = torch.tensor(config.default_fractional_bits)
-        self.i = torch.tensor(config.default_integer_bits)  
+        self.f_weight = torch.tensor(config.default_fractional_bits)
+        self.i_weight = torch.tensor(config.default_integer_bits)  
+        self.f_bias = torch.tensor(config.default_fractional_bits)
+        self.i_bias = torch.tensor(config.default_integer_bits)  
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif") # DOES PRUNING
+        self.hgq = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif") # DOES PRUNING
         self.hgq.build(self.weight.shape)
         self.hgq_gamma = config.hgq_gamma
 
@@ -116,10 +121,10 @@ class SparseLayerConv2d(nn.Module):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
                 weight = self.hgq(weight)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
             else:
-                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
         return weight, bias
 
     def prune(self, weight):
@@ -147,13 +152,15 @@ class SparseLayerConv2d(nn.Module):
 class SparseLayerConv1d(nn.Module):
     def __init__(self, config, layer):
         super(SparseLayerConv1d, self).__init__()
-        self.f = torch.tensor(config.default_fractional_bits)
-        self.i = torch.tensor(config.default_integer_bits) 
+        self.f_weight = torch.tensor(config.default_fractional_bits)
+        self.i_weight = torch.tensor(config.default_integer_bits)  
+        self.f_bias = torch.tensor(config.default_fractional_bits)
+        self.i_bias = torch.tensor(config.default_integer_bits)  
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
 
-        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
         self.hgq.build(self.weight.shape)
         self.hgq_gamma = config.hgq_gamma
 
@@ -184,10 +191,10 @@ class SparseLayerConv1d(nn.Module):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
                 weight = self.hgq(weight)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
             else:
-                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
         return weight, bias
 
     def prune(self, weight):
@@ -242,9 +249,16 @@ def add_layer_specific_quantization_to_model(module, config):
     for name, layer in module.named_modules():
         if layer.__class__ in [SparseLayerLinear, SparseLayerConv2d, SparseLayerConv1d]:
             if name in config.layer_specific:
-                int_bits, fractional_bits = config.layer_specific[name]["integer_bits"], config.layer_specific[name]["fractional_bits"]
-                layer.i = torch.tensor(int_bits)
-                layer.f = torch.tensor(fractional_bits)
+                if "weight" in config.layer_specific[name]:
+                    weight_int_bits = config.layer_specific[name]["weight"]["integer_bits"]
+                    weight_fractional_bits = config.layer_specific[name]["weight"]["fractional_bits"]
+                    layer.i_weight = torch.tensor(weight_int_bits)
+                    layer.f_weight = torch.tensor(weight_fractional_bits)
+                if "bias" in config.layer_specific[name]:
+                    bias_int_bits = config.layer_specific[name]["bias"]["integer_bits"]
+                    bias_fractional_bits = config.layer_specific[name]["bias"]["fractional_bits"]
+                    layer.i_bias = torch.tensor(bias_int_bits)
+                    layer.f_bias = torch.tensor(bias_fractional_bits)
     return module
             
 
@@ -497,18 +511,21 @@ def test_layer_replacing():
     print("LAYER REPLACING TESTS PASSED")
 
 
-def get_names_for_quantization(model):
-    names = []
-    for n, layer in model.named_modules():
-        if layer.__class__ in [nn.Linear, nn.Conv1d, nn.Conv2d, nn.ReLU, nn.Tanh]:
-            names.append(n)
+def create_default_layer_quantization_config(model):
+    config = {"layer_specific":{}}
+    for name, layer in model.named_modules():
+        if layer.__class__ in [nn.Linear, nn.Conv1d, nn.Conv2d]:
+            config["layer_specific"][name] = {"weight":{"integer_bits":0, "fractional_bits":7}, 
+                                           "bias":{"integer_bits":0, "fractional_bits":7}}
+        elif layer.__class__ in [nn.Tanh, nn.ReLU]:
+            config["layer_specific"][name] = {"bits":8}
     traced_model = symbolic_trace(model)
     for node in traced_model.graph.nodes:
         if node.op == "call_method" and node.target == "tanh":
-            names.append(node.name)
+            config["layer_specific"][node.name] = {"bits":8}
         elif node.op == "call_function" and "function relu" == str(node.target):
-            names.append(node.name)
-    return names
+            config["layer_specific"][node.name] = {"bits":8}
+    return config
 
 if __name__ == "__main__":
     test_layer_replacing()

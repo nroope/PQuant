@@ -12,14 +12,26 @@ quantization_parameters:
   hgq_gamma: 0.0003
   layer_specific:
     sep_conv.depthwise:
-      integer_bits: 0
-      fractional_bits: 3
+      weight:
+        integer_bits: 0
+        fractional_bits: 3
+      bias: # Not used, bias only in pointwise
+        integer_bits: 0
+        fractional_bits: 3
     sep_conv.pointwise:
-      integer_bits: 0
-      fractional_bits: 3
+      weight:
+        integer_bits: 0
+        fractional_bits: 3
+      bias:
+        integer_bits: 0
+        fractional_bits: 3
     conv:
-      integer_bits: 0
-      fractional_bits: 3
+      weight:
+        integer_bits: 0
+        fractional_bits: 3
+      bias:
+        integer_bits: 0
+        fractional_bits: 3
     tanh:
       bits: 4
     tanh_1:
