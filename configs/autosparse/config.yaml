@@ -14,6 +14,7 @@ quantization_parameters:
   hgq_gamma: 0.0003
   layer_specific: []
   use_high_granularity_quantization: false
+  use_real_tanh: false
 training_parameters:
   batch_size: 256
   cosine_tmax: 200

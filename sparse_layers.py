@@ -28,8 +28,11 @@ class SparseLayerLinear(nn.Module):
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
 
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
-        self.hgq.build(self.weight.shape)
+        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq_weight.build(self.weight.shape)
+        if layer.bias is not None:
+            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+            self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
         
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
@@ -47,14 +50,16 @@ class SparseLayerLinear(nn.Module):
     def hgq_loss(self):
         if self.pruning_layer.is_pretraining:
             return 0.
-        loss = (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.hgq_gamma
+        loss = (torch.sum(self.hgq_weight.quantizer.i) + torch.sum(self.hgq_weight.quantizer.f)) * self.hgq_gamma
+        if self.bias is not None:
+            loss += (torch.sum(self.hgq_bias.quantizer.i) + torch.sum(self.hgq_bias.quantizer.f)) * self.hgq_gamma
         return loss
 
     def quantize(self, weight, bias):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
-                weight = self.hgq(weight)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                weight = self.hgq_weight(weight)
+                bias = None if bias is None else self.hgq_bias(bias)
             else:
                 weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
                 bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
@@ -90,8 +95,11 @@ class SparseLayerConv2d(nn.Module):
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif") # DOES PRUNING
-        self.hgq.build(self.weight.shape)
+        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq_weight.build(self.weight.shape)
+        if layer.bias is not None:
+            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+            self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
@@ -114,14 +122,18 @@ class SparseLayerConv2d(nn.Module):
         self.weight.data = self.init_weight.clone()
 
     def hgq_loss(self):
-        loss = (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.hgq_gamma
+        if self.pruning_layer.is_pretraining:
+            return 0.
+        loss = (torch.sum(self.hgq_weight.quantizer.i) + torch.sum(self.hgq_weight.quantizer.f)) * self.hgq_gamma
+        if self.bias is not None:
+            loss += (torch.sum(self.hgq_bias.quantizer.i) + torch.sum(self.hgq_bias.quantizer.f)) * self.hgq_gamma
         return loss
 
     def quantize(self, weight, bias):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
-                weight = self.hgq(weight)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                weight = self.hgq_weight(weight)
+                bias = None if bias is None else self.hgq_bias(bias)
             else:
                 weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
                 bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
@@ -160,8 +172,11 @@ class SparseLayerConv1d(nn.Module):
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
 
-        self.hgq = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
-        self.hgq.build(self.weight.shape)
+        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq_weight.build(self.weight.shape)
+        if layer.bias is not None:
+            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+            self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
@@ -184,14 +199,18 @@ class SparseLayerConv1d(nn.Module):
         self.weight.data = self.init_weight.clone()
 
     def hgq_loss(self):
-        loss = (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.hgq_gamma        
+        if self.pruning_layer.is_pretraining:
+            return 0.
+        loss = (torch.sum(self.hgq_weight.quantizer.i) + torch.sum(self.hgq_weight.quantizer.f)) * self.hgq_gamma
+        if self.bias is not None:
+            loss += (torch.sum(self.hgq_bias.quantizer.i) + torch.sum(self.hgq_bias.quantizer.f)) * self.hgq_gamma
         return loss
 
     def quantize(self, weight, bias):
         if self.enable_quantization:
             if self.use_high_granularity_quantization:
-                weight = self.hgq(weight)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                weight = self.hgq_weight(weight)
+                bias = None if bias is None else self.hgq_bias(bias)
             else:
                 weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
                 bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
@@ -270,17 +289,17 @@ def add_quantized_activations_to_model(module, config):
                 bits = config.layer_specific[name]["bits"]
             else:
                 bits = 8
-            relu = QuantizedReLU(bits = float(bits))
+            relu = QuantizedReLU(bits = float(bits), config=config)
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
             if name in config.layer_specific:
                 bits = config.layer_specific[name]["bits"]
             else:
                 bits = 8
-            tanh = QuantizedTanh(bits = bits)
+            tanh = QuantizedTanh(bits = bits, config=config)
             setattr(module, name, tanh)
-
-
+    if config.use_high_granularity_quantization:
+        return module
     # Replaces functional activation calls with quantized versions
     traced_model = symbolic_trace(module)
     for node in traced_model.graph.nodes:
@@ -292,6 +311,7 @@ def add_quantized_activations_to_model(module, config):
                     bits = config.default_integer_bits + config.default_fractional_bits + 1 # 1 sign bit
                 kwargs = {"bits":bits}
                 if node.target == "tanh":
+                    kwargs["use_real_tanh"] = config.use_real_tanh
                     new_node = traced_model.graph.call_function(quantized_tanh, node.args, kwargs)
                 else:
                     new_node = traced_model.graph.call_function(quantized_relu, node.args, kwargs)

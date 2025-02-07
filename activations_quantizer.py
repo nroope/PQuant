@@ -1,25 +1,36 @@
 import torch
 import torch.nn as nn
-
+from squark.quantizer import Quantizer
 
 def round_ste(x):
   return x + (-x + torch.round(x)).detach()
   
-def quantized_tanh(x, bits=8.):
+def quantized_tanh(x, bits=8., use_real_tanh=False):
   non_sign_bits = bits - 1.0
   m = torch.pow(torch.tensor(2.0), non_sign_bits).to(x.device)
-  p = torch.tanh(x)
+  p = torch.tanh(x) if use_real_tanh else hard_tanh(x)
   round_x = round_ste(p * m) / m
   x_clipped = torch.clip(round_x, -1.0, 1.0 - 1.0 / m)
   return x_clipped
 
 class QuantizedTanh(nn.Module):
-    def __init__(self, bits=8.):
+    def __init__(self, config, bits=8.):
         super(QuantizedTanh, self).__init__()
         self.bits = bits
+        self.f = torch.tensor(config.default_fractional_bits)
+        self.i = torch.tensor(config.default_integer_bits)  
+        self.config = config
+        self.use_real_tanh = config.use_real_tanh
+        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
   
     def forward(self, x):
-        return quantized_tanh(x, self.bits)
+        if self.config.use_high_granularity_quantization:
+            if not self.hgq.built:
+                self.hgq.build(x.shape)
+            x = torch.tanh(x) if self.use_real_tanh else hard_tanh(x)
+            return self.hgq(x)
+        else:
+            return quantized_tanh(x, self.bits)
 
     
 def quantized_relu(x, bits, integer_bits):
@@ -32,13 +43,23 @@ def quantized_relu(x, bits, integer_bits):
     return x_u + (-x_u + xq).detach()
 
 class QuantizedReLU(nn.Module):
-    def __init__(self, bits=8., integer_bits=0.):
+    def __init__(self, config, bits=8., integer_bits=0.):
         super(QuantizedReLU, self).__init__()
         self.bits = torch.tensor(bits) # Clip to 0, non sign bits == bits
         self.integer_bits = torch.tensor(integer_bits)
-  
+        self.config = config
+        self.f = torch.tensor(config.default_fractional_bits)
+        self.i = torch.tensor(config.default_integer_bits)  
+        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+
     def forward(self, x):
-      return quantized_relu(x, self.bits, self.integer_bits)
+      if self.config.use_high_granularity_quantization:
+          if not self.hgq.built:
+              self.hgq.build(x.shape)
+          x = torch.relu(x)
+          return self.hgq(x)
+      else:
+          return quantized_relu(x, self.bits, self.integer_bits)
 
 
     
