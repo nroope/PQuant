@@ -12,7 +12,7 @@ import numpy as np
 from torch.fx import symbolic_trace
 
 
-quantizer = get_fixed_quantizer(overflow_mode="SAT")
+
 
 class SparseLayerLinear(nn.Module):
     def __init__(self, config, layer):
@@ -26,12 +26,13 @@ class SparseLayerLinear(nn.Module):
         self.out_features = layer.out_features
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
-
+        overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
+        self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
         self.hgq_weight.build(self.weight.shape)
         if layer.bias is not None:
-            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
             self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
         
@@ -61,8 +62,8 @@ class SparseLayerLinear(nn.Module):
                 weight = self.hgq_weight(weight)
                 bias = None if bias is None else self.hgq_bias(bias)
             else:
-                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                weight = self.quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                bias = None if bias is None else self.quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
         return weight, bias
 
     def prune(self, weight):
@@ -92,13 +93,15 @@ class SparseLayerConv2d(nn.Module):
         self.f_bias = torch.tensor(config.default_fractional_bits)
         self.i_bias = torch.tensor(config.default_integer_bits)  
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
+        overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
+        self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
         self.hgq_weight.build(self.weight.shape)
         if layer.bias is not None:
-            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
             self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
 
@@ -135,8 +138,8 @@ class SparseLayerConv2d(nn.Module):
                 weight = self.hgq_weight(weight)
                 bias = None if bias is None else self.hgq_bias(bias)
             else:
-                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                weight = self.quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                bias = None if bias is None else self.quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
         return weight, bias
 
     def prune(self, weight):
@@ -169,13 +172,15 @@ class SparseLayerConv1d(nn.Module):
         self.f_bias = torch.tensor(config.default_fractional_bits)
         self.i_bias = torch.tensor(config.default_integer_bits)  
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
+        overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
+        self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
 
-        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
         self.hgq_weight.build(self.weight.shape)
         if layer.bias is not None:
-            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
             self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
 
@@ -212,8 +217,8 @@ class SparseLayerConv1d(nn.Module):
                 weight = self.hgq_weight(weight)
                 bias = None if bias is None else self.hgq_bias(bias)
             else:
-                weight = quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
-                bias = None if bias is None else quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                weight = self.quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                bias = None if bias is None else self.quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
         return weight, bias
 
     def prune(self, weight):

@@ -13,6 +13,7 @@ quantization_parameters:
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
+  use_symmetric_quantization: false
 training_parameters:
   batch_size: 64
   cosine_tmax: 200

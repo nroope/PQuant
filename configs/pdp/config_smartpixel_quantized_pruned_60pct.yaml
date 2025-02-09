@@ -38,6 +38,7 @@ quantization_parameters:
       bits: 4
   use_high_granularity_quantization: false
   use_real_tanh: false
+  use_symmetric_quantization: false
 training_parameters:
   batch_size: 256 #Dataset has inbuilt batch size of 5000
   cosine_tmax: 500
