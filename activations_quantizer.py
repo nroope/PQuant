@@ -5,12 +5,13 @@ from squark.quantizer import Quantizer
 def round_ste(x):
   return x + (-x + torch.round(x)).detach()
   
-def quantized_tanh(x, bits=8., use_real_tanh=False):
+def quantized_tanh(x, bits=8., use_real_tanh=False, use_symmetric=False):
   non_sign_bits = bits - 1.0
   m = torch.pow(torch.tensor(2.0), non_sign_bits).to(x.device)
   p = torch.tanh(x) if use_real_tanh else hard_tanh(x)
   round_x = round_ste(p * m) / m
-  x_clipped = torch.clip(round_x, -1.0, 1.0 - 1.0 / m)
+  min_clip = -1.0 + (1.0 * use_symmetric) / m
+  x_clipped = torch.clip(round_x, min_clip, 1.0 - 1.0 / m)
   return x_clipped
 
 class QuantizedTanh(nn.Module):
@@ -20,8 +21,9 @@ class QuantizedTanh(nn.Module):
         self.f = torch.tensor(config.default_fractional_bits)
         self.i = torch.tensor(config.default_integer_bits)  
         self.config = config
+        overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
         self.use_real_tanh = config.use_real_tanh
-        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
   
     def forward(self, x):
         if self.config.use_high_granularity_quantization:
@@ -30,7 +32,9 @@ class QuantizedTanh(nn.Module):
             x = torch.tanh(x) if self.use_real_tanh else hard_tanh(x)
             return self.hgq(x)
         else:
-            return quantized_tanh(x, self.bits)
+            return quantized_tanh(x, bits=self.bits, 
+                                  use_real_tanh=self.config.use_real_tanh, 
+                                  use_symmetric=self.config.use_symmetric_quantization)
 
     
 def quantized_relu(x, bits, integer_bits):

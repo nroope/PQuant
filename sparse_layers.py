@@ -317,6 +317,7 @@ def add_quantized_activations_to_model(module, config):
                 kwargs = {"bits":bits}
                 if node.target == "tanh":
                     kwargs["use_real_tanh"] = config.use_real_tanh
+                    kwargs["use_symmetric"] = config.use_symmetric_quantization
                     new_node = traced_model.graph.call_function(quantized_tanh, node.args, kwargs)
                 else:
                     new_node = traced_model.graph.call_function(quantized_relu, node.args, kwargs)
