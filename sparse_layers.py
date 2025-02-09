@@ -266,6 +266,7 @@ class SingleConvLayer(nn.Module):
 def add_pruning_and_quantization(model, config):
     model = add_quantized_activations_to_model(model, config)
     model = add_pruning_to_model(model, config)
+    model = disable_pruning_from_layers(model, config)
     model = add_layer_specific_quantization_to_model(model, config)
     return model
 
@@ -327,6 +328,15 @@ def add_quantized_activations_to_model(module, config):
     traced_model.graph.lint()
     traced_model.recompile()
     return traced_model
+
+
+def disable_pruning_from_layers(module, config):
+    for name, layer in module.named_modules():
+        enable_pruning = name not in config.disable_pruning_for_layers
+        if layer.__class__ in [SparseLayerLinear, SparseLayerConv2d, SparseLayerConv1d] and not enable_pruning:
+            print("TRUE")
+            layer.enable_pruning = enable_pruning
+    return module
 
 def add_pruning_to_model(module, config):
     for name, layer in module.named_children():
@@ -537,12 +547,13 @@ def test_layer_replacing():
     print("LAYER REPLACING TESTS PASSED")
 
 
-def create_default_layer_quantization_config(model):
-    config = {"layer_specific":{}}
+def create_default_layer_quantization_pruning_config(model):
+    config = {"layer_specific":{}, "disable_pruning_for_layers":[]}
     for name, layer in model.named_modules():
         if layer.__class__ in [nn.Linear, nn.Conv1d, nn.Conv2d]:
             config["layer_specific"][name] = {"weight":{"integer_bits":0, "fractional_bits":7}, 
                                            "bias":{"integer_bits":0, "fractional_bits":7}}
+            config["disable_pruning_for_layers"].append(name)
         elif layer.__class__ in [nn.Tanh, nn.ReLU]:
             config["layer_specific"][name] = {"bits":8}
     traced_model = symbolic_trace(model)

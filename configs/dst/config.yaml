@@ -1,5 +1,7 @@
 pruning_parameters:
   alpha: 5.0e-06
+  disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
+    - 
   enable_pruning: true
   max_pruning_pct: 0.99
   pruning_method: dst
