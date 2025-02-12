@@ -26,6 +26,7 @@ class SparseLayerLinear(nn.Module):
         self.out_features = layer.out_features
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_features)
+        self.pruning_method = config.pruning_method
         overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
@@ -83,6 +84,8 @@ class SparseLayerLinear(nn.Module):
     def forward(self, x):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
         x = F.linear(x, weight, bias)
+        if self.pruning_method == "continual_learning":
+            self.pruning_layer.collect_output(x)
         return x
 
 class SparseLayerConv2d(nn.Module):
@@ -93,6 +96,7 @@ class SparseLayerConv2d(nn.Module):
         self.f_bias = torch.tensor(config.default_fractional_bits)
         self.i_bias = torch.tensor(config.default_integer_bits)  
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
+        self.pruning_method = config.pruning_method
         overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.weight = nn.Parameter(layer.weight.clone())
@@ -160,7 +164,8 @@ class SparseLayerConv2d(nn.Module):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
         x = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
-
+        if self.pruning_method == "continual_learning":
+            self.pruning_layer.collect_output(x)
         return x
 
 
@@ -172,6 +177,7 @@ class SparseLayerConv1d(nn.Module):
         self.f_bias = torch.tensor(config.default_fractional_bits)
         self.i_bias = torch.tensor(config.default_integer_bits)  
         self.pruning_layer = get_pruning_layer(config=config, layer=layer, out_size=layer.out_channels)
+        self.pruning_method = config.pruning_method
         overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.weight = nn.Parameter(layer.weight.clone())
@@ -239,7 +245,8 @@ class SparseLayerConv1d(nn.Module):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
         x = F.conv1d(input=x, weight=weight, bias=bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
-
+        if self.pruning_method == "continual_learning":
+            self.pruning_layer.collect_output(x)
         return x
 
 class SingleLinearLayer(nn.Module):
