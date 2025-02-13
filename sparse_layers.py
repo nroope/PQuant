@@ -83,6 +83,8 @@ class SparseLayerLinear(nn.Module):
         
     def forward(self, x):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        if self.pruning_method == "wanda":
+            self.pruning_layer.collect_input(x)
         x = F.linear(x, weight, bias)
         if self.pruning_method == "continual_learning":
             self.pruning_layer.collect_output(x)
@@ -162,6 +164,8 @@ class SparseLayerConv2d(nn.Module):
 
     def forward(self, x):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        if self.pruning_method == "wanda":
+            self.pruning_layer.collect_input(x)
         x = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
         if self.pruning_method == "continual_learning":
@@ -243,6 +247,8 @@ class SparseLayerConv1d(nn.Module):
 
     def forward(self, x):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        if self.pruning_method == "wanda":
+            self.pruning_layer.collect_input(x)
         x = F.conv1d(input=x, weight=weight, bias=bias, stride=self.stride, 
                         padding=self.padding, dilation=self.dilation, groups=self.groups)
         if self.pruning_method == "continual_learning":
@@ -459,7 +465,7 @@ def post_pretrain_functions(model, config):
     for layer in model.modules():
         if isinstance(layer, (SparseLayerConv2d, SparseLayerConv1d, SparseLayerLinear)):
                 layer.pruning_layer.post_pre_train_function()
-    if config.pruning_method == "pdp":
+    if config.pruning_method == "pdp" or config.pruning_method == "wanda":
         pdp_setup(model, config)
 
 def pdp_setup(model, config):
@@ -485,6 +491,7 @@ def pdp_setup(model, config):
             weight_size = layer.weight.numel()
             w = torch.sum(global_weights_below_threshold[idx:idx+weight_size])
             layer.pruning_layer.init_r = w / weight_size
+            layer.pruning_layer.sparsity = w / weight_size # Wanda
             idx += weight_size
 
 @torch.no_grad

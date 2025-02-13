@@ -19,6 +19,8 @@ def get_pruning_layer(config, layer, out_size):
             return PDP(config, layer, out_size)
         elif config.pruning_method == "continual_learning":
             return ActivationPruning(config, layer, out_size)
+        elif config.pruning_method == "wanda":
+            return Wanda(config, layer, out_size)
 
 def get_threshold_size(config, size, weight_shape):
     if config.threshold_type == "layerwise":
@@ -28,6 +30,90 @@ def get_threshold_size(config, size, weight_shape):
     elif config.threshold_type == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
 
+
+class Wanda(nn.Module):
+
+    def __init__(self, config, layer, out_size, *args, **kwargs):
+            super(Wanda, self).__init__(*args, **kwargs)
+            self.config = config
+            self.act_type = "relu"
+            self.t = 0
+            self.layer_type = "linear" if isinstance(layer, nn.Linear) else "conv"
+            self.shape = (layer.weight.shape[0], 1)
+            if self.layer_type == "conv":
+                self.shape = (layer.weight.shape[0], 1, 1, 1)
+            self.mask = torch.nn.Parameter(torch.ones(self.shape, requires_grad=False).to(layer.weight.device), requires_grad=False)
+            self.inputs = None
+            self.total = 0.
+            self.weight = layer.weight
+            self.done = False
+            self.sparsity = self.config.sparsity
+            self.is_pretraining = True
+
+    def collect_input(self, x):
+        if self.done or self.is_pretraining:
+            return
+        """
+        Accumulates layer inputs until step t_delta, then averages it. 
+        Calculates a metric based on weight absolute values and norm of inputs.
+        For linear layers, calculate norm over batch dimension.
+        For conv layers, take average over batch dimension and calculate norm over flattened kernel_size dimension
+        """
+        if not self.training or x.shape[0] != self.config.batch_size:
+            # Don't collect during validation
+            return
+        self.t += 1
+        self.total += x.shape[0]
+        self.inputs = x if self.inputs is None else self.inputs + x
+        if self.t % self.config.t_delta == 0:
+            inputs_avg = self.inputs / self.total
+            self.t = 0
+            self.total = 0
+            if self.layer_type == "linear":
+                norm = inputs_avg.norm(p=2, dim=0)
+                metric = self.weight.abs() * norm
+                _, sorted_idx = torch.sort(metric, dim=1)
+                pruned_idx = sorted_idx[:,:int(self.weight.shape[1] * self.sparsity)]
+                self.weight.data = torch.scatter(self.weight, dim=1, index=pruned_idx, src=torch.zeros(pruned_idx.shape).to(self.weight.device))
+                self.mask.data = (self.weight != 0).float()
+            else:
+                inputs_avg = torch.mean(inputs_avg.view(inputs_avg.shape[0], inputs_avg.shape[1], -1), dim=0)
+                norm = inputs_avg.norm(p=2, dim=-1).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+                metric = self.weight.abs() * norm
+                _, sorted_idx = torch.sort(metric, dim=1)
+                pruned_idx = sorted_idx[:, :int(self.weight.shape[1] * self.sparsity)]
+                self.weight.data = torch.scatter(self.weight, dim=1, index=pruned_idx, src=torch.zeros(pruned_idx.shape).to(self.weight.device))
+                self.mask.data = (self.weight != 0).float()
+            self.done = True
+            self.inputs = None
+
+    def build(self, weight):
+        # Since this is a torch layer, do nothing
+        pass
+
+    def forward(self, weight): # Mask is only updated every t_delta step, using collect_output
+        self.weight = weight
+        return self.mask * weight
+    
+    def post_pre_train_function(self):
+        self.is_pretraining = False
+
+    def pre_epoch_function(self, epoch, total_epochs):
+        pass
+    
+    def post_round_function(self):
+        pass
+    
+    def pre_finetune_function(self):
+        pass
+
+    def calculate_additional_loss(self):
+        return 0
+    
+    def get_layer_sparsity(self, weight):
+        pass
+    def post_epoch_function(self, epoch, total_epochs):
+        pass
 
 
 class ActivationPruning(nn.Module):
