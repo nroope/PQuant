@@ -288,8 +288,6 @@ def add_layer_specific_quantization_to_model(module, config):
             
 
 def add_quantized_activations_to_model(module, config):
-    if not config.enable_quantization:
-        return module
     # Replaces ReLU and Tanh layers with quantized versions
     for name, layer in module.named_children():
         if layer.__class__ in [nn.ReLU]:
