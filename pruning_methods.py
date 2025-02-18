@@ -9,14 +9,14 @@ import torch
 import torch.nn as nn
 
 def get_pruning_layer(config, layer, out_size):
-        if config.pruning_method == "dst":
-            return DST(config, layer, out_size)
-        elif config.pruning_method == "autosparse":
-            return AutoSparse(config, layer, out_size)
-        elif config.pruning_method == "cs":
-            return ContinuousSparsification(config, layer, out_size)
-        elif config.pruning_method == "pdp":
-            return PDP(config, layer, out_size)
+    if config.pruning_method == "dst":
+        return DSTTorch(config, layer, out_size)
+    elif config.pruning_method == "autosparse":
+        return AutoSparse(config, layer, out_size)
+    elif config.pruning_method == "cs":
+        return ContinuousSparsification(config, layer, out_size)
+    elif config.pruning_method == "pdp":
+        return PDP(config, layer, out_size)
 
 def get_threshold_size(config, size, weight_shape):
     if config.threshold_type == "layerwise":
@@ -282,7 +282,7 @@ class DST(keras.layers.Layer):
     def __init__(self, config, layer, out_size, *args, **kwargs):
         super(DST, self).__init__(*args, **kwargs)
         threshold_size = get_threshold_size(config, out_size, layer.weight.shape)
-        self.threshold = self.add_weight(shape = threshold_size, initializer="zeros", trainable=True)
+        self.threshold = self.add_weight(shape=threshold_size, initializer="zeros", trainable=True)
         self.config = config
 
     def call(self, weight):
@@ -306,7 +306,7 @@ class DST(keras.layers.Layer):
     def get_mask(self, weight):
         weight_orig_shape = weight.shape
         weights_reshaped = ops.reshape(weight, (weight.shape[0], -1))
-        pre_binarystep_weights = ops.abs(weights_reshaped) - self.threshold
+        pre_binarystep_weights = torch.abs(weights_reshaped).to(weight.device) - self.threshold.to(weight.device)
         mask = binary_step(pre_binarystep_weights)
         mask = ops.reshape(mask, weight_orig_shape)
         self.mask = mask
@@ -405,28 +405,33 @@ class AutoSparseTorch(keras.layers.Layer):
 
 
 class BinaryStep(torch.autograd.Function):
-    @staticmethod 
+    @staticmethod
     def forward(ctx, input):
         ctx.save_for_backward(input)
-        return (input>0.).float()
+        return (input > 0.).float()
+
     @staticmethod
     def backward(ctx, grad_output):
         input, = ctx.saved_tensors
         grad_input = grad_output.clone()
-        abs_input = torch.abs(input)
-        grads = 2 - 4 * abs_input  
-        grads[torch.bitwise_and(abs_input > 0.4, abs_input <= 1.0)] = 0.4
-        grads[abs_input > 1.0] = 0.0
-        return grad_input * grads
+        zero_index = torch.abs(input) > 1
+        middle_index = (torch.abs(input) <= 1) * (torch.abs(input) > 0.4)
+        additional = 2 - 4 * torch.abs(input)
+        additional[zero_index] = 0.
+        additional[middle_index] = 0.4
+        return grad_input * additional
 
 
 class DSTTorch(nn.Module):
     def __init__(self, config, layer, out_size, *args, **kwargs):
-        super(DSTTorch, self).__init__(*args, **kwargs)
+        super(DSTTorch, self).__init__()
         threshold_size = get_threshold_size(config, out_size, layer.weight.shape)
         self.threshold = nn.Parameter(torch.zeros(threshold_size))
         self.config = config
         self.step = BinaryStep.apply
+
+    def build(self, weight_shape):
+        pass
 
     def forward(self, weight):
         """
@@ -435,14 +440,27 @@ class DSTTorch(nn.Module):
             0.4           if 0.4 < |W| <= 1
             0             if |W| > 1
         """
-        mask = self.get_mask(weight)
-        ratio = 1.0 - torch.sum(mask) / mask.numel()
-        if ratio >= self.config.max_pruning_pct:
-            self.threshold.assign(torch.zeros(self.threshold.shape))
-            mask = self.get_mask(weight)
+        weight_shape = weight.shape
+        threshold = self.threshold.view(weight_shape[0], -1)
+        abs_weight = torch.abs(weight)
+        abs_weight = abs_weight.view(weight_shape[0], -1)
+        abs_weight = abs_weight - threshold
+        mask = self.step(abs_weight)
+        mask = mask.view(weight_shape)
+        ratio = torch.sum(mask) / mask.numel()
+        if ratio <= 0.01:
+            with torch.no_grad():
+                self.threshold.data.fill_(0.)
+            threshold = self.threshold.view(weight_shape[0], -1)
+            abs_weight = torch.abs(abs_weight)
+            abs_weight = abs_weight.view(weight_shape[0], -1)
+            abs_weight = abs_weight - threshold
+            mask = self.step(abs_weight)
+            mask = mask.view(weight_shape)
         masked_weight = weight * mask
+        self.mask = mask
         return masked_weight
-    
+
     def get_hard_mask(self, weight):
         return self.mask
 
@@ -508,7 +526,7 @@ class ContinuousSparsificationTorch(nn.Module):
         pass
 
     def post_epoch_function(self, epoch, total_epochs):
-        self.beta *= (self.final_temp**(1/(total_epochs - 1)))
+        self.beta *= (self.final_temp ** (1 / (total_epochs - 1)))
 
     def get_hard_mask(self):
         return (self.s > 0).float()
