@@ -52,26 +52,25 @@ class Wanda(nn.Module):
 
 
     def handle_linear(self, x):
-        if self.layer_type == "linear":
-            norm = x.norm(p=2, dim=0)
-            metric = self.weight.abs() * norm
-            if self.N is not None and self.M is not None:
-                # N:M pruning
-                W_mask = torch.zeros_like(self.weight)
-                for ii in range(self.weight.shape[1]):
-                    if ii % self.M == 0:
-                        tmp = metric.abs()[:,ii:(ii+self.M)].float()
-                        if tmp.shape[1] < self.M:
-                            continue
-                        indices = ii+torch.topk(tmp, self.N, dim=1, largest=False)[1]
-                        W_mask = torch.scatter(W_mask, 1, indices, 1)
-                        self.mask.data = W_mask.view(self.weight.shape)
-            else:
-                # Unstructured pruning
-                _, sorted_idx = torch.sort(metric, dim=1)
-                pruned_idx = sorted_idx[:,:int(self.weight.shape[1] * self.sparsity)]
-                self.weight.data = self.weight.data.scatter_(dim=1, index=pruned_idx, src=torch.zeros(pruned_idx.shape).to(self.weight.device))
-                self.mask.data = (self.weight != 0).float()
+        norm = x.norm(p=2, dim=0)
+        metric = self.weight.abs() * norm
+        if self.N is not None and self.M is not None:
+            # N:M pruning
+            W_mask = torch.zeros_like(self.weight)
+            for ii in range(self.weight.shape[1]):
+                if ii % self.M == 0:
+                    tmp = metric.abs()[:,ii:(ii+self.M)].float()
+                    if tmp.shape[1] < self.M:
+                        continue
+                    indices = ii+torch.topk(tmp, self.N, dim=1, largest=False)[1]
+                    W_mask = torch.scatter(W_mask, 1, indices, 1)
+                    self.mask.data = W_mask.view(self.weight.shape)
+        else:
+            # Unstructured pruning
+            _, sorted_idx = torch.sort(metric, dim=1)
+            pruned_idx = sorted_idx[:,:int(self.weight.shape[1] * self.sparsity)]
+            self.weight.data = self.weight.data.scatter_(dim=1, index=pruned_idx, src=torch.zeros(pruned_idx.shape).to(self.weight.device))
+            self.mask.data = (self.weight != 0).float()
 
     def handle_conv(self, x):
         inputs_avg = torch.mean(x.view(x.shape[0], x.shape[1], -1), dim=0)
