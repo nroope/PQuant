@@ -2,12 +2,11 @@ pruning_parameters:
   disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
     - 
   enable_pruning: true
-  M: null
-  N: null
-  pruning_method: wanda
-  t_delta: 15
-  t_start_collecting: 25000
-  sparsity: 0.8
+  epsilon: 0.003
+  pruning_method: pdp
+  sparsity: 0.4
+  temperature: 1.0e-05
+  structured_pruning: false
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
@@ -43,7 +42,7 @@ quantization_parameters:
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
-  batch_size: 5000 #Dataset has inbuilt batch size of 5000
+  batch_size: 5000
   cosine_tmax: 500
   epochs: 500
   fine_tuning_epochs: 100

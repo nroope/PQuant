@@ -2,7 +2,7 @@ backend: null
 batch_size: 128
 copy_inputs: false
 cross_validation: null
-data_config: configs/JetClass_full.yaml
+data_config: particle_transformer/JetClass_full.yaml
 data_fraction: 1
 data_test: []
 data_train:
@@ -27,7 +27,7 @@ log: logs/train.log
 lr_finder: null
 lr_scheduler: flat+decay
 model_prefix: test_model_dst
-network_config: ParticleTransformer.py
+network_config: particle_transformer/ParticleTransformer.py
 network_option: []
 no_remake_weights: false
 num_epochs: 20

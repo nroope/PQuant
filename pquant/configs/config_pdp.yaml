@@ -32,7 +32,7 @@ training_parameters:
   momentum: 0.9
   optimizer: sgd
   plot_frequency: 100
-  pretraining_epochs: 16
+  pretraining_epochs: 1
   pruning_first: false
   rewind: never
   rounds: 1

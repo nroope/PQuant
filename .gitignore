@@ -1,8 +1,9 @@
-__pycache__
-data/
+**/__pycache__
+**/data/
 *.txt
 venv/
-runs/
+**/runs/
 build/
 logs/
 .ipynb_checkpoints/
+*.egg-info

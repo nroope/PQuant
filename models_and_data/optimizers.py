@@ -1,35 +1,9 @@
-from keras_core import ops
 import numpy as np
 import torch
-import yaml
-import os
 import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingLR
-from argparse import Namespace
-from p_optim import pAdam, pSGD
+from pquant.core.p_optim import pAdam, pSGD
 
-pi = ops.convert_to_tensor(np.pi)
-L0 = ops.convert_to_tensor(-6.0)
-L1 = ops.convert_to_tensor(6.0)
-
-def cosine_decay(i, T):
-    return (1 + ops.cos(pi * i / T)) / 2
-
-def sigmoid_decay(i, T):
-    return 1 - ops.sigmoid(L0 + (L1 - L0) * i / T)
-
-def cosine_sigmoid_decay(i, T):
-    return ops.maximum(cosine_decay(i, T), sigmoid_decay(i, T))
-
-def get_config_from_yaml(path):
-    with open(path, "r") as f:
-        config = yaml.safe_load(f)
-        config_flat = {**config["pruning_parameters"], **config["training_parameters"], **config["not_used"]}
-        return Namespace(**config_flat)
-
-def save_config_to_yaml(config, path):
-    with open(os.path.join(path, "config.yaml"), "w") as f:
-        yaml.dump(config.__dict__, f)
 
 ############## OPTIMIZERS AND SCHEDULERS ##############
 def get_optimizer(config, model):

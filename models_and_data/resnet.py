@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-
-from torch.autograd import Variable
+import tqdm
+from torchvision.models import resnet18, resnet34, resnet50, resnet101, resnet152, vgg16
+from pquant.core.sparse_layers import get_model_losses, get_layer_keep_ratio
 
 __all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
 
@@ -122,6 +123,80 @@ def test(net):
         total_params += np.prod(x.data.numpy().shape)
     print("Total number of params", total_params)
     print("Total layers", len(list(filter(lambda p: p.requires_grad and len(p.data.size())>1, net.parameters()))))
+
+
+def train_resnet(model, trainloader, device, loss_func, writer, epoch, optimizer, scheduler, *args, **kwargs):
+    """ Train ResNets for 1 epoch """
+    for data in tqdm.tqdm(trainloader):
+        inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = loss_func(outputs, labels)
+        losses = get_model_losses(model, torch.tensor(0.).to(device))
+        loss += losses
+        loss.backward()
+        optimizer.step()
+        epoch += 1
+        if scheduler is not None:
+            scheduler.step()
+    if writer is not None:
+        writer.add_scalar("train_output_loss", loss.item(), epoch)
+        writer.add_scalar("train_sparse_loss", losses, epoch)
+
+def validate_resnet(model, testloader, device, loss_func, epoch, writer, *args, **kwargs):
+    """Validation loop for ResNets"""
+    correct = 0
+    total = 0
+    model.eval()
+    with torch.no_grad():
+        for data in testloader:
+            images, labels = data
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            if loss_func is not None:
+                loss = loss_func(outputs, labels)
+                losses = get_model_losses(model, torch.tensor(0.).to(device))
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+        print(f'Accuracy of the network on the 10000 test images: {100 * correct / total} %')
+        ratio = get_layer_keep_ratio(model)
+        if writer is not None:
+            writer.add_scalar("validation_output_loss", loss.item(), epoch)
+            writer.add_scalar("validation_sparse_loss", losses, epoch)
+            writer.add_scalar("validation_acc", correct / total, epoch)
+            writer.add_scalar("validation_remaining_weights", ratio, epoch)
+
+
+
+def get_resnet_model(config, device):
+    if config.model == "resnet18":
+        model = resnet18().to(device)
+    elif config.model == "resnet34":
+        model = resnet34().to(device)
+    elif config.model == "resnet50":
+        model = resnet50().to(device)
+    elif config.model == "resnet101":
+        model = resnet101().to(device)
+    elif config.model == "resnet152":
+        model = resnet152().to(device)
+    elif config.model == "resnet20":
+        model = resnet20().to(device)
+    elif config.model == "resnet32":
+        model = resnet32().to(device)
+    elif config.model == "resnet44":
+        model = resnet44().to(device)
+    elif config.model == "resnet56":
+        model = resnet56().to(device)
+    elif config.model == "resnet110":
+        model = resnet110().to(device)
+    elif config.model == "resnet1202":
+        model = resnet1202().to(device)
+    elif config.model == "vgg16":
+        model = vgg16().to(device)
+    return model
+
 
 
 if __name__ == "__main__":

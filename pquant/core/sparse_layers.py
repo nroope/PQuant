@@ -1,18 +1,14 @@
 import os
 os.environ["KERAS_BACKEND"] = "torch"
-from pruning_methods import get_pruning_layer
+
+from pquant.core.utils import get_pruning_layer
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from parser import parse_cmdline_args
 from quantizers import get_fixed_quantizer
-from activations_quantizer import QuantizedReLU, QuantizedTanh, quantized_relu, quantized_tanh
-from squark.quantizer import Quantizer
-import numpy as np
+from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh, quantized_relu, quantized_tanh
 from torch.fx import symbolic_trace
-
-
-
+from hgq.quantizer import Quantizer
 
 class SparseLayerLinear(nn.Module):
     def __init__(self, config, layer):
@@ -29,12 +25,12 @@ class SparseLayerLinear(nn.Module):
         self.pruning_method = config.pruning_method
         overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
-        #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
-        self.hgq_weight.build(self.weight.shape)
-        if layer.bias is not None:
-            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
-            self.hgq_bias.build(layer.bias.shape)
+        if config.use_high_granularity_quantization:
+            self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+            self.hgq_weight.build(self.weight.shape)
+            if layer.bias is not None:
+                self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+                self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
         
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
@@ -103,12 +99,12 @@ class SparseLayerConv2d(nn.Module):
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
-        #self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif", heterogeneous_axis=()) # DOES NOT DO PRUNING IN GENERAL
-        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
-        self.hgq_weight.build(self.weight.shape)
-        if layer.bias is not None:
-            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
-            self.hgq_bias.build(layer.bias.shape)
+        if config.use_high_granularity_quantization:
+            self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+            self.hgq_weight.build(self.weight.shape)
+            if layer.bias is not None:
+                self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+                self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
@@ -172,7 +168,6 @@ class SparseLayerConv2d(nn.Module):
             self.pruning_layer.collect_output(x)
         return x
 
-
 class SparseLayerConv1d(nn.Module):
     def __init__(self, config, layer):
         super(SparseLayerConv1d, self).__init__()
@@ -186,12 +181,12 @@ class SparseLayerConv1d(nn.Module):
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
-
-        self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
-        self.hgq_weight.build(self.weight.shape)
-        if layer.bias is not None:
-            self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
-            self.hgq_bias.build(layer.bias.shape)
+        if config.use_high_granularity_quantization:
+            self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+            self.hgq_weight.build(self.weight.shape)
+            if layer.bias is not None:
+                self.hgq_bias = Quantizer(k0=1.0, i0=self.i_bias.item(), f0=self.f_bias.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+                self.hgq_bias.build(layer.bias.shape)
         self.hgq_gamma = config.hgq_gamma
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
@@ -275,7 +270,6 @@ class SingleConvLayer(nn.Module):
         x = torch.relu(x)
         return x
 
-
 def add_pruning_and_quantization(model, config):
     model = add_quantized_activations_to_model(model, config)
     model = add_pruning_to_model(model, config)
@@ -349,9 +343,9 @@ def disable_pruning_from_layers(module, config):
     for name, layer in module.named_modules():
         enable_pruning = name not in config.disable_pruning_for_layers
         if layer.__class__ in [SparseLayerLinear, SparseLayerConv2d, SparseLayerConv1d] and not enable_pruning:
-            print("TRUE")
             layer.enable_pruning = enable_pruning
     return module
+
 
 def add_pruning_to_model(module, config):
     for name, layer in module.named_children():
@@ -430,6 +424,14 @@ def remove_pruning_from_model(module, config):
         else:
             remove_pruning_from_model(layer, config)
     return module
+
+def call_post_round_functions(model, rewind, rounds, r):
+        if rewind == "round":
+            rewind_weights_functions(model)
+        elif rewind == "post-ticket-search" and r == rounds - 1:
+            rewind_weights_functions(model)
+        else:
+            post_round_functions(model)
 
 def post_epoch_functions(model, epoch, total_epochs, **kwargs):
     for layer in model.modules():
@@ -530,39 +532,6 @@ def get_model_losses(model, losses):
     return losses
 
 
-def get_layer_weight_uniques(model):
-    for layer in model.modules():
-        if isinstance(layer, (SparseLayerConv2d, SparseLayerConv1d, SparseLayerLinear)):
-                pruned_weight = layer.pruning_layer(layer.weight)
-                pruned_q_weight = quantizer(pruned_weight, torch.tensor(1.), layer.i, layer.f, training=True)
-                print(np.unique(pruned_q_weight.detach().cpu().numpy().flatten()))
-                print(layer.i, layer.f, len(np.unique(pruned_q_weight.detach().cpu().numpy().flatten())))
-    return 0.
-
-def test_layer_replacing():
-    args = ["--pruning_config_path", "configs/cs/config.yaml", "--model", "resnet20", "--dataset", "cifar10"]
-    config = parse_cmdline_args(args=args)
-    linear_model_orig = SingleLinearLayer().to("cuda")
-    linear_model = SingleLinearLayer()
-    linear_model.load_state_dict(linear_model_orig.state_dict())
-    sparse_linear_model = add_pruning_to_model(linear_model, config)
-    sparse_linear_model.to("cuda")
-    assert torch.equal(linear_model_orig.linear.weight, sparse_linear_model.linear.weight)
-    assert torch.equal(linear_model_orig.linear.bias, sparse_linear_model.linear.bias)
-    desparse_linear_model = remove_pruning_from_model(sparse_linear_model, config)
-    assert torch.equal(linear_model_orig.linear.weight, desparse_linear_model.linear.weight)
-    assert torch.equal(linear_model_orig.linear.bias, desparse_linear_model.linear.bias)
-
-    conv_model = SingleConvLayer()
-    sparse_conv_model = add_pruning_to_model(conv_model, config)
-    assert torch.equal(conv_model.conv.weight, sparse_conv_model.conv.weight)
-    assert torch.equal(conv_model.conv.bias, sparse_conv_model.conv.bias)
-    desparse_linear_model = remove_pruning_from_model(sparse_linear_model, config)
-    assert torch.equal(linear_model_orig.linear.weight, desparse_linear_model.linear.weight)
-    assert torch.equal(linear_model_orig.linear.bias, desparse_linear_model.linear.bias)
-    print("LAYER REPLACING TESTS PASSED")
-
-
 def create_default_layer_quantization_pruning_config(model):
     config = {"layer_specific":{}, "disable_pruning_for_layers":[]}
     for name, layer in model.named_modules():
@@ -580,5 +549,3 @@ def create_default_layer_quantization_pruning_config(model):
             config["layer_specific"][node.name] = {"bits":8}
     return config
 
-if __name__ == "__main__":
-    test_layer_replacing()

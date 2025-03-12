@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from squark.quantizer import Quantizer
 
 def round_ste(x):
   return x + (-x + torch.round(x)).detach()
@@ -23,7 +22,9 @@ class QuantizedTanh(nn.Module):
         self.config = config
         overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
         self.use_real_tanh = config.use_real_tanh
-        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
+        if config.use_high_granularity_quantization:
+            from hgq.quantizer import Quantizer
+            self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
   
     def forward(self, x):
         if self.config.use_high_granularity_quantization:
@@ -54,7 +55,9 @@ class QuantizedReLU(nn.Module):
         self.config = config
         self.f = torch.tensor(config.default_fractional_bits)
         self.i = torch.tensor(config.default_integer_bits)  
-        self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
+        if config.use_high_granularity_quantization:
+            from hgq.quantizer import Quantizer
+            self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
 
     def forward(self, x):
       if self.config.use_high_granularity_quantization:
