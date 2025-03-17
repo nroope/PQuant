@@ -18,11 +18,11 @@ def cosine_sigmoid_decay(i, T):
     return ops.maximum(cosine_decay(i, T), sigmoid_decay(i, T))
 
 def get_threshold_size(config, size, weight_shape):
-    if config.threshold_type == "layerwise":
+    if config["pruning_parameters"]["threshold_type"] == "layerwise":
         return (1,1)
-    elif config.threshold_type == "channelwise":
+    elif config["pruning_parameters"]["threshold_type"] == "channelwise":
         return (size, 1)
-    elif config.threshold_type == "weightwise":
+    elif config["pruning_parameters"]["threshold_type"] == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
 
 BACKWARD_SPARSITY = False
@@ -49,12 +49,12 @@ class AutoSparse(keras.layers.Layer):
         super(AutoSparse, self).__init__(*args, **kwargs)
         threshold_size = get_threshold_size(config, out_size, layer.weight.shape)
         self.threshold = self.add_weight(name="threshold", shape=threshold_size, initializer="ones", trainable=True)
-        self.threshold.assign(config.threshold_init * self.threshold)
-        self.alpha = ops.convert_to_tensor(config.alpha, dtype="float32")
+        self.threshold.assign(config["pruning_parameters"]["threshold_init"] * self.threshold)
+        self.alpha = ops.convert_to_tensor(config["pruning_parameters"]["alpha"], dtype="float32")
         self.g = ops.sigmoid
         self.config = config
         global BACKWARD_SPARSITY
-        BACKWARD_SPARSITY = config.backward_sparsity
+        BACKWARD_SPARSITY = config["pruning_parameters"]["backward_sparsity"]
 
     def call(self, weight):
         """
@@ -83,14 +83,17 @@ class AutoSparse(keras.layers.Layer):
 
     def calculate_additional_loss(*args, **kwargs):
         return 0
-    
+
+    def pre_finetune_function(self):
+        pass
+
     def post_epoch_function(self, epoch, total_epochs, alpha_multiplier, autotune_epochs=0, writer=None, global_step=0):
         # Decay alpha
         if epoch >= autotune_epochs:
             self.alpha *= cosine_sigmoid_decay(epoch - autotune_epochs, total_epochs)
         else:
             self.alpha *= alpha_multiplier
-        if epoch == self.config.alpha_reset_epoch:
+        if epoch == self.config["pruning_parameters"]["alpha_reset_epoch"]:
             self.alpha *= 0.
         if writer is not None:
             writer.write_scalars([(f"Autosparse_alpha", self.alpha, global_step)])

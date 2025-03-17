@@ -1,4 +1,3 @@
-
 pruning_parameters:
   disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
     - 
@@ -6,6 +5,8 @@ pruning_parameters:
   M: null
   N: null
   pruning_method: wanda
+  threshold_decay: 0.
+  sparsity: 0.90
   t_delta: 100
   t_start_collecting: 10000
 quantization_parameters:
@@ -18,25 +19,23 @@ quantization_parameters:
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
-  batch_size: 256
-  cosine_tmax: 200
   epochs: 200
   fine_tuning_epochs: 0
-  gamma: 0.1
-  l2_decay: 0.0001
-  label_smoothing: 0.0
-  lr: 0.01
-  lr_schedule: cosine
-  milestones:
-  - -1
-  - -1
-  momentum: 0.9
-  optimizer: sgd
-  plot_frequency: 100
   pretraining_epochs: 50
   pruning_first: false
   rewind: never
   rounds: 1
   save_weights_epoch: -1
-  sparsity: 0.90
-  threshold_decay: 0.
+batch_size: 256
+cosine_tmax: 200
+gamma: 0.1
+l2_decay: 0.0001
+label_smoothing: 0.0
+lr: 0.01
+lr_schedule: cosine
+milestones:
+- -1
+- -1
+momentum: 0.9
+optimizer: sgd
+plot_frequency: 100

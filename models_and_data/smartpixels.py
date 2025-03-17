@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import glob
 import numpy as np
 from tqdm import tqdm
-from pquant.core.sparse_layers import get_model_losses, get_layer_keep_ratio
+from pquant.core.compressed_layers import get_model_losses, get_layer_keep_ratio
 
 class SmartPixelModel(nn.Module):
     def __init__(self, *args, **kwargs) -> None:

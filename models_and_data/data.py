@@ -119,7 +119,7 @@ def get_imagenet_data(config):
     train_dataset = ImageNet("train")
     train_dataloader = DataLoader(
             train_dataset,
-            batch_size=config.batch_size, # may need to reduce this depending on your GPU 
+            batch_size=config["batch_size"], # may need to reduce this depending on your GPU 
             num_workers=8, # may need to reduce this depending on your num of CPUs and RAM
             shuffle=True,
             drop_last=False,
@@ -128,7 +128,7 @@ def get_imagenet_data(config):
     val_dataset = ImageNet("val")
     val_dataloader = DataLoader(
             val_dataset,
-            batch_size=config.batch_size, # may need to reduce this depending on your GPU 
+            batch_size=config["batch_size"], # may need to reduce this depending on your GPU 
             num_workers=8, # may need to reduce this depending on your num of CPUs and RAM
             shuffle=False,
             drop_last=False,

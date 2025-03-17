@@ -1,5 +1,4 @@
 import yaml
-
 from pquant.pruning_methods.dst import DST
 from pquant.pruning_methods.autosparse import AutoSparse
 from pquant.pruning_methods.cs import ContinuousSparsification
@@ -9,23 +8,58 @@ from pquant.pruning_methods.wanda import Wanda
 
 
 def get_pruning_layer(config, layer, out_size):
-        if config.pruning_method == "dst":
+        pruning_method = config["pruning_parameters"]["pruning_method"]
+        if pruning_method == "dst":
             return DST(config, layer, out_size)
-        elif config.pruning_method == "autosparse":
+        elif pruning_method == "autosparse":
             return AutoSparse(config, layer, out_size)
-        elif config.pruning_method == "cs":
+        elif pruning_method == "cs":
             return ContinuousSparsification(config, layer, out_size)
-        elif config.pruning_method == "pdp":
+        elif pruning_method == "pdp":
             return PDP(config, layer, out_size)
-        elif config.pruning_method == "continual_learning":
+        elif pruning_method == "continual_learning":
             return ActivationPruning(config, layer, out_size)
-        elif config.pruning_method == "wanda":
+        elif pruning_method == "wanda":
             return Wanda(config, layer, out_size)
 
 
 def get_pruning_config(config_path):    
     with open(config_path, "r") as f:
-        pruning_config = yaml.safe_load(f)
-        params = pruning_config["pruning_parameters"] | pruning_config["training_parameters"]
-        params = params | pruning_config["quantization_parameters"]
-        return params
+        return yaml.safe_load(f)
+    
+def write_config_to_yaml(config, output_path, sort_keys=True):
+    with open(output_path, "w") as f:
+        yaml.dump(config, f, sort_keys=sort_keys)
+
+def validate_pruning_parameters(config):
+        pruning_method = config["pruning_parameters"]["pruning_method"]
+        if pruning_method == "dst":
+            valid_keys = ["alpha", "disable_pruning_for_layers", "enable_pruning", "max_pruning_pct", "pruning_method", "threshold_decay", "threshold_init", "threshold_type"]
+        elif pruning_method == "autosparse":
+            valid_keys = ["alpha", "alpha_reset_epoch", "backward_sparsity", "disable_pruning_for_layers", "enable_pruning", "pruning_method", "threshold_decay", "threshold_init", "threshold_type"]
+        elif pruning_method == "cs":
+            valid_keys = ["disable_pruning_for_layers", "enable_pruning", "final_temp", "pruning_method", "threshold_decay", "threshold_init"]
+        elif pruning_method == "pdp":
+            valid_keys = ["disable_pruning_for_layers", "enable_pruning", "epsilon", "sparsity", "temperature", "threshold_decay", "structured_pruning"]
+        elif pruning_method == "continual_learning":
+            valid_keys = ["disable_pruning_for_layers", "enable_pruning", "pruning_method", "threshold", "threshold_decay", "t_delta"]
+        elif pruning_method == "wanda":
+            valid_keys = ["disable_pruning_for_layers", "enable_pruning", "M", "N", "pruning_method", "threshold_decay", "t_delta", "t_start_collecting", "sparsity"]
+        for k in valid_keys:
+            assert k in config["pruning_parameters"].keys(), f"missing pruning parameter: {k}"
+    
+def validate_quantization_parameters(config):
+    valid_keys = ["default_integer_bits", "default_fractional_bits", "enable_quantization", "hgq_gamma", "layer_specific", "use_high_granularity_quantization", "use_real_tanh", "use_symmetric_quantization"]
+    for k in valid_keys:
+        assert k in config["quantization_parameters"].keys(), f"missing quantization parameter: {k}"
+
+def validate_training_parameters(config):
+    valid_keys = ["epochs", "fine_tuning_epochs", "pretraining_epochs", "pruning_first", "rewind", "rounds", "save_weights_epoch"]
+    for k in valid_keys:
+        assert k in config["training_parameters"].keys(), f"missing training parameter: {k}"
+
+def validate_config(config):
+    validate_pruning_parameters(config)
+    validate_quantization_parameters(config)
+    validate_training_parameters(config)
+

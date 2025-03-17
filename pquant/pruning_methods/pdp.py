@@ -7,9 +7,9 @@ import torch.nn as nn
 class PDP(keras.layers.Layer):
     def __init__(self, config, layer, out_size, *args, **kwargs):
         super(PDP, self).__init__(*args, **kwargs)
-        self.init_r = config.sparsity
-        self.r = config.sparsity
-        self.temp = config.temperature
+        self.init_r = config["pruning_parameters"]["sparsity"]
+        self.r = config["pruning_parameters"]["sparsity"]
+        self.temp = config["pruning_parameters"]["temperature"]
         self.is_pretraining = True
         self.config = config
         self.fine_tuning = False
@@ -27,7 +27,7 @@ class PDP(keras.layers.Layer):
 
     def pre_epoch_function(self, epoch, total_epochs):
         if not self.is_pretraining:
-            self.r = ops.minimum(1., self.config.epsilon * (epoch + 1)) * self.init_r
+            self.r = ops.minimum(1., self.config["pruning_parameters"]["epsilon"] * (epoch + 1)) * self.init_r
     
     def post_round_function(self):
         pass
@@ -35,7 +35,7 @@ class PDP(keras.layers.Layer):
     def get_hard_mask(self, weight):
         if self.fine_tuning:
             return (self.mask >= 0.5).float()
-        if self.config.structured_pruning:
+        if self.config["pruning_parameters"]["structured_pruning"]:
             if self.layer_type == "conv":
                 mask = self.get_mask_structured_channel(weight)
             else:
@@ -124,7 +124,7 @@ class PDP(keras.layers.Layer):
         if self.fine_tuning:
             mask = self.mask
         else:
-            if self.config.structured_pruning:
+            if self.config["pruning_parameters"]["structured_pruning"]:
                 if self.layer_type == "conv":
                     mask = self.get_mask_structured_channel(weight)
                 else:

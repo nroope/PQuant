@@ -7,9 +7,9 @@ from pquant.core.p_optim import pAdam, pSGD
 
 ############## OPTIMIZERS AND SCHEDULERS ##############
 def get_optimizer(config, model):
-    if config.optimizer == "sgd":
+    if config["optimizer"] == "sgd":
         # CS already has L1-regularization for threshold parameters
-        threshold_decay = 0 if config.pruning_method == "cs" else config.threshold_decay 
+        threshold_decay = 0 if config["pruning_parameters"]["pruning_method"] == "cs" else config["pruning_parameters"]["threshold_decay"]
     
         parameters = list(model.named_parameters())
         threshold_params = [v for n, v in parameters if "threshold" in n and v.requires_grad]
@@ -17,19 +17,19 @@ def get_optimizer(config, model):
         optimizer = torch.optim.SGD(
             [{
                 "params": threshold_params,
-                "weight_decay": threshold_decay if threshold_decay is not None else config.l2_decay,
+                "weight_decay": threshold_decay if threshold_decay is not None else config["l2_decay"],
             },
             {   "params": rest_params, 
-                 "weight_decay": config.l2_decay
+                 "weight_decay": config["l2_decay"]
             },
             ],
-            config.lr,
-            momentum=config.momentum)
-    elif config.optimizer == "adam":
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
-    elif config.optimizer == "psgd":
+            config["lr"],
+            momentum=config["momentum"])
+    elif config["optimizer"] == "adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+    elif config["optimizer"] == "psgd":
         # CS already has L1-regularization for threshold parameters
-        threshold_decay = 0 if config.pruning_method == "cs" else config.threshold_decay 
+        threshold_decay = 0 if config["pruning_parameters"]["pruning_method"] == "cs" else config["pruning_parameters"]["threshold_decay"]
     
         parameters = list(model.named_parameters())
         threshold_params = [v for n, v in parameters if "torch_params" in n and v.requires_grad]
@@ -41,22 +41,22 @@ def get_optimizer(config, model):
             {   "params": rest_params, 
             },
             ],
-            config.lr,
-            momentum=config.momentum,
-            lambda_p=config.lambda_p,
-            p_norm=config.pnorm,
-            weight_decay=config.l2_decay)
-    elif config.optimizer == "padam":
-        optimizer = pAdam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr)
+            config["lr"],
+            momentum=config["momentum"],
+            lambda_p=config["lambda_p"],
+            p_norm=config["p_norm"],
+            weight_decay=config["l2_decay"])
+    elif config["optimizer"] == "padam":
+        optimizer = pAdam(filter(lambda p: p.requires_grad, model.parameters()), lr=config["lr"])
     return optimizer
 
 def get_scheduler(optimizer, config):
-    if config.lr_schedule is None:
+    if config["lr_schedule"] is None:
         return None
-    elif config.lr_schedule == "cosine":
-        return CosineAnnealingLR(optimizer, config.cosine_tmax)
-    elif config.lr_schedule == "multistep":
-        return MultiStepLR(optimizer, config.milestones, gamma=config.gamma)
+    elif config["lr_schedule"] == "cosine":
+        return CosineAnnealingLR(optimizer, config["cosine_tmax"])
+    elif config["lr_schedule"] == "multistep":
+        return MultiStepLR(optimizer, config["milestones"], gamma=config["gamma"])
     return None
 #######################################################
 

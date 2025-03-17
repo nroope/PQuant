@@ -14,11 +14,11 @@ class Wanda(nn.Module):
             self.total = 0.
             self.weight = layer.weight
             self.done = False
-            self.sparsity = self.config.sparsity
+            self.sparsity = self.config["pruning_parameters"]["sparsity"]
             self.is_pretraining = True
-            self.N = self.config.N
-            self.M = self.config.M
-            self.t_start_collecting = self.config.t_start_collecting
+            self.N = self.config["pruning_parameters"]["N"]
+            self.M = self.config["pruning_parameters"]["M"]
+            self.t_start_collecting = self.config["pruning_parameters"]["t_start_collecting"]
 
 
     def handle_linear(self, x):
@@ -78,7 +78,7 @@ class Wanda(nn.Module):
             For conv layers, take average over batch dimension and calculate norm over flattened kernel_size dimension.
             If N and M are defined, do N:M pruning.
             """
-            if not self.training or x.shape[0] != self.config.batch_size:
+            if not self.training or x.shape[0] != self.config["training_parameters"]["batch_size"]:
                 # Don't collect during validation
                 return
             self.t += 1
@@ -87,7 +87,7 @@ class Wanda(nn.Module):
             self.total += x.shape[0]
             self.inputs = x if self.inputs is None else self.inputs + x
 
-            if self.t % (self.t_start_collecting + self.config.t_delta) == 0:
+            if self.t % (self.t_start_collecting + self.config["pruning_parameters"]["t_delta"]) == 0:
                 inputs_avg = self.inputs / self.total
                 if self.layer_type == "linear":
                     self.handle_linear(inputs_avg)

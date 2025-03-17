@@ -6,11 +6,11 @@ import numpy as np
 
 
 def get_threshold_size(config, size, weight_shape):
-    if config.threshold_type == "layerwise":
+    if config["pruning_parameters"]["threshold_type"] == "layerwise":
         return (1,1)
-    elif config.threshold_type == "channelwise":
+    elif config["pruning_parameters"]["threshold_type"] == "channelwise":
         return (size, 1)
-    elif config.threshold_type == "weightwise":
+    elif config["pruning_parameters"]["threshold_type"] == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
 
 @ops.custom_gradient
@@ -44,7 +44,7 @@ class DST(keras.layers.Layer):
         """
         mask = self.get_mask(weight)
         ratio = 1.0 - ops.sum(mask) / ops.size(mask)
-        if ratio >= self.config.max_pruning_pct:
+        if ratio >= self.config["pruning_parameters"]["max_pruning_pct"]:
             self.threshold.assign(ops.zeros(self.threshold.shape))
             mask = self.get_mask(weight)
         masked_weight = weight * mask
@@ -69,7 +69,10 @@ class DST(keras.layers.Layer):
         return ops.sum(self.get_mask(weight)) / ops.size(weight)
     
     def calculate_additional_loss(self):
-        return self.config.alpha * ops.sum(ops.exp(-self.threshold))
+        return self.config["pruning_parameters"]["alpha"] * ops.sum(ops.exp(-self.threshold))
+
+    def pre_finetune_function(self):
+        pass
 
     def post_epoch_function(self, epoch, total_epochs):
         pass

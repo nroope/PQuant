@@ -33,16 +33,16 @@ class ActivationPruning(nn.Module):
         gt_zero = (output > 0).float()
         gt_zero = torch.sum(gt_zero, dim=0) # Sum over batch, take average during mask update
         self.activations += gt_zero
-        if self.t % self.config.t_delta == 0:
+        if self.t % self.config["pruning_parameters"]["t_delta"] == 0:
             pct_active = self.activations / self.total
             self.t = 0
             self.total = 0
             if self.layer_type == "linear":
-                self.mask = (pct_active > self.config.threshold).float().unsqueeze(1)
+                self.mask = (pct_active > self.config["pruning_parameters"]["threshold"]).float().unsqueeze(1)
             else:
                 pct_active = pct_active.view(pct_active.shape[0], -1)
                 pct_active_avg = torch.mean(pct_active, dim=-1)
-                pct_active_above_threshold = (pct_active_avg > self.config.threshold).float()
+                pct_active_above_threshold = (pct_active_avg > self.config["pruning_parameters"]["threshold"]).float()
                 self.mask = (pct_active_above_threshold).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
             self.activations *= 0.
 

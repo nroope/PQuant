@@ -7,6 +7,7 @@ pruning_parameters:
     - 
   enable_pruning: true
   pruning_method: autosparse
+  threshold_decay: 0
   threshold_init: -5.0
   threshold_type: channelwise
 quantization_parameters:
@@ -19,24 +20,23 @@ quantization_parameters:
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
-  batch_size: 256
-  cosine_tmax: 200
   epochs: 100
   fine_tuning_epochs: 0
-  gamma: 0.1
-  l2_decay: 3.0517578125e-05
-  label_smoothing: 0.1
-  lr: 0.01
-  lr_schedule: cosine
-  milestones:
-  - -1
-  - -1
-  momentum: 0.875
-  optimizer: sgd
-  plot_frequency: 100
   pretraining_epochs: 0
   pruning_first: false
   rewind: never
   rounds: 1
   save_weights_epoch: -1.0
-  threshold_decay: 0
+batch_size: 256
+cosine_tmax: 200
+gamma: 0.1
+l2_decay: 3.0517578125e-05
+label_smoothing: 0.1
+lr: 0.01
+lr_schedule: cosine
+milestones:
+- -1
+- -1
+momentum: 0.875
+optimizer: sgd
+plot_frequency: 100

@@ -17,25 +17,25 @@ class QuantizedTanh(nn.Module):
     def __init__(self, config, bits=8.):
         super(QuantizedTanh, self).__init__()
         self.bits = bits
-        self.f = torch.tensor(config.default_fractional_bits)
-        self.i = torch.tensor(config.default_integer_bits)  
+        self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
+        self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])  
         self.config = config
-        overflow = "SAT_SYM" if config.use_symmetric_quantization else "SAT"
-        self.use_real_tanh = config.use_real_tanh
-        if config.use_high_granularity_quantization:
+        overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
+        if config["quantization_parameters"]["use_high_granularity_quantization"]:
             from hgq.quantizer import Quantizer
             self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
   
     def forward(self, x):
-        if self.config.use_high_granularity_quantization:
+        if self.config["quantization_parameters"]["use_high_granularity_quantization"]:
             if not self.hgq.built:
                 self.hgq.build(x.shape)
             x = torch.tanh(x) if self.use_real_tanh else hard_tanh(x)
             return self.hgq(x)
         else:
             return quantized_tanh(x, bits=self.bits, 
-                                  use_real_tanh=self.config.use_real_tanh, 
-                                  use_symmetric=self.config.use_symmetric_quantization)
+                                  use_real_tanh=self.config["quantization_parameters"]["use_real_tanh"],
+                                  use_symmetric=self.config["quantization_parameters"]["use_symmetric_quantization"])
 
     
 def quantized_relu(x, bits, integer_bits):
@@ -53,14 +53,14 @@ class QuantizedReLU(nn.Module):
         self.bits = torch.tensor(bits) # Clip to 0, non sign bits == bits
         self.integer_bits = torch.tensor(integer_bits)
         self.config = config
-        self.f = torch.tensor(config.default_fractional_bits)
-        self.i = torch.tensor(config.default_integer_bits)  
-        if config.use_high_granularity_quantization:
+        self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
+        self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])  
+        if config["quantization_parameters"]["use_high_granularity_quantization"]:
             from hgq.quantizer import Quantizer
             self.hgq = Quantizer(k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif")
 
     def forward(self, x):
-      if self.config.use_high_granularity_quantization:
+      if self.config["quantization_parameters"]["use_high_granularity_quantization"]:
           if not self.hgq.built:
               self.hgq.build(x.shape)
           x = torch.relu(x)

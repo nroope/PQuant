@@ -10,9 +10,9 @@ class ContinuousSparsification(keras.layers.Layer):
         self.config = config
         self.beta = 1
         self.s = self.add_weight(name="threshold", shape=layer.weight.shape, initializer="ones")
-        self.s.assign(config.threshold_init * self.s)
-        self.s_init = config.threshold_init
-        self.final_temp = config.final_temp
+        self.s.assign(config["pruning_parameters"]["threshold_init"] * self.s)
+        self.s_init = config["pruning_parameters"]["threshold_init"]
+        self.final_temp = config["pruning_parameters"]["final_temp"] 
         self.init_weight = layer.weight.clone()
         self.do_hard_mask = False
         self.mask = None
@@ -29,7 +29,7 @@ class ContinuousSparsification(keras.layers.Layer):
             mask = self.get_hard_mask()
             return mask
         else:
-            scaling = 1. / ops.sigmoid(self.config.threshold_init)
+            scaling = 1. / ops.sigmoid(self.config["pruning_parameters"]["threshold_init"])
             mask = ops.sigmoid(self.beta * self.s) 
             mask = mask * scaling
             return mask
@@ -52,7 +52,7 @@ class ContinuousSparsification(keras.layers.Layer):
         self.beta = 1
 
     def calculate_additional_loss(self):
-        return self.config.threshold_decay * ops.norm(ops.reshape(self.mask, -1), ord=1)
+        return self.config["pruning_parameters"]["threshold_decay"] * ops.norm(ops.reshape(self.mask, -1), ord=1)
     
     def get_layer_sparsity(self, weight):
         return ops.sum(self.get_hard_mask()) / ops.size(weight)
