@@ -160,8 +160,8 @@ def validate_resnet(model, testloader, device, loss_func, epoch, writer, *args, 
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-            ratio = get_layer_keep_ratio(model)
-            print(f'Accuracy: {100 * correct / total}%, remaining_weights: {ratio * 100}%')
+        ratio = get_layer_keep_ratio(model)
+        print(f'Accuracy: {100 * correct / total:.2f}%, remaining_weights: {ratio * 100:.2f}%')
         if writer is not None:
             writer.add_scalar("validation_output_loss", loss.item(), epoch)
             writer.add_scalar("validation_sparse_loss", losses, epoch)

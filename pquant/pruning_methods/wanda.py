@@ -78,23 +78,30 @@ class Wanda(nn.Module):
             For conv layers, take average over batch dimension and calculate norm over flattened kernel_size dimension.
             If N and M are defined, do N:M pruning.
             """
-            if not self.training or x.shape[0] != self.config["training_parameters"]["batch_size"]:
+            ok_batch = True
+            if self.inputs is not None:
+                batch_size = self.inputs.shape[0]
+                ok_batch = x.shape[0] == batch_size
+            if not self.training or not ok_batch:
                 # Don't collect during validation
                 return
             self.t += 1
             if self.t < self.t_start_collecting:
                 return
-            self.total += x.shape[0]
+            self.total += 1
             self.inputs = x if self.inputs is None else self.inputs + x
 
             if self.t % (self.t_start_collecting + self.config["pruning_parameters"]["t_delta"]) == 0:
                 inputs_avg = self.inputs / self.total
-                if self.layer_type == "linear":
-                    self.handle_linear(inputs_avg)
-                else:
-                    self.handle_conv(inputs_avg)
+                self.prune(inputs_avg)
                 self.done = True
                 self.inputs = None
+
+    def prune(self, x):
+        if self.layer_type == "linear":
+            self.handle_linear(x)
+        else:
+            self.handle_conv(x)
 
     def build(self, weight):
         # Since this is a torch layer, do nothing
