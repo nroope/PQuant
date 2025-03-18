@@ -1,4 +1,3 @@
-from weaver.utils.nn.tools import evaluate_classification
 from parser import parse_cmdline_args
 from main import get_model_data_loss_func, validate_resnet, validate_smartpixel
 from datetime import datetime
@@ -13,9 +12,7 @@ def validate(config, device):
     get_layer_keep_ratio(model)
 
     start = datetime.now()
-    if config["model"] == "particle_transformer":
-        evaluate_classification(model, val_loader, device, 0, False, None, 10, tb_helper=None)
-    elif config["model"] == "smartpixel":
+    if config["model"] == "smartpixel":
         validate_smartpixel(model, val_loader, device, config["training_parameters"]["epochs"], writer=None)
     else:
         validate_resnet(model, val_loader, device, None, 0, None)

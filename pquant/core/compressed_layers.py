@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from quantizers import get_fixed_quantizer
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh, quantized_relu, quantized_tanh
 from torch.fx import symbolic_trace
-from hgq.quantizer import Quantizer
 
 class CompressedLayerLinear(nn.Module):
     def __init__(self, config, layer):
@@ -26,6 +25,7 @@ class CompressedLayerLinear(nn.Module):
         overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
+            from hgq.quantizer import Quantizer
             self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
             self.hgq_weight.build(self.weight.shape)
             if layer.bias is not None:
@@ -100,6 +100,7 @@ class CompressedLayerConv2d(nn.Module):
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
+            from hgq.quantizer import Quantizer
             self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
             self.hgq_weight.build(self.weight.shape)
             if layer.bias is not None:
@@ -182,6 +183,7 @@ class CompressedLayerConv1d(nn.Module):
         self.weight = nn.Parameter(layer.weight.clone())
         self.init_weight = self.weight.clone()
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
+            from hgq.quantizer import Quantizer
             self.hgq_weight = Quantizer(k0=1.0, i0=self.i_weight.item(), f0=self.f_weight.item(), round_mode="TRN", overflow_mode=overflow, q_type="kif")
             self.hgq_weight.build(self.weight.shape)
             if layer.bias is not None:
