@@ -1,6 +1,6 @@
 import os
 os.environ["KERAS_BACKEND"] = "torch"
-import keras_core as keras
+import keras
 from keras import ops
 import torch.nn as nn
 

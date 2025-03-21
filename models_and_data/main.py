@@ -9,10 +9,10 @@ from pquant.core.train import iterative_train
 from optimizers import get_scheduler, get_optimizer, plot_weights_per_layer
 from parser import parse_cmdline_args
 from torch.utils.tensorboard import SummaryWriter
-import keras_core as keras
 from resnet import train_resnet, validate_resnet, get_resnet_model
 from smartpixels import get_smartpixel_data_and_model, train_smartpixel, validate_smartpixel
 from data import get_cifar10_data, get_imagenet_data
+import keras
 keras.backend.set_image_data_format('channels_first')
 
 

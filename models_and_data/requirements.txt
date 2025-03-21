@@ -1,0 +1,5 @@
+matplotlib==3.10.1
+tensorboard==2.19.0
+tqdm==4.67.1
+torchvision==0.20.0
+scikit-learn==1.6.1

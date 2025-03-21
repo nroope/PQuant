@@ -144,11 +144,11 @@ def validate_smartpixel(model, validation_data, device, epoch, writer=None, save
         loss += losses
         if save_outputs:
             if p_test is None:
-                complete_truth = target.numpy()
+                complete_truth = target.cpu().numpy()
                 p_test = outputs.detach().cpu().numpy()
             else:
                 p_test = np.concatenate((p_test, outputs.detach().cpu().numpy()), axis=0)
-                complete_truth = np.concatenate((complete_truth, target), axis=0)
+                complete_truth = np.concatenate((complete_truth, target.cpu().numpy()), axis=0)
 
     if save_outputs:
         np.savez("complete_truth.npz", complete_truth=complete_truth)
