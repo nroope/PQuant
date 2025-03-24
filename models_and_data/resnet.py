@@ -6,19 +6,20 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import tqdm
 from torchvision.models import resnet18, resnet34, resnet50, resnet101, resnet152, vgg16
-from pquant.core.compressed_layers import get_model_losses, get_layer_keep_ratio
+
+from pquant.core.compressed_layers import get_layer_keep_ratio, get_model_losses
 
 __all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
 
+
 def _weights_init(m):
-    classname = m.__class__.__name__
-    #print(classname)
     if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
         init.kaiming_normal_(m.weight)
 
+
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
-        super(LambdaLayer, self).__init__()
+        super().__init__()
         self.lambd = lambd
 
     def forward(self, x):
@@ -29,7 +30,7 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1, option='A'):
-        super(BasicBlock, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
@@ -41,12 +42,13 @@ class BasicBlock(nn.Module):
                 """
                 For CIFAR10 ResNet paper uses option A.
                 """
-                self.shortcut = LambdaLayer(lambda x:
-                                            F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes//4, planes//4), "constant", 0))
+                self.shortcut = LambdaLayer(
+                    lambda x: F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes // 4, planes // 4), "constant", 0)
+                )
             elif option == 'B':
                 self.shortcut = nn.Sequential(
-                     nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
-                     nn.BatchNorm2d(self.expansion * planes)
+                    nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                    nn.BatchNorm2d(self.expansion * planes),
                 )
 
     def forward(self, x):
@@ -59,7 +61,7 @@ class BasicBlock(nn.Module):
 
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
-        super(ResNet, self).__init__()
+        super().__init__()
         self.in_planes = 16
 
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
@@ -72,7 +74,7 @@ class ResNet(nn.Module):
         self.apply(_weights_init)
 
     def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
+        strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
             layers.append(block(self.in_planes, planes, stride))
@@ -115,25 +117,15 @@ def resnet1202():
     return ResNet(BasicBlock, [200, 200, 200])
 
 
-def test(net):
-    import numpy as np
-    total_params = 0
-
-    for x in filter(lambda p: p.requires_grad, net.parameters()):
-        total_params += np.prod(x.data.numpy().shape)
-    print("Total number of params", total_params)
-    print("Total layers", len(list(filter(lambda p: p.requires_grad and len(p.data.size())>1, net.parameters()))))
-
-
 def train_resnet(model, trainloader, device, loss_func, writer, epoch, optimizer, scheduler, *args, **kwargs):
-    """ Train ResNets for 1 epoch """
+    """Train ResNets for 1 epoch"""
     for data in tqdm.tqdm(trainloader):
         inputs, labels = data
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = loss_func(outputs, labels)
-        losses = get_model_losses(model, torch.tensor(0.).to(device))
+        losses = get_model_losses(model, torch.tensor(0.0).to(device))
         loss += losses
         loss.backward()
         optimizer.step()
@@ -143,6 +135,7 @@ def train_resnet(model, trainloader, device, loss_func, writer, epoch, optimizer
     if writer is not None:
         writer.add_scalar("train_output_loss", loss.item(), epoch)
         writer.add_scalar("train_sparse_loss", losses, epoch)
+
 
 def validate_resnet(model, testloader, device, loss_func, epoch, writer, *args, **kwargs):
     """Validation loop for ResNets"""
@@ -156,18 +149,16 @@ def validate_resnet(model, testloader, device, loss_func, epoch, writer, *args, 
             outputs = model(images)
             if loss_func is not None:
                 loss = loss_func(outputs, labels)
-                losses = get_model_losses(model, torch.tensor(0.).to(device))
+                losses = get_model_losses(model, torch.tensor(0.0).to(device))
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
         ratio = get_layer_keep_ratio(model)
-        print(f'Accuracy: {100 * correct / total:.2f}%, remaining_weights: {ratio * 100:.2f}%')
         if writer is not None:
             writer.add_scalar("validation_output_loss", loss.item(), epoch)
             writer.add_scalar("validation_sparse_loss", losses, epoch)
             writer.add_scalar("validation_acc", correct / total, epoch)
             writer.add_scalar("validation_remaining_weights", ratio, epoch)
-
 
 
 def get_resnet_model(config, device):
@@ -196,12 +187,3 @@ def get_resnet_model(config, device):
     elif config["model"] == "vgg16":
         model = vgg16().to(device)
     return model
-
-
-
-if __name__ == "__main__":
-    for net_name in __all__:
-        if net_name.startswith('resnet'):
-            print(net_name)
-            test(globals()[net_name]())
-            print()

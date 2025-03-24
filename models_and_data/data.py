@@ -1,32 +1,32 @@
+import json
+import os
+
+import keras
+import numpy as np
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from sklearn.datasets import fetch_openml
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
-import numpy as np
-from torch.utils.data import DataLoader, Dataset
-import os
 from PIL import Image
-import json
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from torch.utils.data import DataLoader, Dataset
+
 
 def get_cifar10_data(batch_size):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    train_transform = transforms.Compose([transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=4), 
-                                          transforms.ToTensor(), normalize])
-    test_transform = transforms.Compose([transforms.ToTensor(), normalize])  
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                        download=True, transform=train_transform)
-    valset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                       download=True, transform=test_transform)
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
-                                          shuffle=True, num_workers=4, pin_memory=True)
+    train_transform = transforms.Compose(
+        [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=4), transforms.ToTensor(), normalize]
+    )
+    test_transform = transforms.Compose([transforms.ToTensor(), normalize])
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=train_transform)
+    valset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=test_transform)
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-    val_loader = torch.utils.data.DataLoader(valset, batch_size=batch_size,
-                                         shuffle=False, num_workers=4, pin_memory=True)
+    val_loader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     return train_loader, val_loader
-    
+
 
 class JetTaggingDataSet(Dataset):
 
@@ -59,12 +59,9 @@ def get_jet_tagging_data(batch_size):
 
     train_dataset = JetTaggingDataSet({"data": X_train_val, "target": y_train_val})
     test_dataset = JetTaggingDataSet({"data": X_test, "target": y_test})
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size,
-                        shuffle=True, num_workers=0)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size,
-                        shuffle=True, num_workers=0)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     return train_dataloader, test_dataloader
-
 
 
 class ImageNet(Dataset):
@@ -84,11 +81,11 @@ class ImageNet(Dataset):
             ]
         )
         with open(os.path.join(root, "imagenet_class_index.json"), "rb") as f:
-                    json_file = json.load(f)
-                    for class_id, v in json_file.items():
-                        self.syn_to_class[v[0]] = int(class_id)
+            json_file = json.load(f)
+            for class_id, v in json_file.items():
+                self.syn_to_class[v[0]] = int(class_id)
         with open(os.path.join(root, "ILSVRC2012_val_labels.json"), "rb") as f:
-                    self.val_to_syn = json.load(f)
+            self.val_to_syn = json.load(f)
         samples_dir = os.path.join(root, "ILSVRC/Data/CLS-LOC", split)
         for entry in os.listdir(samples_dir):
             if split == "train":
@@ -104,33 +101,35 @@ class ImageNet(Dataset):
                 target = self.syn_to_class[syn_id]
                 sample_path = os.path.join(samples_dir, entry)
                 self.samples.append(sample_path)
-                self.targets.append(target)    
+                self.targets.append(target)
 
     def __len__(self):
-        return len(self.samples)    
+        return len(self.samples)
+
     def __getitem__(self, idx):
         x = Image.open(self.samples[idx]).convert("RGB")
         if self.transform:
             x = self.transform(x)
         return x, self.targets[idx]
-    
+
+
 def get_imagenet_data(config):
     train_dataset = ImageNet("train")
     train_dataloader = DataLoader(
-            train_dataset,
-            batch_size=config["batch_size"], # may need to reduce this depending on your GPU 
-            num_workers=8, # may need to reduce this depending on your num of CPUs and RAM
-            shuffle=True,
-            drop_last=False,
-            pin_memory=True
-        )
+        train_dataset,
+        batch_size=config["batch_size"],  # may need to reduce this depending on your GPU
+        num_workers=8,  # may need to reduce this depending on your num of CPUs and RAM
+        shuffle=True,
+        drop_last=False,
+        pin_memory=True,
+    )
     val_dataset = ImageNet("val")
     val_dataloader = DataLoader(
-            val_dataset,
-            batch_size=config["batch_size"], # may need to reduce this depending on your GPU 
-            num_workers=8, # may need to reduce this depending on your num of CPUs and RAM
-            shuffle=False,
-            drop_last=False,
-            pin_memory=True
-        )
+        val_dataset,
+        batch_size=config["batch_size"],  # may need to reduce this depending on your GPU
+        num_workers=8,  # may need to reduce this depending on your num of CPUs and RAM
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+    )
     return train_dataloader, val_dataloader

@@ -1,4 +1,0 @@
-keras==3.6.0
-PyYAML==6.0.2
-quantizers==1.1.0
-torch==2.5.0

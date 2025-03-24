@@ -1,38 +1,38 @@
 pruning_parameters:
   disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
-    - 
+    -
   enable_pruning: true
-  final_temp: 200
-  pruning_method: cs
-  threshold_decay: 1.0e-09
-  threshold_init: 0
+  pruning_method: continual_learning
+  threshold: 0.3
+  threshold_decay: 0.
+  t_delta: 20
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
-  enable_quantization: true
+  enable_quantization: false
   hgq_gamma: 0.0003
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
-  epochs: 85
-  fine_tuning_epochs: 85
+  epochs: 150
+  fine_tuning_epochs: 0
   pretraining_epochs: 0
   pruning_first: false
-  rewind: post-ticket-search
-  rounds: 3
-  save_weights_epoch: 2
-batch_size: 128
+  rewind: never
+  rounds: 1
+  save_weights_epoch: -1
+batch_size: 256
 cosine_tmax: 200
 gamma: 0.1
 l2_decay: 0.0001
 label_smoothing: 0.0
-lr: 0.1
-lr_schedule: multistep
+lr: 0.01
+lr_schedule: cosine
 milestones:
-- 56
-- 71
+- -1
+- -1
 momentum: 0.9
 optimizer: sgd
 plot_frequency: 100

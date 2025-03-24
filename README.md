@@ -1,5 +1,3 @@
-# PQuant ![alt text](image.png)
+# PQuant ![alt text](docs/_static/image.png)
 
-### <u>P</u>rune and <u>Quant</u>ize ML models
-
-
+### Prune and Quantize ML models

@@ -1,15 +1,11 @@
 pruning_parameters:
-  alpha: 0.5
-  alpha_reset_epoch: 90
-  autotune_epochs: 10
-  backward_sparsity: false
   disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
-    - 
+    -
   enable_pruning: true
-  pruning_method: autosparse
-  threshold_decay: 0
-  threshold_init: -5.0
-  threshold_type: channelwise
+  final_temp: 200
+  pruning_method: cs
+  threshold_decay: 1.0e-09
+  threshold_init: 0
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
@@ -20,23 +16,23 @@ quantization_parameters:
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
-  epochs: 100
-  fine_tuning_epochs: 0
+  epochs: 85
+  fine_tuning_epochs: 85
   pretraining_epochs: 0
   pruning_first: false
-  rewind: never
-  rounds: 1
-  save_weights_epoch: -1.0
-batch_size: 256
+  rewind: post-ticket-search
+  rounds: 3
+  save_weights_epoch: 2
+batch_size: 128
 cosine_tmax: 200
 gamma: 0.1
-l2_decay: 3.0517578125e-05
-label_smoothing: 0.1
-lr: 0.01
-lr_schedule: cosine
+l2_decay: 0.0001
+label_smoothing: 0.0
+lr: 0.1
+lr_schedule: multistep
 milestones:
-- -1
-- -1
-momentum: 0.875
+- 56
+- 71
+momentum: 0.9
 optimizer: sgd
 plot_frequency: 100
