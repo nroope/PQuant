@@ -1,16 +1,26 @@
 import torch
 
 from pquant.core.compressed_layers import (
+    add_pruning_and_quantization,
     call_post_round_functions,
     post_epoch_functions,
     post_pretrain_functions,
     pre_epoch_functions,
     pre_finetune_functions,
+    remove_pruning_from_model,
     save_weights_functions,
 )
 
 
-def iterative_train(model, config, train_func, valid_func, *args, **kwargs):
+def train_compressed_model(model, config, train_func, valid_func, **kwargs):
+    # Adds pruning and quantization layers, trains model, then removes pruning layers and returns the model
+    model = add_pruning_and_quantization(model, config)
+    model = iterative_train(model, config, train_func, valid_func, **kwargs)
+    model = remove_pruning_from_model(model, config)
+    return model
+
+
+def iterative_train(model, config, train_func, valid_func, **kwargs):
     """
     Generic training loop, user provides training and validation functions
     """
@@ -20,9 +30,9 @@ def iterative_train(model, config, train_func, valid_func, *args, **kwargs):
         for e in range(training_config["pretraining_epochs"]):
             model.train()
             pre_epoch_functions(model, e, training_config["pretraining_epochs"])
-            train_func(model, *args, epoch=epoch, **kwargs)
+            train_func(model, epoch=epoch, **kwargs)
             model.eval()
-            valid_func(model, *args, epoch=epoch, **kwargs)
+            valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["pretraining_epochs"])
             epoch += 1
         post_pretrain_functions(model, config)
@@ -32,9 +42,9 @@ def iterative_train(model, config, train_func, valid_func, *args, **kwargs):
             if r == 0 and training_config["save_weights_epoch"] == e:
                 save_weights_functions(model)
             pre_epoch_functions(model, e, training_config["epochs"])
-            train_func(model, *args, epoch=epoch, **kwargs)
+            train_func(model, epoch=epoch, **kwargs)
             model.eval()
-            valid_func(model, *args, epoch=epoch, **kwargs)
+            valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["epochs"])
             epoch += 1
         call_post_round_functions(model, training_config["rewind"], training_config["rounds"], r)
@@ -43,10 +53,9 @@ def iterative_train(model, config, train_func, valid_func, *args, **kwargs):
         for e in range(training_config["fine_tuning_epochs"]):
             model.train()
             pre_epoch_functions(model, e, training_config["fine_tuning_epochs"])
-            train_func(model, *args, epoch=epoch, **kwargs)
+            train_func(model, epoch=epoch, **kwargs)
             model.eval()
-            valid_func(model, *args, epoch=epoch, **kwargs)
+            valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["fine_tuning_epochs"])
             epoch += 1
-    # Final score
     return model

@@ -1,3 +1,5 @@
+import os
+
 import yaml
 
 from pquant.pruning_methods.activation_pruning import ActivationPruning
@@ -22,6 +24,21 @@ def get_pruning_layer(config, layer, out_size):
         return ActivationPruning(config, layer, out_size)
     elif pruning_method == "wanda":
         return Wanda(config, layer, out_size)
+
+
+def get_default_config(pruning_method: str):
+    assert pruning_method in [
+        "autosparse",
+        "cl",
+        "cs",
+        "dst",
+        "pdp",
+        "wanda",
+    ], "Unkown pruning method. Acceptable pruning methods: autosparse, cl, cs, dst, pdp, wanda"
+    yaml_name = f"config_{pruning_method}.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return get_pruning_config(path)
 
 
 def get_pruning_config(config_path):

@@ -13,11 +13,7 @@ from smartpixels import (
 from torch.utils.tensorboard import SummaryWriter
 
 from data import get_cifar10_data, get_imagenet_data
-from pquant.core.compressed_layers import (
-    add_pruning_and_quantization,
-    remove_pruning_from_model,
-)
-from pquant.core.train import iterative_train
+from pquant import train_compressed_model
 from pquant.core.utils import write_config_to_yaml
 
 keras.backend.set_image_data_format('channels_first')
@@ -49,11 +45,9 @@ def main(config):
     output_dir = writer.get_logdir()
     write_config_to_yaml(config, f"{output_dir}/config.yaml")
     sparse_model, train_loader, val_loader, loss_func = get_model_data_loss_func(config, device)
-    sparse_model = add_pruning_and_quantization(sparse_model, config)
-    sparse_model = sparse_model.to(device)
     if config["model"] == "smartpixel":
         optimizer = get_optimizer(config, sparse_model)
-        trained_sparse_model = iterative_train(
+        trained_sparse_model = train_compressed_model(
             model=sparse_model,
             config=config,
             train_func=train_smartpixel,
@@ -67,7 +61,7 @@ def main(config):
     elif "resnet" in config["model"] or "vgg" in config["model"]:
         optimizer = get_optimizer(config, sparse_model)
         scheduler = get_scheduler(optimizer, config)
-        trained_sparse_model = iterative_train(
+        trained_sparse_model = train_compressed_model(
             model=sparse_model,
             config=config,
             train_func=train_resnet,
@@ -80,11 +74,8 @@ def main(config):
             optimizer=optimizer,
             scheduler=scheduler,
         )
-
-    torch.save(trained_sparse_model.state_dict(), f"{output_dir}/final_model_before_remove_pruning_layers.pt")
-    sparse_model = remove_pruning_from_model(trained_sparse_model, config)
-    torch.save(sparse_model.state_dict(), f"{output_dir}/final_model.pt")
-    plot_weights_per_layer(sparse_model, output_dir)
+    torch.save(trained_sparse_model.state_dict(), f"{output_dir}/final_model.pt")
+    plot_weights_per_layer(trained_sparse_model, output_dir)
 
 
 if __name__ == "__main__":
