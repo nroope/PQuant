@@ -67,7 +67,7 @@ class QuantizedReLU(nn.Module):
         self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
             self.hgq = Quantizer(
-                k0=1.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT_SYM", q_type="kif"
+                k0=0.0, i0=self.i.item(), f0=self.f.item(), round_mode="TRN", overflow_mode="SAT", q_type="kif"
             )
 
     def forward(self, x):
