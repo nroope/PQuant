@@ -329,7 +329,8 @@ class CompressedLayerConv1d(nn.Module):
 
 
 def add_pruning_and_quantization(model, config):
-    model = add_quantized_activations_to_model(model, config)
+    model = add_quantized_activations_to_model_layer(model, config)
+    # model = add_quantized_activations_to_model_functional(model, config)
     model = add_pruning_to_model(model, config)
     model = disable_pruning_from_layers(model, config)
     model = add_layer_specific_quantization_to_model(model, config)
@@ -357,7 +358,7 @@ def add_layer_specific_quantization_to_model(module, config):
     return module
 
 
-def add_quantized_activations_to_model(module, config):
+def add_quantized_activations_to_model_layer(module, config):
     if not config["quantization_parameters"]["enable_quantization"]:
         return module
     # Replaces ReLU and Tanh layers with quantized versions
@@ -376,6 +377,12 @@ def add_quantized_activations_to_model(module, config):
                 bits = 8
             tanh = QuantizedTanh(bits=bits, config=config)
             setattr(module, name, tanh)
+        else:
+            layer = add_quantized_activations_to_model_layer(layer, config)
+    return module
+
+
+def add_quantized_activations_to_model_functional(module, config):
     if config["quantization_parameters"]["use_high_granularity_quantization"]:
         return module
     # Replaces functional activation calls with quantized versions
