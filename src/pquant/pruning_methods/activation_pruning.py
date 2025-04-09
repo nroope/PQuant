@@ -30,7 +30,7 @@ class ActivationPruning(nn.Module):
             # Initialize activations dynamically
             self.activations = torch.zeros(size=output.shape[1:], dtype=output.dtype, device=self.mask.device)
         self.t += 1
-        self.total += 1
+        self.total += output.shape[0]
         gt_zero = (output > 0).float()
         gt_zero = torch.sum(gt_zero, dim=0)  # Sum over batch, take average during mask update
         self.activations += gt_zero
