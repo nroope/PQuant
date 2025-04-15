@@ -16,9 +16,9 @@ quantization_parameters:
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
-  epochs: 150
+  epochs: 100
   fine_tuning_epochs: 0
-  pretraining_epochs: 0
+  pretraining_epochs: 50
   pruning_first: false
   rewind: never
   rounds: 1

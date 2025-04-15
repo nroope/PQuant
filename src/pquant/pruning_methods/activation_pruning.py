@@ -16,6 +16,7 @@ class ActivationPruning(nn.Module):
         self.mask = torch.ones(self.shape, requires_grad=False).to(layer.weight.device)
         self.activations = None
         self.total = 0.0
+        self.is_pretraining = True
 
     def collect_output(self, output):
         """
@@ -23,7 +24,7 @@ class ActivationPruning(nn.Module):
         linear/convolution layer are over 0. Every t_delta steps, uses these values to update
         the mask to prune those channels and neurons that are active less than a given threshold
         """
-        if not self.training:
+        if not self.training or self.is_pretraining:
             # Don't collect during validation
             return
         if self.activations is None:
@@ -55,7 +56,7 @@ class ActivationPruning(nn.Module):
         return self.mask * weight
 
     def post_pre_train_function(self):
-        pass
+        self.is_pretraining = False
 
     def pre_epoch_function(self, epoch, total_epochs):
         pass
