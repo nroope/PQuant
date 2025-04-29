@@ -5,12 +5,7 @@ from hgq.quantizer import Quantizer
 from quantizers import get_fixed_quantizer
 from torch.fx import symbolic_trace
 
-from pquant.core.activations_quantizer import (
-    QuantizedReLU,
-    QuantizedTanh,
-    quantized_relu,
-    quantized_tanh,
-)
+from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.utils import get_pruning_layer
 
 
@@ -32,8 +27,8 @@ class CompressedLayerLinear(nn.Module):
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
             self.hgq_weight = Quantizer(
                 k0=1.0,
-                i0=self.i_weight.item(),
-                f0=self.f_weight.item(),
+                i0=self.i_weight,
+                f0=self.f_weight,
                 round_mode="TRN",
                 overflow_mode=overflow,
                 q_type="kif",
@@ -42,8 +37,8 @@ class CompressedLayerLinear(nn.Module):
             if layer.bias is not None:
                 self.hgq_bias = Quantizer(
                     k0=1.0,
-                    i0=self.i_bias.item(),
-                    f0=self.f_bias.item(),
+                    i0=self.i_bias,
+                    f0=self.f_bias,
                     round_mode="TRN",
                     overflow_mode=overflow,
                     q_type="kif",
@@ -126,8 +121,8 @@ class CompressedLayerConv2d(nn.Module):
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
             self.hgq_weight = Quantizer(
                 k0=1.0,
-                i0=self.i_weight.item(),
-                f0=self.f_weight.item(),
+                i0=self.i_weight,
+                f0=self.f_weight,
                 round_mode="TRN",
                 overflow_mode=overflow,
                 q_type="kif",
@@ -136,8 +131,8 @@ class CompressedLayerConv2d(nn.Module):
             if layer.bias is not None:
                 self.hgq_bias = Quantizer(
                     k0=1.0,
-                    i0=self.i_bias.item(),
-                    f0=self.f_bias.item(),
+                    i0=self.i_bias,
+                    f0=self.f_bias,
                     round_mode="TRN",
                     overflow_mode=overflow,
                     q_type="kif",
@@ -235,8 +230,8 @@ class CompressedLayerConv1d(nn.Module):
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
             self.hgq_weight = Quantizer(
                 k0=1.0,
-                i0=self.i_weight.item(),
-                f0=self.f_weight.item(),
+                i0=self.i_weight,
+                f0=self.f_weight,
                 round_mode="TRN",
                 overflow_mode=overflow,
                 q_type="kif",
@@ -245,8 +240,8 @@ class CompressedLayerConv1d(nn.Module):
             if layer.bias is not None:
                 self.hgq_bias = Quantizer(
                     k0=1.0,
-                    i0=self.i_bias.item(),
-                    f0=self.f_bias.item(),
+                    i0=self.i_bias,
+                    f0=self.f_bias,
                     round_mode="TRN",
                     overflow_mode=overflow,
                     q_type="kif",
@@ -363,19 +358,22 @@ def add_quantized_activations_to_model_layer(module, config):
         return module
     # Replaces ReLU and Tanh layers with quantized versions
     for name, layer in module.named_children():
+        i = config["quantization_parameters"]["default_integer_bits"]
+        f = config["quantization_parameters"]["default_fractional_bits"]
         if layer.__class__ in [nn.ReLU]:
             if name in config["quantization_parameters"]["layer_specific"]:
-                bits = config["quantization_parameters"]["layer_specific"][name]["bits"]
+                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
             else:
-                bits = 8
-            relu = QuantizedReLU(bits=float(bits), config=config)
+                # For ReLU, if using default values, add 1 bit since values are unsigned.
+                # Otherwise user provides bits. TODO: Find better way to do this
+                f = config["quantization_parameters"]["default_fractional_bits"] + 1
+            relu = QuantizedReLU(config, i=i, f=f)
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
             if name in config["quantization_parameters"]["layer_specific"]:
-                bits = config["quantization_parameters"]["layer_specific"][name]["bits"]
-            else:
-                bits = 8
-            tanh = QuantizedTanh(bits=bits, config=config)
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+            tanh = QuantizedTanh(config, i=i, f=f)
             setattr(module, name, tanh)
         else:
             layer = add_quantized_activations_to_model_layer(layer, config)
@@ -383,6 +381,7 @@ def add_quantized_activations_to_model_layer(module, config):
 
 
 def add_quantized_activations_to_model_functional(module, config):
+    # Currently not in use. TODO: Fix this
     if config["quantization_parameters"]["use_high_granularity_quantization"]:
         return module
     # Replaces functional activation calls with quantized versions
@@ -402,11 +401,11 @@ def add_quantized_activations_to_model_functional(module, config):
                 if node.target == "tanh":
                     kwargs["use_real_tanh"] = config["quantization_parameters"]["use_real_tanh"]
                     kwargs["use_symmetric"] = config["quantization_parameters"]["use_symmetric_quantization"]
-                    new_node = traced_model.graph.call_function(quantized_tanh, node.args, kwargs)
+                    # new_node = traced_model.graph.call_function(quantized_tanh, node.args, kwargs)
                 else:
                     kwargs = {"integer_bits": config["quantization_parameters"]["default_integer_bits"], "bits": bits}
-                    new_node = traced_model.graph.call_function(quantized_relu, node.args, kwargs)
-                node.replace_all_uses_with(new_node)
+                    # new_node = traced_model.graph.call_function(quantized_relu, node.args, kwargs)
+                # node.replace_all_uses_with(new_node)
             traced_model.graph.erase_node(node)
 
     traced_model.graph.lint()
@@ -546,6 +545,8 @@ def post_pretrain_functions(model, config):
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             layer.pruning_layer.post_pre_train_function()
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+            layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or config["pruning_parameters"]["pruning_method"] == "wanda":
         pdp_setup(model, config)
 
@@ -605,11 +606,14 @@ def get_layer_keep_ratio(model):
 
 def get_model_losses(model, losses):
     for layer in model.modules():
-        if isinstance(layer, (CompressedLayerConv2d, CompressedLayerLinear)):
+        if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             loss = layer.pruning_layer.calculate_additional_loss()
             if layer.use_high_granularity_quantization:
                 loss += layer.hgq_loss()
             losses += loss
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+            if layer.use_high_granularity_quantization:
+                losses += layer.hgq_loss()
     return losses
 
 
@@ -626,7 +630,7 @@ def create_default_layer_quantization_pruning_config(model):
                 }
             config["disable_pruning_for_layers"].append(name)
         elif layer.__class__ in [nn.Tanh, nn.ReLU]:
-            config["layer_specific"][name] = {"bits": 8}
+            config["layer_specific"][name] = {"integer_bits": 0, "fractional_bits": 7}
     traced_model = symbolic_trace(model)
     for node in traced_model.graph.nodes:
         if node.op == "call_method" and node.target == "tanh":
