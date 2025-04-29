@@ -29,9 +29,10 @@ class CompressedLayerLinear(nn.Module):
                 k0=1.0,
                 i0=self.i_weight,
                 f0=self.f_weight,
-                round_mode="TRN",
+                round_mode="RND",
                 overflow_mode=overflow,
                 q_type="kif",
+                homogeneous_axis=(),
             )
             self.hgq_weight.build(self.weight.shape)
             if layer.bias is not None:
@@ -39,9 +40,10 @@ class CompressedLayerLinear(nn.Module):
                     k0=1.0,
                     i0=self.i_bias,
                     f0=self.f_bias,
-                    round_mode="TRN",
+                    round_mode="RND",
                     overflow_mode=overflow,
                     q_type="kif",
+                    homogeneous_axis=(),
                 )
                 self.hgq_bias.build(layer.bias.shape)
             self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
@@ -123,9 +125,10 @@ class CompressedLayerConv2d(nn.Module):
                 k0=1.0,
                 i0=self.i_weight,
                 f0=self.f_weight,
-                round_mode="TRN",
+                round_mode="RND",
                 overflow_mode=overflow,
                 q_type="kif",
+                homogeneous_axis=(),
             )
             self.hgq_weight.build(self.weight.shape)
             if layer.bias is not None:
@@ -133,9 +136,10 @@ class CompressedLayerConv2d(nn.Module):
                     k0=1.0,
                     i0=self.i_bias,
                     f0=self.f_bias,
-                    round_mode="TRN",
+                    round_mode="RND",
                     overflow_mode=overflow,
                     q_type="kif",
+                    homogeneous_axis=(),
                 )
                 self.hgq_bias.build(layer.bias.shape)
             self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
@@ -232,9 +236,10 @@ class CompressedLayerConv1d(nn.Module):
                 k0=1.0,
                 i0=self.i_weight,
                 f0=self.f_weight,
-                round_mode="TRN",
+                round_mode="RND",
                 overflow_mode=overflow,
                 q_type="kif",
+                homogeneous_axis=(),
             )
             self.hgq_weight.build(self.weight.shape)
             if layer.bias is not None:
@@ -242,9 +247,10 @@ class CompressedLayerConv1d(nn.Module):
                     k0=1.0,
                     i0=self.i_bias,
                     f0=self.f_bias,
-                    round_mode="TRN",
+                    round_mode="RND",
                     overflow_mode=overflow,
                     q_type="kif",
+                    homogeneous_axis=(),
                 )
                 self.hgq_bias.build(layer.bias.shape)
             self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
@@ -323,12 +329,13 @@ class CompressedLayerConv1d(nn.Module):
         return x
 
 
-def add_pruning_and_quantization(model, config):
+def add_pruning_and_quantization(model, config, input_shape):
     model = add_quantized_activations_to_model_layer(model, config)
     # model = add_quantized_activations_to_model_functional(model, config)
     model = add_pruning_to_model(model, config)
     model = disable_pruning_from_layers(model, config)
     model = add_layer_specific_quantization_to_model(model, config)
+    model(torch.rand(input_shape, device=next(model.parameters()).device))
     return model
 
 

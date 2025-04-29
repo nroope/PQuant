@@ -17,10 +17,9 @@ class QuantizedTanh(keras.layers.Layer):
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
         self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
         if self.use_high_granularity_quantization:
-            self.hgq = Quantizer(k0=1.0, i0=self.i, f0=self.f, round_mode="TRN", overflow_mode=overflow, q_type="kif")
-
-    def build(self, input_shape):
-        super().build(input_shape)
+            self.hgq = Quantizer(
+                k0=1.0, i0=self.i, f0=self.f, round_mode="RND", overflow_mode=overflow, q_type="kif", heterogeneous_axis=()
+            )
 
     def hgq_loss(self):
         if self.is_pretraining:
@@ -32,10 +31,8 @@ class QuantizedTanh(keras.layers.Layer):
     def post_pre_train_function(self):
         self.is_pretraining = False
 
-    def forward(self, x):
+    def call(self, x):
         if self.use_high_granularity_quantization:
-            if not self.hgq.built:
-                self.hgq.build(x.shape)
             x = tanh(x) if self.use_real_tanh else hard_tanh(x)
             return self.hgq(x)
         else:
@@ -55,10 +52,9 @@ class QuantizedReLU(keras.layers.Layer):
         self.quantizer = get_fixed_quantizer(overflow_mode="SAT")
 
         if self.use_high_granularity_quantization:
-            self.hgq = Quantizer(k0=0.0, i0=self.i, f0=self.f, round_mode="TRN", overflow_mode="SAT", q_type="kif")
-
-    def build(self, input_shape):
-        super().build(input_shape)
+            self.hgq = Quantizer(
+                k0=0.0, i0=self.i, f0=self.f, round_mode="RND", overflow_mode="SAT", q_type="kif", heterogeneous_axis=()
+            )
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -70,11 +66,8 @@ class QuantizedReLU(keras.layers.Layer):
             "hgq_gamma"
         ]
 
-    def forward(self, x):
+    def call(self, x):
         if self.use_high_granularity_quantization:
-            if not self.hgq.built:
-                self.build(x.shape)
-                self.hgq.build(x.shape)
             return self.hgq(x)
         else:
             x = self.quantizer(x, k=0.0, i=self.i, f=self.f, training=True)
