@@ -2,7 +2,7 @@
 
 Our implementations follow the actual implementations of the author's of the papers, whenever we were able to find one. Because of this some of the functionality of the pruning methods can differ slightly from the equations shown in the papers.
 
-#### [Activation pruning (continual learning)](https://arxiv.org/abs/1903.04476)
+#### [Activation pruning](https://arxiv.org/abs/1903.04476)
 Collect layer outputs to calculate average layer activity (how often layer neuron / channel outputs values greater than 0). Prune those neurons and channels which have smaller activity value than a given threshold.
 
 **Hyperparameters**
@@ -33,7 +33,7 @@ A multi-round pruning algorithm.
 ```math
  x = W\cdot M
 ```
-where 
+where
 ```math
 M=(\frac{\sigma(\beta s)}{\sigma(s_{init})})
 ```
