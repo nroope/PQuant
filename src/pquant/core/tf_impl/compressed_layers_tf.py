@@ -62,8 +62,8 @@ class CompressedLayerBase(keras.layers.Layer):
                 self.hgq_bias = Quantizer(
                     k0=1.0,
                     i0=self.i_bias,
-                    f0=self.RND,
-                    round_mode="TRN",
+                    f0=self.f_bias,
+                    round_mode="RND",
                     overflow_mode=self.overflow,
                     q_type="kif",
                 )
@@ -360,6 +360,9 @@ def get_model_losses_tf(model, losses):
             if layer.use_high_granularity_quantization:
                 loss += layer.hgq_loss()
             losses += loss
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+            if layer.use_high_granularity_quantization:
+                losses += layer.hgq_loss()
     return losses
 
 
