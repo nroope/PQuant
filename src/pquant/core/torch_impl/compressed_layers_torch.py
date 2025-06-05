@@ -647,7 +647,7 @@ def create_default_layer_quantization_pruning_config(model):
     return config
 
 
-def add_default_layer_quantization_pruning_to_config_torch(config, model):
+def add_default_layer_quantization_pruning_to_config_torch(model, config):
     custom_scheme = create_default_layer_quantization_pruning_config(model)
     config["quantization_parameters"]["layer_specific"] = custom_scheme["layer_specific"]
     config["pruning_parameters"]["disable_pruning_for_layers"] = custom_scheme["disable_pruning_for_layers"]

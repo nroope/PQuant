@@ -7,13 +7,13 @@ def add_default_layer_quantization_pruning_to_config(model, config):
             add_default_layer_quantization_pruning_to_config_torch,
         )
 
-        return add_default_layer_quantization_pruning_to_config_torch(config, model)
+        return add_default_layer_quantization_pruning_to_config_torch(model, config)
     else:
         from pquant.core.tf_impl.compressed_layers_tf import (
             add_default_layer_quantization_pruning_to_config_tf,
         )
 
-        return add_default_layer_quantization_pruning_to_config_tf(config, model)
+        return add_default_layer_quantization_pruning_to_config_tf(model, config)
 
 
 def add_compression_layers(model, config, input_shape):

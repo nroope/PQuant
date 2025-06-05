@@ -364,8 +364,11 @@ def get_model_losses_tf(model, losses):
 
 
 def check_activation(layer, config):
+    """
+    Replaces activations with quantized activations.
+    The activation can be a part of another layer such as Conv2D, or an Activation layer
+    """
     quantization_enabled = config["quantization_parameters"]["enable_quantization"]
-    # Replaces activations that are part of a layer, by adding them as a layer
     act = None
     if hasattr(layer.activation, "__name__"):
         if layer.activation.__name__ == "relu":
@@ -393,7 +396,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
         act = None
         if isinstance(layer, (keras.layers.DepthwiseConv2D)):
             new_layer = CompressedLayerDepthwiseConv2dKeras(config, layer, layer_type="conv")
-            i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer.name)
+            i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
@@ -406,7 +409,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
             act = check_activation(layer, config)
         elif isinstance(layer, (keras.layers.Conv2D)):
             new_layer = CompressedLayerConv2dKeras(config, layer, layer_type="conv")
-            i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer.name)
+            i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
@@ -419,7 +422,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
             act = check_activation(layer, config)
         elif isinstance(layer, (keras.layers.Dense)):
             new_layer = CompressedLayerDenseKeras(config, layer, layer_type="linear")
-            i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer.name)
+            i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
@@ -443,31 +446,34 @@ def add_compression_layers_tf(model, config, input_shape=None):
         if act is not None:
             x = act(x)
     replaced_model = keras.Model(inputs=model.inputs, outputs=x)
-    replaced_model(keras.random.normal(shape=input_shape))
     return replaced_model
 
 
-def get_quantization_bits_activations(config, name):
+def get_quantization_bits_activations(config, layer):
     i_bits = config["quantization_parameters"]["default_integer_bits"]
     f_bits = config["quantization_parameters"]["default_fractional_bits"]
     layer_specific = config["quantization_parameters"]["layer_specific"]
-    if name in layer_specific:
-        i_bits = layer_specific[name]["weight"]["integer_bits"]
-        f_bits = layer_specific[name]["weight"]["fractional_bits"]
+    if layer.name in layer_specific:
+        if layer.activation.__name__ in layer_specific[layer.name]:
+            i_bits = layer_specific[layer.name][layer.activation.__name__]["integer_bits"]
+            f_bits = layer_specific[layer.name][layer.activation.__name__]["fractional_bits"]
+        else:
+            i_bits = layer_specific[layer.name]["integer_bits"]
+            f_bits = layer_specific[layer.name]["fractional_bits"]
     return i_bits, f_bits
 
 
-def get_quantization_bits_weights_biases(config, name):
+def get_quantization_bits_weights_biases(config, layer):
     i_bits_w = i_bits_b = config["quantization_parameters"]["default_integer_bits"]
     f_bits_w = f_bits_b = config["quantization_parameters"]["default_fractional_bits"]
     layer_specific = config["quantization_parameters"]["layer_specific"]
-    if name in layer_specific:
-        if "weight" in layer_specific[name]:
-            i_bits_w = layer_specific[name]["weight"]["integer_bits"]
-            f_bits_w = layer_specific[name]["weight"]["fractional_bits"]
-        if "bias" in layer_specific[name]:
-            i_bits_b = layer_specific[name]["bias"]["integer_bits"]
-            f_bits_b = layer_specific[name]["bias"]["fractional_bits"]
+    if layer.name in layer_specific:
+        if "weight" in layer_specific[layer.name]:
+            i_bits_w = layer_specific[layer.name]["weight"]["integer_bits"]
+            f_bits_w = layer_specific[layer.name]["weight"]["fractional_bits"]
+        if "bias" in layer_specific[layer.name]:
+            i_bits_b = layer_specific[layer.name]["bias"]["integer_bits"]
+            f_bits_b = layer_specific[layer.name]["bias"]["fractional_bits"]
     return i_bits_w, f_bits_w, i_bits_b, f_bits_b
 
 
@@ -476,3 +482,27 @@ def get_enable_pruning(layer, config):
     if layer.name in config["pruning_parameters"]["disable_pruning_for_layers"]:
         enable_pruning = False
     return enable_pruning
+
+
+def add_default_layer_quantization_pruning_to_config_tf(model, config):
+    custom_scheme = {"layer_specific": {}, "disable_pruning_for_layers": []}
+    for layer in model.layers:
+        if layer.__class__ in [keras.layers.Dense, keras.layers.Conv2D, keras.layers.DepthwiseConv2D]:
+            if layer.use_bias:
+                custom_scheme["layer_specific"][layer.name] = {
+                    "weight": {"integer_bits": 0.0, "fractional_bits": 7.0},
+                    "bias": {"integer_bits": 0.0, "fractional_bits": 7.0},
+                }
+            else:
+                custom_scheme["layer_specific"][layer.name] = {"weight": {"integer_bits": 0.0, "fractional_bits": 7.0}}
+            if hasattr(layer.activation, "__name__") and layer.activation.__name__ in ["relu", "tanh"]:
+                custom_scheme["layer_specific"][layer.name][layer.activation.__name__] = {
+                    "integer_bits": 0.0,
+                    "fractional_bits": 7.0,
+                }
+            custom_scheme["disable_pruning_for_layers"].append(layer.name)
+        elif layer.__class__ in [keras.layers.Activation, keras.layers.ReLU]:
+            custom_scheme["layer_specific"][layer.name] = {"integer_bits": 0.0, "fractional_bits": 7.0}
+    config["quantization_parameters"]["layer_specific"] = custom_scheme["layer_specific"]
+    config["pruning_parameters"]["disable_pruning_for_layers"] = custom_scheme["disable_pruning_for_layers"]
+    return config
