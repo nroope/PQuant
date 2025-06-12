@@ -9,6 +9,7 @@ Collect layer outputs to calculate average layer activity (how often layer neuro
 - `threshold`: If a neuron or channel is less active than this threshold, prune it.
 - `threshold_decay`: Not used.
 - `t_delta`: How many batches to collect as calibration data.
+- `t_start_collecting_batch`: At which epoch during training the collection begins
 
 #### [AutoSparse](https://arxiv.org/abs/2304.06941)
 $x = sign(W) \cdot ReLU(|W| - \sigma(T))$.

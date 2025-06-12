@@ -11,6 +11,7 @@ class ContinuousSparsification(keras.layers.Layer):
         self.final_temp = config["pruning_parameters"]["final_temp"]
         self.do_hard_mask = False
         self.mask = None
+        self.is_pretraining = True
 
     def build(self, input_shape):
         self.s_init = ops.convert_to_tensor(self.config["pruning_parameters"]["threshold_init"] * ops.ones(input_shape))
@@ -35,7 +36,7 @@ class ContinuousSparsification(keras.layers.Layer):
             return mask
 
     def post_pre_train_function(self):
-        pass
+        self.is_pretraining = False
 
     def pre_epoch_function(self, epoch, total_epochs):
         pass

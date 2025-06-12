@@ -59,6 +59,7 @@ class AutoSparse(keras.layers.Layer):
         self.config = config
         global BACKWARD_SPARSITY
         BACKWARD_SPARSITY = config["pruning_parameters"]["backward_sparsity"]
+        self.is_pretraining = True
 
     def build(self, input_shape):
         self.threshold_size = get_threshold_size(self.config, input_shape)
@@ -104,6 +105,9 @@ class AutoSparse(keras.layers.Layer):
 
     def post_round_function(self):
         pass
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
 
     def post_epoch_function(self, epoch, total_epochs):
         self.alpha *= cosine_sigmoid_decay(epoch, total_epochs)

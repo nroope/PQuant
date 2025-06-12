@@ -9,12 +9,14 @@ class ActivationPruning(keras.layers.Layer):
         self.config = config
         self.act_type = "relu"
         self.t = 0
+        self.batches_collected = 0
         self.layer_type = layer_type
         self.activations = None
         self.total = 0.0
         self.is_pretraining = True
         self.done = False
         self.threshold = ops.convert_to_tensor(config["pruning_parameters"]["threshold"])
+        self.t_start_collecting_batch = self.config["pruning_parameters"]["t_start_collecting_batch"]
 
     def build(self, input_shape):
         self.shape = (input_shape[0], 1)
@@ -34,12 +36,14 @@ class ActivationPruning(keras.layers.Layer):
         if self.activations is None:
             # Initialize activations dynamically
             self.activations = ops.zeros(shape=output.shape[1:], dtype=output.dtype)
-        self.t += 1
+        if self.t < self.t_start_collecting_batch:
+            return
+        self.batches_collected += 1
         self.total += output.shape[0]
         gt_zero = ops.cast((output > 0), output.dtype)
         gt_zero = ops.sum(gt_zero, axis=0)  # Sum over batch, take average during mask update
         self.activations += gt_zero
-        if self.t % self.config["pruning_parameters"]["t_delta"] == 0:
+        if self.batches_collected % self.config["pruning_parameters"]["t_delta"] == 0:
             pct_active = self.activations / self.total
             self.t = 0
             self.total = 0
@@ -78,4 +82,6 @@ class ActivationPruning(keras.layers.Layer):
         pass
 
     def post_epoch_function(self, epoch, total_epochs):
+        if self.is_pretraining is False:
+            self.t += 1
         pass

@@ -33,6 +33,7 @@ class DST(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = config
+        self.is_pretraining = True
 
     def build(self, input_shape):
         self.threshold_size = get_threshold_size(self.config, input_shape)
@@ -82,7 +83,7 @@ class DST(keras.layers.Layer):
         pass
 
     def post_pre_train_function(self):
-        pass
+        self.is_pretraining = False
 
     def post_round_function(self):
         pass

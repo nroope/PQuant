@@ -25,7 +25,7 @@ def iterative_train_tf(model, config, train_func, valid_func, **kwargs):
             valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["pretraining_epochs"])
             epoch += 1
-        post_pretrain_functions(model, config)
+    post_pretrain_functions(model, config)
     for r in range(training_config["rounds"]):
         for e in range(training_config["epochs"]):
             if r == 0 and training_config["save_weights_epoch"] == e:

@@ -603,7 +603,7 @@ def get_layer_keep_ratio_torch(model):
                 total_w += weight.numel()
                 rem = torch.count_nonzero(weight)
                 remaining_weights += rem
-        elif isinstance(layer, (nn.Conv2d, nn.Conv1d, nn.Linear)):
+        elif layer.__class__ in (nn.Conv2d, nn.Conv1d, nn.Linear):
             total_w += layer.weight.numel()
             remaining_weights += torch.count_nonzero(layer.weight)
     if total_w != 0:
