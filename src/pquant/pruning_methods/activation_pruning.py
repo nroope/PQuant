@@ -1,59 +1,67 @@
-import torch
-import torch.nn as nn
+import keras
+from keras import ops
 
 
-class ActivationPruning(nn.Module):
+class ActivationPruning(keras.layers.Layer):
 
-    def __init__(self, config, layer, out_size, *args, **kwargs):
+    def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = config
         self.act_type = "relu"
         self.t = 0
-        self.layer_type = "linear" if isinstance(layer, nn.Linear) else "conv"
-        self.shape = (layer.weight.shape[0], 1)
-        if self.layer_type == "conv":
-            self.shape = (layer.weight.shape[0], 1, 1, 1)
-        self.mask = torch.ones(self.shape, requires_grad=False).to(layer.weight.device)
+        self.batches_collected = 0
+        self.layer_type = layer_type
         self.activations = None
         self.total = 0.0
         self.is_pretraining = True
+        self.done = False
+        self.threshold = ops.convert_to_tensor(config["pruning_parameters"]["threshold"])
+        self.t_start_collecting_batch = self.config["pruning_parameters"]["t_start_collecting_batch"]
 
-    def collect_output(self, output):
+    def build(self, input_shape):
+        self.shape = (input_shape[0], 1)
+        if self.layer_type == "conv":
+            self.shape = (input_shape[0], 1, 1, 1)
+        self.mask = ops.ones(self.shape)
+
+    def collect_output(self, output, training):
         """
         Accumulates values for how often the outputs of the neurons and channels of
         linear/convolution layer are over 0. Every t_delta steps, uses these values to update
         the mask to prune those channels and neurons that are active less than a given threshold
         """
-        if not self.training or self.is_pretraining:
+        if self.done or not training or self.is_pretraining:
             # Don't collect during validation
             return
         if self.activations is None:
             # Initialize activations dynamically
-            self.activations = torch.zeros(size=output.shape[1:], dtype=output.dtype, device=self.mask.device)
-        self.t += 1
+            self.activations = ops.zeros(shape=output.shape[1:], dtype=output.dtype)
+        if self.t < self.t_start_collecting_batch:
+            return
+        self.batches_collected += 1
         self.total += output.shape[0]
-        gt_zero = (output > 0).float()
-        gt_zero = torch.sum(gt_zero, dim=0)  # Sum over batch, take average during mask update
+        gt_zero = ops.cast((output > 0), output.dtype)
+        gt_zero = ops.sum(gt_zero, axis=0)  # Sum over batch, take average during mask update
         self.activations += gt_zero
-        if self.t % self.config["pruning_parameters"]["t_delta"] == 0:
+        if self.batches_collected % self.config["pruning_parameters"]["t_delta"] == 0:
             pct_active = self.activations / self.total
             self.t = 0
             self.total = 0
             if self.layer_type == "linear":
-                self.mask = (pct_active > self.config["pruning_parameters"]["threshold"]).float().unsqueeze(1)
+                self.mask = ops.expand_dims(ops.cast((pct_active > self.threshold), pct_active.dtype), 1)
             else:
                 pct_active = pct_active.view(pct_active.shape[0], -1)
-                pct_active_avg = torch.mean(pct_active, dim=-1)
-                pct_active_above_threshold = (pct_active_avg > self.config["pruning_parameters"]["threshold"]).float()
-                self.mask = (pct_active_above_threshold).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+                pct_active_avg = ops.mean(pct_active, axis=-1)
+                pct_active_above_threshold = ops.cast((pct_active_avg > self.threshold), pct_active_avg.dtype)
+                self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1, 1])
             self.activations *= 0.0
+            self.done = True
 
-    def build(self, weight):
-        # Since this is a torch layer, do nothing
-        pass
-
-    def forward(self, weight):  # Mask is only updated every t_delta step, using collect_output
+    def call(self, weight):  # Mask is only updated every t_delta step, using collect_output
         return self.mask * weight
+
+    def get_hard_mask(self, weight):
+        return self.mask
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -74,4 +82,6 @@ class ActivationPruning(nn.Module):
         pass
 
     def post_epoch_function(self, epoch, total_epochs):
+        if self.is_pretraining is False:
+            self.t += 1
         pass

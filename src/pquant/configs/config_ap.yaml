@@ -2,10 +2,11 @@ pruning_parameters:
   disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
     -
   enable_pruning: true
-  pruning_method: continual_learning
+  pruning_method: activation_pruning
   threshold: 0.3
   threshold_decay: 0.
-  t_delta: 20
+  t_delta: 50
+  t_start_collecting_batch: 50
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
@@ -18,7 +19,7 @@ quantization_parameters:
 training_parameters:
   epochs: 100
   fine_tuning_epochs: 0
-  pretraining_epochs: 50
+  pretraining_epochs: 0
   pruning_first: false
   rewind: never
   rounds: 1
