@@ -62,9 +62,8 @@ class PDP(keras.layers.Layer):
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
         W_all, _ = ops.top_k(norm_flat, ops.size(norm_flat))
         size = ops.cast(ops.size(W_all), self.mask.dtype)
-        ind = ops.cast((1 - self.r) * size, "int32")
+        ind = ops.cast((1 - self.r) * size, "int32") - 1
         lim = ops.clip(ind, 0, ops.cast(size - 2, "int32"))
-
         Wh = W_all[lim]
         Wt = W_all[lim + 1]
         # norm = ops.expand_dims(norm, -1)
@@ -90,7 +89,7 @@ class PDP(keras.layers.Layer):
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
         W_all, _ = ops.top_k(norm_flat, ops.size(norm_flat))
         size = ops.cast(ops.size(W_all), self.mask.dtype)
-        ind = ops.cast((1 - self.r) * size, "int32")
+        ind = ops.cast((1 - self.r) * size, "int32") - 1
         lim = ops.clip(ind, 0, ops.cast(size - 2, "int32"))
 
         Wh = W_all[lim]
@@ -115,7 +114,7 @@ class PDP(keras.layers.Layer):
         """ Do top_k for all weights. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(weight)) to calculate t directly """
         all, _ = ops.top_k(abs_weight_flat, ops.size(abs_weight_flat))
-        ind = ops.cast((1 - self.r) * self.flat_weight_size, "int32")
+        ind = ops.cast((1 - self.r) * self.flat_weight_size, "int32") - 1  # Index begins from 0
         lim = ops.clip(ind, 0, ops.cast(self.flat_weight_size - 2, "int32"))
         Wh = all[lim]
         Wt = all[lim + 1]

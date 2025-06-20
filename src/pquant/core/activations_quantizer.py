@@ -21,6 +21,11 @@ class QuantizedTanh(keras.layers.Layer):
                 k0=1.0, i0=self.i, f0=self.f, round_mode="RND", overflow_mode=overflow, q_type="kif", heterogeneous_axis=()
             )
 
+    def build(self, input_shape):
+        super().build(input_shape)
+        if self.use_high_granularity_quantization:
+            self.hgq.build(input_shape)
+
     def hgq_loss(self):
         if self.is_pretraining:
             return 0.0
@@ -55,6 +60,11 @@ class QuantizedReLU(keras.layers.Layer):
             self.hgq = Quantizer(
                 k0=0.0, i0=self.i, f0=self.f, round_mode="RND", overflow_mode="SAT", q_type="kif", heterogeneous_axis=()
             )
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        if self.use_high_granularity_quantization:
+            self.hgq.build(input_shape)
 
     def post_pre_train_function(self):
         self.is_pretraining = False
