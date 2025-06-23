@@ -407,7 +407,10 @@ def post_pretrain_functions(model, config):
             layer.pruning_layer.post_pre_train_function()
         elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
             layer.post_pre_train_function()
-    if config["pruning_parameters"]["pruning_method"] == "pdp" or config["pruning_parameters"]["pruning_method"] == "wanda":
+    if config["pruning_parameters"]["pruning_method"] == "pdp" or (
+        config["pruning_parameters"]["pruning_method"] == "wanda"
+        and config["pruning_parameters"]["calculate_pruning_budget"]
+    ):
         pdp_setup(model, config)
 
 

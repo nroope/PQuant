@@ -422,7 +422,10 @@ def post_pretrain_functions(model, config):
             ),
         ):
             layer.pruning_layer.post_pre_train_function()
-    if config["pruning_parameters"]["pruning_method"] == "pdp" or config["pruning_parameters"]["pruning_method"] == "wanda":
+    if config["pruning_parameters"]["pruning_method"] == "pdp" or (
+        config["pruning_parameters"]["pruning_method"] == "wanda"
+        and config["pruning_parameters"]["calculate_pruning_budget"]
+    ):
         pdp_setup(model, config)
 
 
@@ -570,7 +573,6 @@ def add_compression_layers_tf(model, config, input_shape=None):
             transpose_shape = new_layer.weight_transpose
             pruning_layer_input = ops.transpose(pruning_layer_input, transpose_shape)
             new_layer.pruning_layer.build(pruning_layer_input.shape)
-            # new_layer.build(layer.input.shape)
             x = new_layer(x)
             act = check_activation(layer, config)
         elif isinstance(layer, Conv1D):

@@ -102,6 +102,7 @@ Using a calibration data set, calculate a metric based on the average input to t
 For linear layers, the metric is calculated as L2 norm over the batch dimension. For convolutions, reduce dimensions by taking the average of the batch dimension, then calculate L2 norm over a flattened kernel dimension.
 
 **Hyperparameters**
+- `calculate_pruning_budget`: If True, calculate the pruning budget for each layer, while keeping the target sparsity. If False, prunes every layer using target sparsity.
 - `M`: If doing N:M pruning, N and M should be non-null (N < M)
 - `N`: If doing N:M pruning, N and M should be non-null (N < M)
 - `threshold_decay`: not used

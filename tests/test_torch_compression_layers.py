@@ -6,6 +6,7 @@ from keras import ops
 from torch import nn
 from torch.nn import Conv1d, Conv2d, Linear, ReLU, Tanh
 
+from pquant import post_training_prune
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.torch_impl.compressed_layers_torch import (
     CompressedLayerConv1d,
@@ -82,13 +83,14 @@ def config_ap():
 def config_wanda():
     return {
         "pruning_parameters": {
+            "calculate_pruning_budget": True,
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
             "pruning_method": "wanda",
             "sparsity": 0.75,
             "t_start_collecting_batch": 0,
             "threshold_decay": 0.0,
-            "t_delta": 1,
+            "t_delta": 2,
             "N": None,
             "M": None,
         },
@@ -363,3 +365,66 @@ def test_hgq_activation_built(config_pdp, conv2d_input):
 
     is_built = check_keras_layer_is_built(model, [])
     assert all(is_built)
+
+
+def test_post_training_wanda(config_wanda, conv2d_input):
+    config_wanda["pruning_parameters"]["calculate_pruning_budget"] = False
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    model = TestModel(layer, "relu")
+    calibration_dataset = [conv2d_input, conv2d_input]
+    model = post_training_prune(model, calibration_dataset, config_wanda)
+    assert get_layer_keep_ratio_torch(model) == 1 - config_wanda["pruning_parameters"]["sparsity"]
+
+
+class TestModel2(nn.Module):
+    __test__ = False
+
+    def __init__(self, submodule, submodule2, activation=None):
+        super().__init__()
+        self.submodule = submodule
+        self.submodule2 = submodule2
+        if activation == "relu":
+            self.activation = ReLU()
+        elif activation == "tanh":
+            self.activation = Tanh()
+        else:
+            self.activation = activation
+
+    def forward(self, x):
+        x = self.submodule(x)
+        if self.activation is not None:
+            x = self.activation(x)
+        x = self.submodule2(x)
+        return x
+
+
+def test_calculate_pruning_budget(config_wanda, dense_input):
+    sparsity = 0.75
+    config_wanda["pruning_parameters"]["calculate_pruning_budget"] = True
+    config_wanda["pruning_parameters"]["sparsity"] = sparsity
+
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
+    model = TestModel2(layer, layer2, "relu")
+
+    # First layer will have 50% sparsity
+    weight = np.ones(IN_FEATURES * OUT_FEATURES).astype(np.float32)
+    weight[: IN_FEATURES * OUT_FEATURES // 2] = 0.001
+    weight = ops.convert_to_tensor(weight)
+    weight2 = ops.linspace(0.01, 0.99, OUT_FEATURES * OUT_FEATURES)
+
+    model = add_compression_layers_torch(model, config_wanda, dense_input.shape)
+    model.submodule.weight.data = ops.reshape(weight, model.submodule.weight.shape)
+    model.submodule2.weight.data = ops.reshape(weight2, model.submodule2.weight.shape)
+
+    # Triggers calculation of pruning budget for PDP and Wanda
+    post_pretrain_functions(model, config_wanda)
+    total_weights = IN_FEATURES * OUT_FEATURES + OUT_FEATURES * OUT_FEATURES
+    remaining_weights = 0
+    for layer in model.modules():
+        if hasattr(layer, "pruning_layer"):
+            calculated_sparsity = layer.pruning_layer.sparsity.cpu()
+            remaining_weights += np.float32(1 - calculated_sparsity) * layer.weight.numel()
+    # First layer should have 50% sparsity, total sparsity should be around 75%
+    assert model.submodule.pruning_layer.sparsity == 0.5
+    np.testing.assert_allclose(remaining_weights / total_weights, 1 - sparsity, atol=1e-3, rtol=0)

@@ -80,6 +80,7 @@ def config_ap():
 def config_wanda():
     return {
         "pruning_parameters": {
+            "calculate_pruning_budget": False,
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
             "pruning_method": "wanda",
@@ -885,7 +886,6 @@ def test_pdp_depthwiseconv2d_channels_last_transpose(config_pdp, conv2d_input):
 def test_pdp_dense_channels_last_transpose(config_pdp, dense_input):
     keras.backend.set_image_data_format("channels_first")
     inp = ops.reshape(ops.linspace(0, 1, ops.size(dense_input)), dense_input.shape)
-
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dense")
@@ -905,10 +905,10 @@ def test_pdp_dense_channels_last_transpose(config_pdp, dense_input):
     model_cl = add_compression_layers_tf(model_cl, config_pdp, inp.shape)
     model_cl.layers[1].weight.assign(weight_cf)
     post_pretrain_functions(model_cl, config_pdp)
-
     model_cl(inp, training=True)
     model_cl(inp, training=True)
     out_cl = model_cl(inp, training=True)
+
     cf_mask = model_cf.layers[1].pruning_layer.mask
     cf_weight = ops.transpose(model_cf.layers[1].weight, model_cf.layers[1].weight_transpose)
     cf_masked_weight = cf_mask * cf_weight
@@ -1087,3 +1087,35 @@ def test_cs_dense_channels_last_transpose(config_cs, dense_input):
     assert ops.all(ops.equal(ops.ravel(cf_mask), ops.ravel(cl_mask)))
     assert ops.all(ops.equal(cf_masked_weight, cl_masked_weight))
     np.testing.assert_allclose(out_cf, out_cl_transposed, rtol=0, atol=5e-6)
+
+
+def test_calculate_pruning_budget(config_wanda, dense_input):
+    sparsity = 0.75
+    config_wanda["pruning_parameters"]["calculate_pruning_budget"] = True
+    config_wanda["pruning_parameters"]["sparsity"] = sparsity
+
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=False)(inputs)
+    out2 = Dense(OUT_FEATURES, use_bias=False)(out)
+    model = keras.Model(inputs=inputs, outputs=out2, name="test_conv2d")
+
+    # First layer will have 50% sparsity
+    weight = np.ones(IN_FEATURES * OUT_FEATURES).astype(np.float32)
+    weight[: IN_FEATURES * OUT_FEATURES // 2] = 0.001
+    weight = ops.reshape(ops.convert_to_tensor(weight), (IN_FEATURES, OUT_FEATURES))
+    weight2 = ops.reshape(ops.linspace(0.01, 0.99, OUT_FEATURES * OUT_FEATURES), (OUT_FEATURES, OUT_FEATURES))
+
+    model = add_compression_layers_tf(model, config_wanda, dense_input.shape)
+    model.layers[1].weight.assign(weight)
+    model.layers[2].weight.assign(weight2)
+    # Triggers calculation of pruning budget for PDP and Wanda
+    post_pretrain_functions(model, config_wanda)
+    total_weights = IN_FEATURES * OUT_FEATURES + OUT_FEATURES * OUT_FEATURES
+    remaining_weights = 0
+    for layer in model.layers:
+        if hasattr(layer, "pruning_layer"):
+            calculated_sparsity = layer.pruning_layer.sparsity
+            remaining_weights += (1 - calculated_sparsity) * ops.cast(ops.size(layer.weight), "float32")
+    # First layer should have 50% sparsity, total sparsity should be around 75%
+    assert model.layers[1].pruning_layer.sparsity == 0.5
+    np.testing.assert_allclose(remaining_weights / total_weights, 1 - sparsity, atol=1e-3, rtol=0)
