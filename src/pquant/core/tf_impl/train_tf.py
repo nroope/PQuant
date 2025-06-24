@@ -19,9 +19,7 @@ def iterative_train_tf(model, config, train_func, valid_func, **kwargs):
     if training_config["pretraining_epochs"] > 0:
         for e in range(training_config["pretraining_epochs"]):
             pre_epoch_functions(model, e, training_config["pretraining_epochs"])
-            v = train_func(model, epoch=epoch, **kwargs)
-            if not v:
-                return model, False
+            train_func(model, epoch=epoch, **kwargs)
             valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["pretraining_epochs"])
             epoch += 1
@@ -31,9 +29,7 @@ def iterative_train_tf(model, config, train_func, valid_func, **kwargs):
             if r == 0 and training_config["save_weights_epoch"] == e:
                 save_weights_functions(model)
             pre_epoch_functions(model, e, training_config["epochs"])
-            v = train_func(model, epoch=epoch, **kwargs)
-            if not v:
-                return model, False
+            train_func(model, epoch=epoch, **kwargs)
             valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["epochs"])
             epoch += 1
@@ -46,4 +42,4 @@ def iterative_train_tf(model, config, train_func, valid_func, **kwargs):
             valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config["fine_tuning_epochs"])
             epoch += 1
-    return model, True
+    return model

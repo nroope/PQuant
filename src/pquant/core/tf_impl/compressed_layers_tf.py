@@ -446,9 +446,9 @@ def pdp_setup(model, config):
             ),
         ):
             if global_weights is None:
-                global_weights = ops.reshape(layer.weight, -1)
+                global_weights = ops.ravel(layer.weight)
             else:
-                global_weights = ops.concatenate((global_weights, ops.reshape(layer.weight, -1)))
+                global_weights = ops.concatenate((global_weights, ops.ravel(layer.weight)))
 
     abs_global_weights = ops.abs(global_weights)
     global_weight_topk, _ = ops.top_k(abs_global_weights, ops.size(abs_global_weights))

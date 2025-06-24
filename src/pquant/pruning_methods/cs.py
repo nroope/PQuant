@@ -1,6 +1,6 @@
 import keras
 from keras import ops
-from keras.api.initializers import Constant
+from keras.initializers import Constant
 
 
 class ContinuousSparsification(keras.layers.Layer):
@@ -56,7 +56,7 @@ class ContinuousSparsification(keras.layers.Layer):
 
     def calculate_additional_loss(self):
         return ops.convert_to_tensor(
-            self.config["pruning_parameters"]["threshold_decay"] * ops.norm(ops.reshape(self.get_mask(), -1), ord=1)
+            self.config["pruning_parameters"]["threshold_decay"] * ops.norm(ops.ravel(self.get_mask()), ord=1)
         )
 
     def get_layer_sparsity(self, weight):
