@@ -41,6 +41,7 @@ def config_pdp():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -67,6 +68,7 @@ def config_ap():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -96,6 +98,7 @@ def config_wanda():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -121,6 +124,7 @@ def config_cs():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -1143,3 +1147,31 @@ def test_trigger_post_pretraining(config_pdp, conv2d_input):
     assert model.layers[2].is_pretraining is False
     assert model.layers[3].pruning_layer.is_pretraining is False
     assert model.layers[4].is_pretraining is False
+
+
+def test_hgq_weight_shape(config_pdp, dense_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=False)(inputs)
+    act1 = Activation("tanh")(out)
+    out2 = Dense(OUT_FEATURES, use_bias=False)(act1)
+    act2 = ReLU()(out2)
+    model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
+
+    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    assert model.layers[1].hgq_weight.quantizer._i.shape == model.layers[1].weight.shape
+    layer_2_input_shape = [1] + list(model.layers[2].input.shape[1:])
+    assert model.layers[2].hgq.quantizer._i.shape == layer_2_input_shape
+
+    config_pdp["quantization_parameters"]["hgq_heterogeneous"] = False
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=False)(inputs)
+    act1 = Activation("tanh")(out)
+    out2 = Dense(OUT_FEATURES, use_bias=False)(act1)
+    act2 = ReLU()(out2)
+    model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
+
+    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    assert model.layers[1].hgq_weight.quantizer._i.shape == (1, 1)
+    assert model.layers[2].hgq.quantizer._i.shape == (1, 1)

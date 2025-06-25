@@ -28,6 +28,7 @@ class CompressedLayerBase(keras.layers.Layer):
         self.pruning_first = config["training_parameters"]["pruning_first"]
         self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         self.enable_pruning = config["pruning_parameters"]["enable_pruning"]
         self.do_transpose_data = None
         self.weight_transpose = None
@@ -56,27 +57,50 @@ class CompressedLayerBase(keras.layers.Layer):
 
         self.init_weight = self.weight.value
         if self.use_high_granularity_quantization:
-            self.hgq_weight = Quantizer(
-                k0=1.0,
-                i0=self.i_weight,
-                f0=self.f_weight,
-                round_mode="RND",
-                overflow_mode=self.overflow,
-                q_type="kif",
-                homogeneous_axis=(),
-            )
-            self.hgq_weight.build(self.weight.shape)
-            if self.use_bias:
-                self.hgq_bias = Quantizer(
+            if self.hgq_heterogeneous:
+                self.hgq_weight = Quantizer(
                     k0=1.0,
-                    i0=self.i_bias,
-                    f0=self.f_bias,
+                    i0=self.i_weight,
+                    f0=self.f_weight,
                     round_mode="RND",
                     overflow_mode=self.overflow,
                     q_type="kif",
                     homogeneous_axis=(),
                 )
-                self.hgq_bias.build(self.bias.shape)
+                self.hgq_weight.build(self.weight.shape)
+                if self.use_bias:
+                    self.hgq_bias = Quantizer(
+                        k0=1.0,
+                        i0=self.i_bias,
+                        f0=self.f_bias,
+                        round_mode="RND",
+                        overflow_mode=self.overflow,
+                        q_type="kif",
+                        homogeneous_axis=(),
+                    )
+                    self.hgq_bias.build(self.bias.shape)
+            else:
+                self.hgq_weight = Quantizer(
+                    k0=1.0,
+                    i0=self.i_weight,
+                    f0=self.f_weight,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+                self.hgq_weight.build(self.weight.shape)
+                if self.use_bias:
+                    self.hgq_bias = Quantizer(
+                        k0=1.0,
+                        i0=self.i_bias,
+                        f0=self.f_bias,
+                        round_mode="RND",
+                        overflow_mode=self.overflow,
+                        q_type="kif",
+                        heterogeneous_axis=(),
+                    )
+                    self.hgq_bias.build(self.bias.shape)
 
     def save_weights(self):
         self.init_weight = self.weight.value

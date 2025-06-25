@@ -17,16 +17,28 @@ class QuantizedTanh(keras.layers.Layer):
         self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         if self.use_high_granularity_quantization:
-            self.hgq = Quantizer(
-                k0=self.k,
-                i0=self.i,
-                f0=self.f,
-                round_mode="RND",
-                overflow_mode=self.overflow,
-                q_type="kif",
-                heterogeneous_axis=(),
-            )
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+            else:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -63,12 +75,30 @@ class QuantizedReLU(keras.layers.Layer):
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
         self.overflow = "SAT"
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
 
         if self.use_high_granularity_quantization:
-            self.hgq = Quantizer(
-                k0=self.k, i0=self.i, f0=self.f, round_mode="RND", overflow_mode="SAT", q_type="kif", heterogeneous_axis=()
-            )
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+            else:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
 
     def build(self, input_shape):
         super().build(input_shape)

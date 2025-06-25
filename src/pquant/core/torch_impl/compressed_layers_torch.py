@@ -22,28 +22,52 @@ class CompressedLayerBase(nn.Module):
         self.pruning_method = config["pruning_parameters"]["pruning_method"]
         overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
-            self.hgq_weight = Quantizer(
-                k0=1.0,
-                i0=self.i_weight,
-                f0=self.f_weight,
-                round_mode="RND",
-                overflow_mode=overflow,
-                q_type="kif",
-                homogeneous_axis=(),
-            )
-            self.hgq_weight.build(self.weight.shape)
-            if layer.bias is not None:
-                self.hgq_bias = Quantizer(
+            if self.hgq_heterogeneous:
+                self.hgq_weight = Quantizer(
                     k0=1.0,
-                    i0=self.i_bias,
-                    f0=self.f_bias,
+                    i0=self.i_weight,
+                    f0=self.f_weight,
                     round_mode="RND",
                     overflow_mode=overflow,
                     q_type="kif",
                     homogeneous_axis=(),
                 )
-                self.hgq_bias.build(layer.bias.shape)
+                self.hgq_weight.build(self.weight.shape)
+                if layer.bias is not None:
+                    self.hgq_bias = Quantizer(
+                        k0=1.0,
+                        i0=self.i_bias,
+                        f0=self.f_bias,
+                        round_mode="RND",
+                        overflow_mode=overflow,
+                        q_type="kif",
+                        homogeneous_axis=(),
+                    )
+                    self.hgq_bias.build(layer.bias.shape)
+            else:
+                self.hgq_weight = Quantizer(
+                    k0=1.0,
+                    i0=self.i_weight,
+                    f0=self.f_weight,
+                    round_mode="RND",
+                    overflow_mode=overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+                self.hgq_weight.build(self.weight.shape)
+                if layer.bias is not None:
+                    self.hgq_bias = Quantizer(
+                        k0=1.0,
+                        i0=self.i_bias,
+                        f0=self.f_bias,
+                        round_mode="RND",
+                        overflow_mode=overflow,
+                        q_type="kif",
+                        heterogeneous_axis=(),
+                    )
+                    self.hgq_bias.build(layer.bias.shape)
             self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None

@@ -44,6 +44,7 @@ def config_pdp():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -70,6 +71,7 @@ def config_ap():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -99,6 +101,7 @@ def config_wanda():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -124,6 +127,7 @@ def config_cs():
             "default_fractional_bits": 7.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
@@ -458,3 +462,28 @@ def test_trigger_post_pretraining(config_pdp, dense_input):
     assert model.activation.is_pretraining is False
     assert model.submodule2.pruning_layer.is_pretraining is False
     assert model.activation2.is_pretraining is False
+
+
+def test_hgq_weight_shape(config_pdp, dense_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
+    model = TestModel2(layer, layer2, "relu", "tanh")
+
+    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+
+    assert model.submodule.hgq_weight.quantizer._i.shape == model.submodule.weight.shape
+    assert model.activation.hgq.quantizer._i.shape == (1, OUT_FEATURES)
+
+    config_pdp["quantization_parameters"]["hgq_heterogeneous"] = False
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
+    model = TestModel2(layer, layer2, "relu", "tanh")
+
+    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+
+    assert model.submodule.hgq_weight.quantizer._i.shape == (1, 1)
+    assert model.activation.hgq.quantizer._i.shape == (1, 1)
