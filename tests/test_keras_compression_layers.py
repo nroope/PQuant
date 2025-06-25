@@ -1119,3 +1119,27 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
     # First layer should have 50% sparsity, total sparsity should be around 75%
     assert model.layers[1].pruning_layer.sparsity == 0.5
     np.testing.assert_allclose(remaining_weights / total_weights, 1 - sparsity, atol=1e-3, rtol=0)
+
+
+def test_trigger_post_pretraining(config_pdp, conv2d_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=False)(inputs)
+    act1 = Activation("tanh")(out)
+    out2 = Dense(OUT_FEATURES, use_bias=False)(act1)
+    act2 = ReLU()(out2)
+    model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
+
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+
+    assert model.layers[1].pruning_layer.is_pretraining is True
+    assert model.layers[2].is_pretraining is True
+    assert model.layers[3].pruning_layer.is_pretraining is True
+    assert model.layers[4].is_pretraining is True
+
+    post_pretrain_functions(model, config_pdp)
+
+    assert model.layers[1].pruning_layer.is_pretraining is False
+    assert model.layers[2].is_pretraining is False
+    assert model.layers[3].pruning_layer.is_pretraining is False
+    assert model.layers[4].is_pretraining is False

@@ -379,7 +379,7 @@ def test_post_training_wanda(config_wanda, conv2d_input):
 class TestModel2(nn.Module):
     __test__ = False
 
-    def __init__(self, submodule, submodule2, activation=None):
+    def __init__(self, submodule, submodule2, activation=None, activation2=None):
         super().__init__()
         self.submodule = submodule
         self.submodule2 = submodule2
@@ -390,11 +390,20 @@ class TestModel2(nn.Module):
         else:
             self.activation = activation
 
+        if activation2 == "relu":
+            self.activation2 = ReLU()
+        elif activation2 == "tanh":
+            self.activation2 = Tanh()
+        else:
+            self.activation2 = activation2
+
     def forward(self, x):
         x = self.submodule(x)
         if self.activation is not None:
             x = self.activation(x)
         x = self.submodule2(x)
+        if self.activation2 is not None:
+            x = self.activation2(x)
         return x
 
 
@@ -428,3 +437,24 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
     # First layer should have 50% sparsity, total sparsity should be around 75%
     assert model.submodule.pruning_layer.sparsity == 0.5
     np.testing.assert_allclose(remaining_weights / total_weights, 1 - sparsity, atol=1e-3, rtol=0)
+
+
+def test_trigger_post_pretraining(config_pdp, dense_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
+    model = TestModel2(layer, layer2, "relu", "tanh")
+
+    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+
+    assert model.submodule.pruning_layer.is_pretraining is True
+    assert model.activation.is_pretraining is True
+    assert model.submodule2.pruning_layer.is_pretraining is True
+    assert model.activation2.is_pretraining is True
+
+    post_pretrain_functions(model, config_pdp)
+
+    assert model.submodule.pruning_layer.is_pretraining is False
+    assert model.activation.is_pretraining is False
+    assert model.submodule2.pruning_layer.is_pretraining is False
+    assert model.activation2.is_pretraining is False

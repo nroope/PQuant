@@ -44,7 +44,14 @@ class CompressedLayerBase(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
-        self.weight = self.add_weight(self.weight_shape, trainable=True)
+
+        regularizer = None
+        if hasattr(self, "kernel_regularizer"):
+            regularizer = self.kernel_regularizer
+        elif hasattr(self, "depthwise_regularizer"):
+            regularizer = self.depthwise_regularizer
+
+        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=regularizer)
         self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
 
         self.init_weight = self.weight.value
@@ -56,6 +63,7 @@ class CompressedLayerBase(keras.layers.Layer):
                 round_mode="RND",
                 overflow_mode=self.overflow,
                 q_type="kif",
+                homogeneous_axis=(),
             )
             self.hgq_weight.build(self.weight.shape)
             if self.use_bias:
@@ -66,6 +74,7 @@ class CompressedLayerBase(keras.layers.Layer):
                     round_mode="RND",
                     overflow_mode=self.overflow,
                     q_type="kif",
+                    homogeneous_axis=(),
                 )
                 self.hgq_bias.build(self.bias.shape)
 
@@ -422,6 +431,8 @@ def post_pretrain_functions(model, config):
             ),
         ):
             layer.pruning_layer.post_pre_train_function()
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+            layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
         and config["pruning_parameters"]["calculate_pruning_budget"]
@@ -603,10 +614,13 @@ def add_compression_layers_tf(model, config, input_shape=None):
             act = check_activation(layer, config)
         # Activation layers
         elif isinstance(layer, ReLU):
-            i_bits, f_bits = get_quantization_bits_activations(config, layer)
-            new_layer = QuantizedReLU(config, i_bits, f_bits)
-            new_layer.build(layer.input.shape)
-            x = new_layer(x)
+            if config["quantization_parameters"]["enable_quantization"]:
+                i_bits, f_bits = get_quantization_bits_activations(config, layer)
+                new_layer = QuantizedReLU(config, i_bits, f_bits)
+                new_layer.build(layer.input.shape)
+                x = new_layer(x)
+            else:
+                x = layer(x)
         elif isinstance(layer, Activation):
             new_layer = check_activation(layer, config)
             if new_layer is not None:
