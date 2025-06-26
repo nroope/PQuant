@@ -1,4 +1,5 @@
 pruning_parameters:
+  calculate_pruning_budget: True
   disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
     -
   enable_pruning: true
@@ -14,6 +15,7 @@ quantization_parameters:
   default_fractional_bits: 7.
   enable_quantization: true
   hgq_gamma: 0.0003
+  hgq_heterogeneous: True
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false

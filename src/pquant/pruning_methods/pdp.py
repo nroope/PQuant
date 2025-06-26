@@ -57,14 +57,13 @@ class PDP(keras.layers.Layer):
         if self.is_pretraining:
             return self.mask
         norm = ops.norm(weight, axis=0, ord=2, keepdims=True)
-        norm_flat = ops.reshape(norm, -1)
+        norm_flat = ops.ravel(norm)
         """ Do top_k for all neuron norms. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
         W_all, _ = ops.top_k(norm_flat, ops.size(norm_flat))
         size = ops.cast(ops.size(W_all), self.mask.dtype)
-        ind = ops.cast((1 - self.r) * size, "int32")
+        ind = ops.cast((1 - self.r) * size, "int32") - 1
         lim = ops.clip(ind, 0, ops.cast(size - 2, "int32"))
-
         Wh = W_all[lim]
         Wt = W_all[lim + 1]
         # norm = ops.expand_dims(norm, -1)
@@ -85,12 +84,12 @@ class PDP(keras.layers.Layer):
             return self.mask
         weight_reshaped = ops.reshape(weight, (weight.shape[0], weight.shape[1], -1))
         norm = ops.norm(weight_reshaped, axis=2, ord=2)
-        norm_flat = ops.reshape(norm, -1)
+        norm_flat = ops.ravel(norm)
         """ Do top_k for all channel norms. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
         W_all, _ = ops.top_k(norm_flat, ops.size(norm_flat))
         size = ops.cast(ops.size(W_all), self.mask.dtype)
-        ind = ops.cast((1 - self.r) * size, "int32")
+        ind = ops.cast((1 - self.r) * size, "int32") - 1
         lim = ops.clip(ind, 0, ops.cast(size - 2, "int32"))
 
         Wh = W_all[lim]
@@ -111,11 +110,11 @@ class PDP(keras.layers.Layer):
             self.mask = ops.ones(weight.shape)
             return self.mask
         weight_reshaped = ops.reshape(weight, self.softmax_shape)
-        abs_weight_flat = ops.reshape(ops.abs(weight), -1)
+        abs_weight_flat = ops.ravel(ops.abs(weight))
         """ Do top_k for all weights. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(weight)) to calculate t directly """
         all, _ = ops.top_k(abs_weight_flat, ops.size(abs_weight_flat))
-        ind = ops.cast((1 - self.r) * self.flat_weight_size, "int32")
+        ind = ops.cast((1 - self.r) * self.flat_weight_size, "int32") - 1  # Index begins from 0
         lim = ops.clip(ind, 0, ops.cast(self.flat_weight_size - 2, "int32"))
         Wh = all[lim]
         Wt = all[lim + 1]

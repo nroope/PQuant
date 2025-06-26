@@ -10,16 +10,40 @@ class QuantizedTanh(keras.layers.Layer):
         super().__init__()
         self.i = convert_to_tensor(i)
         self.f = convert_to_tensor(f)
+        self.k = convert_to_tensor(1.0)
         self.config = config
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
-        overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
+        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         if self.use_high_granularity_quantization:
-            self.hgq = Quantizer(
-                k0=1.0, i0=self.i, f0=self.f, round_mode="RND", overflow_mode=overflow, q_type="kif", heterogeneous_axis=()
-            )
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+            else:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        if self.use_high_granularity_quantization:
+            self.hgq.build(input_shape)
 
     def hgq_loss(self):
         if self.is_pretraining:
@@ -47,14 +71,39 @@ class QuantizedReLU(keras.layers.Layer):
         self.config = config
         self.i = convert_to_tensor(i)
         self.f = convert_to_tensor(f)
+        self.k = convert_to_tensor(0.0)
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
-        self.quantizer = get_fixed_quantizer(overflow_mode="SAT")
+        self.overflow = "SAT"
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
 
         if self.use_high_granularity_quantization:
-            self.hgq = Quantizer(
-                k0=0.0, i0=self.i, f0=self.f, round_mode="RND", overflow_mode="SAT", q_type="kif", heterogeneous_axis=()
-            )
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+            else:
+                self.hgq = Quantizer(
+                    k0=self.k,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        if self.use_high_granularity_quantization:
+            self.hgq.build(input_shape)
 
     def post_pre_train_function(self):
         self.is_pretraining = False

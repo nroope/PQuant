@@ -21,7 +21,10 @@ class ActivationPruning(keras.layers.Layer):
     def build(self, input_shape):
         self.shape = (input_shape[0], 1)
         if self.layer_type == "conv":
-            self.shape = (input_shape[0], 1, 1, 1)
+            if len(input_shape) == 3:
+                self.shape = (input_shape[0], 1, 1)
+            else:
+                self.shape = (input_shape[0], 1, 1, 1)
         self.mask = ops.ones(self.shape)
 
     def collect_output(self, output, training):
@@ -50,10 +53,13 @@ class ActivationPruning(keras.layers.Layer):
             if self.layer_type == "linear":
                 self.mask = ops.expand_dims(ops.cast((pct_active > self.threshold), pct_active.dtype), 1)
             else:
-                pct_active = pct_active.view(pct_active.shape[0], -1)
+                pct_active = ops.reshape(pct_active, (pct_active.shape[0], -1))
                 pct_active_avg = ops.mean(pct_active, axis=-1)
                 pct_active_above_threshold = ops.cast((pct_active_avg > self.threshold), pct_active_avg.dtype)
-                self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1, 1])
+                if len(output.shape) == 3:
+                    self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1])
+                else:
+                    self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1, 1])
             self.activations *= 0.0
             self.done = True
 

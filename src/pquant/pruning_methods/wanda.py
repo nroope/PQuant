@@ -46,12 +46,18 @@ class Wanda(keras.layers.Layer):
             self.mask = ops.reshape(mask, weight.shape)
         else:
             # Unstructured pruning
-            self.mask = self.get_mask(weight, metric, sparsity=self.sparsity)
+            metric_reshaped = ops.reshape(metric, (1, -1))
+            weight_reshaped = ops.reshape(weight, (1, -1))
+            mask = self.get_mask(weight_reshaped, metric_reshaped, sparsity=self.sparsity)
+            self.mask = ops.reshape(mask, weight.shape)
 
     def handle_conv(self, x, weight):
         inputs_avg = ops.mean(ops.reshape(x, (x.shape[0], x.shape[1], -1)), axis=0)
         norm = ops.norm(inputs_avg, ord=2, axis=-1)
-        norm = ops.reshape(norm, [1] + list(norm.shape) + [1, 1])
+        if len(weight.shape) == 3:
+            norm = ops.reshape(norm, [1] + list(norm.shape) + [1])
+        else:
+            norm = ops.reshape(norm, [1] + list(norm.shape) + [1, 1])
         metric = ops.abs(weight) * norm
         if self.N is not None and self.M is not None:
             # N:M pruning
