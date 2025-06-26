@@ -23,8 +23,6 @@ class CompressedLayerBase(keras.layers.Layer):
         self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
 
-        self.bias_shape = layer.bias.shape if layer.use_bias else None
-        self.weight_shape = layer.kernel.shape
         self.pruning_first = config["training_parameters"]["pruning_first"]
         self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
@@ -45,17 +43,6 @@ class CompressedLayerBase(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
-
-        regularizer = None
-        if hasattr(self, "kernel_regularizer"):
-            regularizer = self.kernel_regularizer
-        elif hasattr(self, "depthwise_regularizer"):
-            regularizer = self.depthwise_regularizer
-
-        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=regularizer)
-        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
-
-        self.init_weight = self.weight.value
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq_weight = Quantizer(
@@ -177,10 +164,18 @@ class CompressedLayerDepthwiseConv2dKeras(CompressedLayerBase):
         self.dilation_rate = layer.dilation_rate
         self.padding = layer.padding
         self.kernel_size = layer.kernel_size
+        self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.weight_shape = layer.kernel.shape
         self.weight_transpose = (3, 2, 0, 1)
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
         self.do_transpose_data = layer.data_format == "channels_last"
+
+    def build(self, input_shape):
+        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.depthwise_regularizer)
+        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
+        self.init_weight = self.weight.value
+        super().build(input_shape)
 
     def call(self, x, training=None):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
@@ -205,12 +200,17 @@ class CompressedLayerConv2dKeras(CompressedLayerBase):
         self.padding = layer.padding
         self.kernel_size = layer.kernel_size
         self.groups = layer.groups
+        self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.weight_shape = layer.kernel.shape
         self.weight_transpose = (3, 2, 0, 1)
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
         self.do_transpose_data = layer.data_format == "channels_last"
 
     def build(self, input_shape):
+        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.kernel_regularizer)
+        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
+        self.init_weight = self.weight.value
         super().build(input_shape)
 
     def call(self, x, training=None):
@@ -238,12 +238,17 @@ class CompressedLayerConv1dKeras(CompressedLayerBase):
         self.padding = layer.padding
         self.kernel_size = layer.kernel_size
         self.groups = layer.groups
+        self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.weight_shape = layer.kernel.shape
         self.weight_transpose = (2, 1, 0)
         self.weight_transpose_back = (2, 1, 0)
         self.data_transpose = (0, 2, 1)
         self.do_transpose_data = layer.data_format == "channels_last"
 
     def build(self, input_shape):
+        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.kernel_regularizer)
+        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
+        self.init_weight = self.weight.value
         super().build(input_shape)
 
     def call(self, x, training=None):
@@ -266,9 +271,17 @@ class CompressedLayerDenseKeras(CompressedLayerBase):
         self.kernel_regularizer = layer.kernel_regularizer
         self.use_bias = layer.use_bias
         self.units = layer.units
+        self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.weight_shape = layer.kernel.shape
         self.weight_transpose = (1, 0)
         self.weight_transpose_back = (1, 0)
         self.data_transpose = (0, 1)  # Always (BATCH_SIZE, OUT_FEATURES)
+
+    def build(self, input_shape):
+        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.kernel_regularizer)
+        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
+        self.init_weight = self.weight.value
+        super().build(input_shape)
 
     def call(self, x, training=None):
         weight, bias = self.prune_and_quantize(self.weight, self.bias)
