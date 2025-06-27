@@ -2,13 +2,22 @@ import keras
 import numpy as np
 import pytest
 from keras import ops
-from keras.api.layers import Activation, Conv1D, Conv2D, Dense, DepthwiseConv2D, ReLU
+from keras.api.layers import (
+    Activation,
+    Conv1D,
+    Conv2D,
+    Dense,
+    DepthwiseConv2D,
+    ReLU,
+    SeparableConv2D,
+)
 
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.tf_impl.compressed_layers_tf import (
     CompressedLayerConv1dKeras,
     CompressedLayerConv2dKeras,
     CompressedLayerDenseKeras,
+    CompressedLayerSeparableConv2dKeras,
     add_compression_layers_tf,
     get_layer_keep_ratio_tf,
     post_pretrain_functions,
@@ -177,6 +186,107 @@ def test_conv2d_call(config_pdp, conv2d_input):
     layer.weight.assign(layer_to_replace.kernel)
     out2 = layer(conv2d_input)
     assert ops.all(ops.equal(out, out2))
+
+
+def test_separable_conv2d_call(config_pdp, conv2d_input):
+    layer_to_replace = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")
+    layer_to_replace.build(conv2d_input.shape)
+    out = layer_to_replace(conv2d_input)
+    layer = CompressedLayerSeparableConv2dKeras(config_pdp, layer_to_replace)
+    layer.depthwise_conv.build(conv2d_input.shape)
+    layer.pointwise_conv.build(conv2d_input.shape)
+    layer.depthwise_conv.weight.assign(layer_to_replace.depthwise_kernel)
+    layer.pointwise_conv.weight.assign(layer_to_replace.pointwise_kernel)
+
+    out2 = layer(conv2d_input)
+    assert ops.all(ops.equal(out, out2))
+
+
+def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
+    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
+    model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model(conv2d_input)
+
+    post_pretrain_functions(model, config_pdp)
+    pre_finetune_functions(model)
+
+    # Set Depthwise mask to 50% 0s
+    mask_50pct_dw = ops.cast(ops.linspace(0, 1, num=ops.size(model.layers[1].depthwise_conv.weight)) < 0.5, "float32")
+    mask_50pct_dw = ops.reshape(keras.random.shuffle(mask_50pct_dw), model.layers[1].depthwise_conv.pruning_layer.mask.shape)
+    model.layers[1].depthwise_conv.pruning_layer.mask = mask_50pct_dw
+    # Set Pointwise mask to 50% 0s
+    mask_50pct_pw = ops.cast(ops.linspace(0, 1, num=ops.size(model.layers[1].pointwise_conv.weight)) < 0.5, "float32")
+    mask_50pct_pw = ops.reshape(keras.random.shuffle(mask_50pct_pw), model.layers[1].pointwise_conv.pruning_layer.mask.shape)
+    model.layers[1].pointwise_conv.pruning_layer.mask = mask_50pct_pw
+
+    output1 = model(conv2d_input)
+    model = remove_pruning_from_model_tf(model, config_pdp)
+    output2 = model(conv2d_input)
+    assert ops.all(ops.equal(output1, output2))
+
+    expected_nonzero_count_depthwise = ops.count_nonzero(mask_50pct_dw)
+    nonzero_count_depthwise = ops.count_nonzero(model.layers[1].depthwise_kernel)
+    assert ops.equal(expected_nonzero_count_depthwise, nonzero_count_depthwise)
+
+    expected_nonzero_count_pointwise = ops.count_nonzero(mask_50pct_pw)
+    nonzero_count_pointwise = ops.count_nonzero(model.layers[1].pointwise_kernel)
+    assert ops.equal(expected_nonzero_count_pointwise, nonzero_count_pointwise)
+
+
+def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
+    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
+    model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model(conv2d_input)
+    post_pretrain_functions(model, config_pdp)
+    pre_finetune_functions(model)
+
+    # Set Depthwise mask to 50% 0s
+    mask_50pct_dw = ops.cast(ops.linspace(0, 1, num=ops.size(model.layers[1].depthwise_conv.weight)) < 0.5, "float32")
+    mask_50pct_dw = ops.reshape(keras.random.shuffle(mask_50pct_dw), model.layers[1].depthwise_conv.pruning_layer.mask.shape)
+    model.layers[1].depthwise_conv.pruning_layer.mask = mask_50pct_dw
+    # Set Pointwise mask to 50% 0s
+    mask_50pct_pw = ops.cast(ops.linspace(0, 1, num=ops.size(model.layers[1].pointwise_conv.weight)) < 0.5, "float32")
+    mask_50pct_pw = ops.reshape(keras.random.shuffle(mask_50pct_pw), model.layers[1].pointwise_conv.pruning_layer.mask.shape)
+    model.layers[1].pointwise_conv.pruning_layer.mask = mask_50pct_pw
+
+    ratio1 = get_layer_keep_ratio_tf(model)
+    model = remove_pruning_from_model_tf(model, config_pdp)
+    ratio2 = get_layer_keep_ratio_tf(model)
+
+    assert ops.equal(ratio1, ratio2)
+    assert ops.equal(ops.count_nonzero(mask_50pct_dw) / ops.size(mask_50pct_dw), ratio1)
+
+
+def test_separable_conv2d_trigger_post_pretraining(config_pdp, conv2d_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
+    act1 = Activation("tanh")(out)
+    flat = keras.layers.Flatten()(act1)
+    out2 = Dense(OUT_FEATURES, use_bias=False)(flat)
+    act2 = ReLU()(out2)
+    model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
+
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    assert model.layers[1].depthwise_conv.pruning_layer.is_pretraining is True
+    assert model.layers[1].pointwise_conv.pruning_layer.is_pretraining is True
+    assert model.layers[2].is_pretraining is True
+    assert model.layers[4].pruning_layer.is_pretraining is True
+    assert model.layers[5].is_pretraining is True
+
+    post_pretrain_functions(model, config_pdp)
+
+    assert model.layers[1].depthwise_conv.pruning_layer.is_pretraining is False
+    assert model.layers[1].pointwise_conv.pruning_layer.is_pretraining is False
+    assert model.layers[2].is_pretraining is False
+    assert model.layers[4].pruning_layer.is_pretraining is False
+    assert model.layers[5].is_pretraining is False
 
 
 def test_conv1d_call(config_pdp, conv1d_input):
