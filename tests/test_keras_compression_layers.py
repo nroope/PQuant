@@ -193,7 +193,8 @@ def test_separable_conv2d_call(config_pdp, conv2d_input):
     layer_to_replace.build(conv2d_input.shape)
     out = layer_to_replace(conv2d_input)
     layer = CompressedLayerSeparableConv2dKeras(config_pdp, layer_to_replace)
-    layer.build(conv2d_input.shape)
+    layer.depthwise_conv.build(conv2d_input.shape)
+    layer.pointwise_conv.build(conv2d_input.shape)
     layer.depthwise_conv.weight.assign(layer_to_replace.depthwise_kernel)
     layer.pointwise_conv.weight.assign(layer_to_replace.pointwise_kernel)
 

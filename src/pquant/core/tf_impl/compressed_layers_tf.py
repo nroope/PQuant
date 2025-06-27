@@ -245,21 +245,22 @@ class CompressedLayerSeparableConv2dKeras(Layer):
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
         layer.kernel = layer.depthwise_kernel
+        bias = layer.use_bias
+        layer.use_bias = False
         self.depthwise_conv = CompressedLayerDepthwiseConv2dKeras(config, layer, "conv")
         layer.kernel_regularizer = layer.pointwise_regularizer
         layer.kernel_size = 1
         layer.kernel = layer.pointwise_kernel
+        layer.use_bias = bias
         self.pointwise_conv = CompressedLayerConv2dKeras(config, layer, "conv")
         self.do_transpose_data = layer.data_format == "channels_last"
 
     def build(self, input_shape):
-        self.depthwise_conv.build(input_shape)
-        self.pointwise_conv.build(input_shape)
         super().build(input_shape)
 
     def call(self, x, training=None):
-        x = self.depthwise_conv(x)
-        x = self.pointwise_conv(x)
+        x = self.depthwise_conv(x, training=training)
+        x = self.pointwise_conv(x, training=training)
         return x
 
 
@@ -788,7 +789,9 @@ def add_compression_layers_tf(model, config, input_shape=None):
             transpose_shape = new_layer.weight_transpose
             pointwise_pruning_layer_input = ops.transpose(pointwise_pruning_layer_input, transpose_shape)
             new_layer.pointwise_conv.pruning_layer.build(pointwise_pruning_layer_input.shape)
-            # new_layer.build(x.shape)
+            new_layer.depthwise_conv.build(x.shape)
+            y = new_layer.depthwise_conv(x).shape
+            new_layer.pointwise_conv.build(y)
             x = new_layer(x)
             act = check_activation(layer, config)
         elif isinstance(layer, Conv1D):
