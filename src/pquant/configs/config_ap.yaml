@@ -16,6 +16,7 @@ quantization_parameters:
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
+  use_relu_multiplier: true
   use_symmetric_quantization: false
 training_parameters:
   epochs: 100

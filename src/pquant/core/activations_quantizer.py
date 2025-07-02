@@ -75,6 +75,7 @@ class QuantizedReLU(keras.layers.Layer):
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
         self.overflow = "SAT"
+        self.use_multiplier = config["quantization_parameters"]["use_relu_multiplier"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
 
@@ -102,6 +103,8 @@ class QuantizedReLU(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
+        if self.use_multiplier:
+            self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
         if self.use_high_granularity_quantization:
             self.hgq.build(input_shape)
 
@@ -119,7 +122,9 @@ class QuantizedReLU(keras.layers.Layer):
         if self.use_high_granularity_quantization:
             return self.hgq(x)
         else:
-            x = self.quantizer(x, k=0.0, i=self.i, f=self.f, training=True)
+            if self.use_multiplier:
+                x = x * 2 ** (ops.stop_gradient(ops.round(self.multiplier) - self.multiplier) + self.multiplier)
+            x = self.quantizer(x, k=convert_to_tensor(0.0), i=self.i, f=self.f, training=True)
             return x
 
 
