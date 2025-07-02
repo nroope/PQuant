@@ -643,8 +643,11 @@ def get_layer_keep_ratio_tf(model):
             bias = ops.cast(layer.bias, layer.bias.dtype) if layer.bias is not None else None
             weight, bias = layer.quantize_i(weight, bias)
             transpose = layer.weight_transpose
-            weight = layer.pruning_layer.get_hard_mask(ops.transpose(weight, transpose)) * ops.transpose(weight, transpose)
-            total_w += ops.size(layer.weight)
+            if layer.enable_pruning:
+                weight = layer.pruning_layer.get_hard_mask(ops.transpose(weight, transpose)) * ops.transpose(
+                    weight, transpose
+                )
+            total_w += ops.size(weight)
             rem = ops.count_nonzero(weight)
             remaining_weights += rem
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
@@ -658,18 +661,20 @@ def get_layer_keep_ratio_tf(model):
 
             depthwise_weight, _ = layer.depthwise_conv.quantize_i(depthwise_weight, None)
             transpose = layer.depthwise_conv.weight_transpose
-            depthwise_weight = layer.depthwise_conv.pruning_layer.get_hard_mask(
-                ops.transpose(depthwise_weight, transpose)
-            ) * ops.transpose(depthwise_weight, transpose)
+            if layer.depthwise_conv.enable_pruning:
+                depthwise_weight = layer.depthwise_conv.pruning_layer.get_hard_mask(
+                    ops.transpose(depthwise_weight, transpose)
+                ) * ops.transpose(depthwise_weight, transpose)
             total_w += ops.size(layer.depthwise_conv.weight)
             rem = ops.count_nonzero(depthwise_weight)
             remaining_weights += rem
 
             pointwise_weight, _ = layer.pointwise_conv.quantize_i(pointwise_weight, bias)
             transpose = layer.pointwise_conv.weight_transpose
-            pointwise_weight = layer.pointwise_conv.pruning_layer.get_hard_mask(
-                ops.transpose(pointwise_weight, transpose)
-            ) * ops.transpose(pointwise_weight, transpose)
+            if layer.pointwise_conv.enable_pruning:
+                pointwise_weight = layer.pointwise_conv.pruning_layer.get_hard_mask(
+                    ops.transpose(pointwise_weight, transpose)
+                ) * ops.transpose(pointwise_weight, transpose)
             total_w += ops.size(layer.pointwise_conv.weight)
             rem = ops.count_nonzero(pointwise_weight)
             remaining_weights += rem

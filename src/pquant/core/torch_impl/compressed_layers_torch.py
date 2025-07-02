@@ -20,8 +20,8 @@ class CompressedLayerBase(nn.Module):
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
         self.pruning_method = config["pruning_parameters"]["pruning_method"]
-        overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.quantizer = get_fixed_quantizer(overflow_mode=overflow)
+        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         if config["quantization_parameters"]["use_high_granularity_quantization"]:
             if self.hgq_heterogeneous:
@@ -30,7 +30,7 @@ class CompressedLayerBase(nn.Module):
                     i0=self.i_weight,
                     f0=self.f_weight,
                     round_mode="RND",
-                    overflow_mode=overflow,
+                    overflow_mode=self.overflow,
                     q_type="kif",
                     homogeneous_axis=(),
                 )
@@ -41,7 +41,7 @@ class CompressedLayerBase(nn.Module):
                         i0=self.i_bias,
                         f0=self.f_bias,
                         round_mode="RND",
-                        overflow_mode=overflow,
+                        overflow_mode=self.overflow,
                         q_type="kif",
                         homogeneous_axis=(),
                     )
@@ -52,7 +52,7 @@ class CompressedLayerBase(nn.Module):
                     i0=self.i_weight,
                     f0=self.f_weight,
                     round_mode="RND",
-                    overflow_mode=overflow,
+                    overflow_mode=self.overflow,
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
@@ -63,7 +63,7 @@ class CompressedLayerBase(nn.Module):
                         i0=self.i_bias,
                         f0=self.f_bias,
                         round_mode="RND",
-                        overflow_mode=overflow,
+                        overflow_mode=self.overflow,
                         q_type="kif",
                         heterogeneous_axis=(),
                     )
@@ -329,11 +329,14 @@ def remove_pruning_from_model_torch(module, config):
         if isinstance(layer, CompressedLayerLinear):
             if config["pruning_parameters"]["pruning_method"] == "pdp":  # Find better solution later
                 if config["training_parameters"]["pruning_first"]:
-                    weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
+                    weight = layer.weight
+                    if layer.enable_pruning:
+                        weight = layer.pruning_layer.get_hard_mask(weight) * weight
                     weight, bias = layer.quantize(weight, layer.bias)
                 else:
                     weight, bias = layer.quantize(layer.weight, layer.bias)
-                    weight = layer.pruning_layer.get_hard_mask(weight) * weight
+                    if layer.enable_pruning:
+                        weight = layer.pruning_layer.get_hard_mask(weight) * weight
             else:
                 weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
             out_features = layer.out_features
@@ -347,11 +350,14 @@ def remove_pruning_from_model_torch(module, config):
         elif isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d)):
             if config["pruning_parameters"]["pruning_method"] == "pdp":  # Find better solution later
                 if config["training_parameters"]["pruning_first"]:
-                    weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
+                    weight = layer.weight
+                    if layer.enable_pruning:
+                        weight = layer.pruning_layer.get_hard_mask(weight) * weight
                     weight, bias = layer.quantize(weight, layer.bias)
                 else:
                     weight, bias = layer.quantize(layer.weight, layer.bias)
-                    weight = layer.pruning_layer.get_hard_mask(weight) * weight
+                    if layer.enable_pruning:
+                        weight = layer.pruning_layer.get_hard_mask(weight) * weight
             else:
                 weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
             bias_values = bias
@@ -472,14 +478,17 @@ def get_layer_keep_ratio_torch(model):
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             if layer.pruning_first:
-                weight = layer.pruning_layer.get_hard_mask(layer.weight) * layer.weight
+                weight = layer.weight
+                if layer.enable_pruning:
+                    weight = layer.pruning_layer.get_hard_mask(weight) * weight
                 weight, bias = layer.quantize(weight, layer.bias)
                 total_w += weight.numel()
                 rem = torch.count_nonzero(weight)
                 remaining_weights += rem
             else:
                 weight, bias = layer.quantize(layer.weight, layer.bias)
-                weight = layer.pruning_layer.get_hard_mask(weight) * weight
+                if layer.enable_pruning:
+                    weight = layer.pruning_layer.get_hard_mask(weight) * weight
                 total_w += weight.numel()
                 rem = torch.count_nonzero(weight)
                 remaining_weights += rem
