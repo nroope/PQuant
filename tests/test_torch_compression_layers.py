@@ -4,7 +4,7 @@ import pytest
 import torch
 from keras import ops
 from torch import nn
-from torch.nn import Conv1d, Conv2d, Linear, ReLU, Tanh
+from torch.nn import AvgPool2d, Conv1d, Conv2d, Linear, ReLU, Tanh
 
 from pquant import post_training_prune
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
@@ -48,6 +48,7 @@ def config_pdp():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -75,6 +76,7 @@ def config_ap():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -105,6 +107,7 @@ def config_wanda():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -131,6 +134,7 @@ def config_cs():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -139,12 +143,12 @@ def config_cs():
 
 @pytest.fixture
 def conv2d_input():
-    return torch.tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, KERNEL_SIZE, KERNEL_SIZE).astype(np.float32))
+    return torch.tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, 32, 32).astype(np.float32))
 
 
 @pytest.fixture
 def conv1d_input():
-    return torch.tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, STEPS).astype(np.float32))
+    return torch.tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, 32).astype(np.float32))
 
 
 @pytest.fixture
@@ -346,25 +350,47 @@ def test_check_activation(config_pdp, dense_input):
 
 
 def check_keras_layer_is_built(module, is_built):
-    for n, m in module.named_children():
-        if isinstance(m, keras.layers.Layer):
-            is_built.append(n)
+    for m in module.children():
+        if hasattr(m, "built"):
+            is_built.append(m.built)
         is_built = check_keras_layer_is_built(m, is_built)
     return is_built
+
+
+class TestModelWithAvgPool(nn.Module):
+    __test__ = False
+
+    def __init__(self, submodule, activation=None):
+        super().__init__()
+        self.submodule = submodule
+        if activation == "relu":
+            self.activation = ReLU()
+        elif activation == "tanh":
+            self.activation = Tanh()
+        else:
+            self.activation = activation
+        self.avg = AvgPool2d(2)
+
+    def forward(self, x):
+        x = self.submodule(x)
+        if self.activation is not None:
+            x = self.activation(x)
+        x = self.avg(x)
+        return x
 
 
 def test_hgq_activation_built(config_pdp, conv2d_input):
     config_pdp["quantization_parameters"]["enable_quantization"] = True
     config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
-    model = TestModel(layer, "relu")
+    model = TestModelWithAvgPool(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
 
     is_built = check_keras_layer_is_built(model, [])
     assert all(is_built)
 
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
-    model = TestModel(layer, "tanh")
+    model = TestModelWithAvgPool(layer, "tanh")
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
 
     is_built = check_keras_layer_is_built(model, [])

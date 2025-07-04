@@ -15,7 +15,6 @@ class QuantizedTanh(keras.layers.Layer):
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
         self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         if self.use_high_granularity_quantization:
@@ -39,6 +38,8 @@ class QuantizedTanh(keras.layers.Layer):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -77,7 +78,6 @@ class QuantizedReLU(keras.layers.Layer):
         self.overflow = "SAT"
         self.use_multiplier = config["quantization_parameters"]["use_relu_multiplier"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
 
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
@@ -100,6 +100,8 @@ class QuantizedReLU(keras.layers.Layer):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
     def build(self, input_shape):
         super().build(input_shape)

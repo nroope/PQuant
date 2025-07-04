@@ -216,6 +216,82 @@ def add_compression_layers_torch(model, config, input_shape):
     return model
 
 
+class QuantizedPoolingBase(nn.Module):
+
+    def __init__(self, config, layer):
+        super().__init__()
+        self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
+        self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
+        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.config = config
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.is_pretraining = True
+        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.pooling = layer
+        if self.use_high_granularity_quantization:
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=1.0,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+
+            else:
+                self.hgq = Quantizer(
+                    k0=1.0,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+
+            self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
+
+    def hgq_loss(self):
+        if self.is_pretraining:
+            return 0.0
+        return (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.config["quantization_parameters"][
+            "hgq_gamma"
+        ]
+
+    def quantize(self, x):
+        if self.use_high_granularity_quantization:
+            x = self.hgq(x)
+        else:
+            x = self.quantizer(x, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+        return x
+
+    def forward(self, x):
+        x = self.pooling(x)
+        return self.quantize(x)
+
+
+class QAvgPool3d(QuantizedPoolingBase):
+    def __init__(self, config, layer):
+        super().__init__(config, layer)
+
+
+class QAvgPool2d(QuantizedPoolingBase):
+    def __init__(self, config, layer):
+        super().__init__(config, layer)
+
+
+class QAvgPool1d(QuantizedPoolingBase):
+    def __init__(self, config, layer):
+        super().__init__(config, layer)
+
+
 def add_layer_specific_quantization_to_model(module, config):
     for name, layer in module.named_modules():
         if layer.__class__ in [CompressedLayerLinear, CompressedLayerConv2d, CompressedLayerConv1d]:
@@ -259,6 +335,30 @@ def add_quantized_activations_to_model_layer(module, config):
                 f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
             tanh = QuantizedTanh(config, i=i, f=f)
             setattr(module, name, tanh)
+        elif layer.__class__ in [nn.AvgPool1d]:
+            new_layer = QAvgPool1d(config, layer)
+            if name in config["quantization_parameters"]["layer_specific"]:
+                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+                new_layer.i = i
+                new_layer.f = f
+            setattr(module, name, new_layer)
+        elif layer.__class__ in [nn.AvgPool2d]:
+            new_layer = QAvgPool2d(config, layer)
+            if name in config["quantization_parameters"]["layer_specific"]:
+                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+                new_layer.i = i
+                new_layer.f = f
+            setattr(module, name, new_layer)
+        elif layer.__class__ in [nn.AvgPool3d]:
+            new_layer = QAvgPool3d(config, layer)
+            if name in config["quantization_parameters"]["layer_specific"]:
+                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+                new_layer.i = i
+                new_layer.f = f
+            setattr(module, name, new_layer)
         else:
             layer = add_quantized_activations_to_model_layer(layer, config)
     return module
@@ -435,7 +535,7 @@ def post_pretrain_functions(model, config):
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             layer.pruning_layer.post_pre_train_function()
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPoolingBase)):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
@@ -507,7 +607,7 @@ def get_model_losses_torch(model, losses):
             if layer.use_high_granularity_quantization:
                 loss += layer.hgq_loss()
             losses += loss
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPoolingBase)):
             if layer.use_high_granularity_quantization:
                 losses += layer.hgq_loss()
     return losses
@@ -525,7 +625,7 @@ def create_default_layer_quantization_pruning_config(model):
                     "bias": {"integer_bits": 0, "fractional_bits": 7},
                 }
             config["disable_pruning_for_layers"].append(name)
-        elif layer.__class__ in [nn.Tanh, nn.ReLU]:
+        elif layer.__class__ in [nn.Tanh, nn.ReLU, nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             config["layer_specific"][name] = {"integer_bits": 0, "fractional_bits": 7}
     traced_model = symbolic_trace(model)
     for node in traced_model.graph.nodes:
