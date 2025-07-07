@@ -105,10 +105,10 @@ class QuantizedReLU(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
-        if self.use_multiplier:
-            self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
         if self.use_high_granularity_quantization:
             self.hgq.build(input_shape)
+        elif self.use_multiplier:
+            self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
 
     def post_pre_train_function(self):
         self.is_pretraining = False
