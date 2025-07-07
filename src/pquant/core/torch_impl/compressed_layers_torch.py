@@ -216,7 +216,7 @@ def add_compression_layers_torch(model, config, input_shape):
     return model
 
 
-class QuantizedPoolingBase(nn.Module):
+class QuantizedPooling(nn.Module):
 
     def __init__(self, config, layer):
         super().__init__()
@@ -277,21 +277,6 @@ class QuantizedPoolingBase(nn.Module):
         return self.quantize(x)
 
 
-class QAvgPool3d(QuantizedPoolingBase):
-    def __init__(self, config, layer):
-        super().__init__(config, layer)
-
-
-class QAvgPool2d(QuantizedPoolingBase):
-    def __init__(self, config, layer):
-        super().__init__(config, layer)
-
-
-class QAvgPool1d(QuantizedPoolingBase):
-    def __init__(self, config, layer):
-        super().__init__(config, layer)
-
-
 def add_layer_specific_quantization_to_model(module, config):
     for name, layer in module.named_modules():
         if layer.__class__ in [CompressedLayerLinear, CompressedLayerConv2d, CompressedLayerConv1d]:
@@ -335,24 +320,8 @@ def add_quantized_activations_to_model_layer(module, config):
                 f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
             tanh = QuantizedTanh(config, i=i, f=f)
             setattr(module, name, tanh)
-        elif layer.__class__ in [nn.AvgPool1d]:
-            new_layer = QAvgPool1d(config, layer)
-            if name in config["quantization_parameters"]["layer_specific"]:
-                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
-                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
-                new_layer.i = i
-                new_layer.f = f
-            setattr(module, name, new_layer)
-        elif layer.__class__ in [nn.AvgPool2d]:
-            new_layer = QAvgPool2d(config, layer)
-            if name in config["quantization_parameters"]["layer_specific"]:
-                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
-                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
-                new_layer.i = i
-                new_layer.f = f
-            setattr(module, name, new_layer)
-        elif layer.__class__ in [nn.AvgPool3d]:
-            new_layer = QAvgPool3d(config, layer)
+        elif layer.__class__ in [nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
+            new_layer = QuantizedPooling(config, layer)
             if name in config["quantization_parameters"]["layer_specific"]:
                 i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
                 f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
@@ -535,7 +504,7 @@ def post_pretrain_functions(model, config):
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             layer.pruning_layer.post_pre_train_function()
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPoolingBase)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
@@ -607,7 +576,7 @@ def get_model_losses_torch(model, losses):
             if layer.use_high_granularity_quantization:
                 loss += layer.hgq_loss()
             losses += loss
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPoolingBase)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             if layer.use_high_granularity_quantization:
                 losses += layer.hgq_loss()
     return losses

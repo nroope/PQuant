@@ -335,7 +335,7 @@ class CompressedLayerDenseKeras(CompressedLayerBase):
         return x
 
 
-class QuantizedPoolingBase(keras.layers.Layer):
+class QuantizedPooling(keras.layers.Layer):
     def __init__(self, config, layer):
         super().__init__()
         self.i = ops.convert_to_tensor(config["quantization_parameters"]["default_integer_bits"])
@@ -348,7 +348,10 @@ class QuantizedPoolingBase(keras.layers.Layer):
 
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        self.pooling = layer
+        self.pool_size = layer.pool_size
+        self.strides = layer.strides
+        self.padding = layer.padding
+        self.data_format = layer.data_format
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -403,7 +406,13 @@ class QuantizedPoolingBase(keras.layers.Layer):
         return x
 
     def call(self, x):
-        x = self.pooling(x)
+        x = ops.average_pool(
+            x,
+            pool_size=self.pool_size,
+            strides=self.strides,
+            padding=self.padding,
+            data_format=self.data_format,
+        )
         return self.quantize_i(x)
 
     def get_config(self):
@@ -420,21 +429,6 @@ class QuantizedPoolingBase(keras.layers.Layer):
             }
         )
         return config
-
-
-class QAvgPool3d(QuantizedPoolingBase):
-    def __init__(self, config, layer):
-        super().__init__(config, layer)
-
-
-class QAvgPool2d(QuantizedPoolingBase):
-    def __init__(self, config, layer):
-        super().__init__(config, layer)
-
-
-class QAvgPool1d(QuantizedPoolingBase):
-    def __init__(self, config, layer):
-        super().__init__(config, layer)
 
 
 def call_post_round_functions(model, rewind, rounds, r):
@@ -651,7 +645,7 @@ def post_pretrain_functions(model, config):
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
             layer.depthwise_conv.pruning_layer.post_pre_train_function()
             layer.pointwise_conv.pruning_layer.post_pre_train_function()
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPoolingBase)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
@@ -822,7 +816,7 @@ def get_model_losses_tf(model, losses):
                 loss += layer.depthwise_conv.hgq_loss()
                 loss += layer.pointwise_conv.hgq_loss()
             losses += loss
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPoolingBase)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             if layer.use_high_granularity_quantization:
                 losses += layer.hgq_loss()
     return losses
@@ -943,24 +937,10 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer = check_activation(layer, config)
             if new_layer is not None:
                 x = new_layer(x)
-        elif isinstance(layer, AveragePooling1D):
+        elif isinstance(layer, (AveragePooling1D, AveragePooling2D, AveragePooling3D)):
             if config["quantization_parameters"]["enable_quantization"]:
                 i_bits, f_bits = get_quantization_bits_activations(config, layer)
-                new_layer = QAvgPool1d(config, layer)
-                new_layer.set_quantization_bits(i_bits, f_bits)
-                new_layer.build(layer.output.shape)
-                x = new_layer(x)
-        elif isinstance(layer, AveragePooling2D):
-            if config["quantization_parameters"]["enable_quantization"]:
-                i_bits, f_bits = get_quantization_bits_activations(config, layer)
-                new_layer = QAvgPool2d(config, layer)
-                new_layer.set_quantization_bits(i_bits, f_bits)
-                new_layer.build(layer.output.shape)
-                x = new_layer(x)
-        elif isinstance(layer, AveragePooling3D):
-            if config["quantization_parameters"]["enable_quantization"]:
-                i_bits, f_bits = get_quantization_bits_activations(config, layer)
-                new_layer = QAvgPool3d(config, layer)
+                new_layer = QuantizedPooling(config, layer)
                 new_layer.set_quantization_bits(i_bits, f_bits)
                 new_layer.build(layer.output.shape)
                 x = new_layer(x)
