@@ -413,6 +413,7 @@ class QuantizedPooling(keras.layers.Layer):
         self.strides = layer.strides
         self.padding = layer.padding
         self.data_format = layer.data_format
+        self.dimensions = layer.__class__.__name__[-2]
 
     def post_pre_train_function(self):
         self.is_pretraining = False
