@@ -1020,7 +1020,6 @@ def add_compression_layers_tf(model, config, input_shape=None):
             transpose_shape = new_layer.weight_transpose
             pruning_layer_input = ops.transpose(pruning_layer_input, transpose_shape)
             new_layer.pruning_layer.build(pruning_layer_input.shape)
-
             x = new_layer(x)
             act = check_activation(layer, config)
         # Activation layers
@@ -1043,6 +1042,8 @@ def add_compression_layers_tf(model, config, input_shape=None):
                 new_layer.set_quantization_bits(i_bits, f_bits)
                 new_layer.build(layer.output.shape)
                 x = new_layer(x)
+            else:
+                x = layer(x)
         else:
             x = layer(x)
         if act is not None:
