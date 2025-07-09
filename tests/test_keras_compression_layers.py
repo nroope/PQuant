@@ -242,33 +242,6 @@ def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
     nonzero_count_pointwise = ops.count_nonzero(model.layers[1].pointwise_kernel)
     assert ops.equal(expected_nonzero_count_pointwise, nonzero_count_pointwise)
 
-    # Case quantizing not pruning
-    config_pdp["pruning_parameters"]["enable_pruning"] = False
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    inputs = keras.Input(shape=conv2d_input.shape[1:])
-    out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
-    model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
-    model(conv2d_input)
-
-    post_pretrain_functions(model, config_pdp)
-    pre_finetune_functions(model)
-
-    output1 = model(conv2d_input)
-
-    l1a = model.layers[1].depthwise_conv.weight.value
-    ql1a, _ = model.layers[1].depthwise_conv.quantize_i(l1a, None)
-
-    l3a = model.layers[1].pointwise_conv.weight.value
-    ql3a, _ = model.layers[1].pointwise_conv.quantize_i(l3a, None)
-
-    model = remove_pruning_from_model_tf(model, config_pdp)
-
-    output2 = model(conv2d_input)
-    assert ops.all(ops.equal(output1, output2))
-    assert ops.all(ops.equal(model.layers[1].kernel.value, ql1a))
-    assert ops.all(ops.equal(model.layers[3].kernel, ql3a))
-
 
 def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     config_pdp["pruning_parameters"]["enable_pruning"] = True

@@ -257,75 +257,14 @@ class CompressedLayerSeparableConv2dKeras(Layer):
         layer.use_bias = bias
         self.pointwise_conv = CompressedLayerConv2dKeras(config, layer, "conv")
         self.do_transpose_data = layer.data_format == "channels_last"
-        self.data_format = layer.data_format
-
-        i_bits = config["quantization_parameters"]["default_integer_bits"]
-        f_bits = config["quantization_parameters"]["default_fractional_bits"]
-        self.i = ops.convert_to_tensor(i_bits)
-        self.f = ops.convert_to_tensor(f_bits)
-        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
-        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
-
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        self.is_pretraining = True
-        if self.enable_quantization:
-            if self.use_high_granularity_quantization:
-                if self.hgq_heterogeneous:
-                    self.hgq = Quantizer(
-                        k0=1.0,
-                        i0=self.i,
-                        f0=self.f,
-                        round_mode="RND",
-                        overflow_mode=self.overflow,
-                        q_type="kif",
-                        homogeneous_axis=(0,),
-                    )
-                else:
-                    self.hgq = Quantizer(
-                        k0=1.0,
-                        i0=self.i,
-                        f0=self.f,
-                        round_mode="RND",
-                        overflow_mode=self.overflow,
-                        q_type="kif",
-                        heterogeneous_axis=(),
-                    )
-            else:
-                self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
-
-    def set_quantization_bits(self, i_bits, f_bits):
-        self.i_weight = ops.convert_to_tensor(i_bits)
-        self.f_weight = ops.convert_to_tensor(f_bits)
-
-    def quantize_i(self, x):
-        if self.enable_quantization:
-            if self.use_high_granularity_quantization:
-                x = self.hgq(x)
-            else:
-                x = self.quantizer(x, k=ops.convert_to_tensor(1.0), i=self.i, f=self.f, training=True)
-        return x
 
     def build(self, input_shape):
         super().build(input_shape)
 
-    def hgq_loss(self):
-        if self.is_pretraining:
-            return 0.0
-        loss = (ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)) * self.hgq_gamma
-        return loss
-
     def call(self, x, training=None):
         x = self.depthwise_conv(x, training=training)
-        x = self.quantize_i(x)
         x = self.pointwise_conv(x, training=training)
         return x
-
-    def post_pre_train_function(self):
-        self.is_pretraining = False
-        self.depthwise_conv.pruning_layer.post_pre_train_function()
-        self.pointwise_conv.pruning_layer.post_pre_train_function()
 
 
 class CompressedLayerConv1dKeras(CompressedLayerBase):
@@ -544,59 +483,24 @@ def remove_pruning_from_model_tf(model, config):
             weight, bias = _prune_and_quantize_layer(layer, use_bias)
             new_layer.set_weights([weight, bias] if use_bias else [weight])
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
-            if not layer.enable_quantization:
-                new_layer = SeparableConv2D(
-                    filters=layer.pointwise_conv.filters,
-                    kernel_size=layer.depthwise_conv.kernel_size,
-                    strides=layer.depthwise_conv.strides,
-                    padding=layer.depthwise_conv.padding,
-                    dilation_rate=layer.depthwise_conv.dilation_rate,
-                    use_bias=layer.pointwise_conv.use_bias,
-                    depthwise_regularizer=layer.depthwise_conv.depthwise_regularizer,
-                    pointwise_regularizer=layer.pointwise_conv.kernel_regularizer,
-                    activity_regularizer=layer.activity_regularizer,
-                )
-                x = new_layer(x)
-                use_bias = layer.pointwise_conv.use_bias
-                depthwise_weight, _ = _prune_and_quantize_layer(layer.depthwise_conv, False)
-                pointwise_weight, bias = _prune_and_quantize_layer(layer.pointwise_conv, layer.pointwise_conv.use_bias)
-                new_layer.set_weights(
-                    [depthwise_weight, pointwise_weight, bias] if use_bias else [depthwise_weight, pointwise_weight]
-                )
-
-            else:
-                new_layer_depthwise = DepthwiseConv2D(
-                    kernel_size=layer.depthwise_conv.kernel_size,
-                    strides=layer.depthwise_conv.strides,
-                    padding=layer.depthwise_conv.padding,
-                    dilation_rate=layer.depthwise_conv.dilation_rate,
-                    data_format=layer.data_format,
-                    use_bias=False,
-                )
-                new_layer_pointwise = Conv2D(
-                    kernel_size=1,
-                    filters=layer.pointwise_conv.filters,
-                    use_bias=layer.pointwise_conv.use_bias,
-                    padding=layer.pointwise_conv.padding,
-                    dilation_rate=layer.pointwise_conv.dilation_rate,
-                    data_format=layer.data_format,
-                    activity_regularizer=layer.pointwise_conv.activity_regularizer,
-                )
-                x = new_layer_depthwise(x)
-                depthwise_weight, _ = _prune_and_quantize_layer(layer.depthwise_conv, False)
-                new_layer_depthwise.set_weights([depthwise_weight])
-
-                if layer.enable_quantization:
-                    if layer.use_high_granularity_quantization:
-                        x = layer.hgq(x)
-                    else:
-                        quantizer = Activation(lambda x, q=layer.quantizer, k=1.0, i=layer.i, f=layer.f: q(x, k, i, f))
-                        x = quantizer(x)
-
-                x = new_layer_pointwise(x)
-                use_bias = layer.pointwise_conv.use_bias
-                pointwise_weight, bias = _prune_and_quantize_layer(layer.pointwise_conv, layer.pointwise_conv.use_bias)
-                new_layer_pointwise.set_weights([pointwise_weight, bias] if use_bias else [pointwise_weight])
+            new_layer = SeparableConv2D(
+                filters=layer.pointwise_conv.filters,
+                kernel_size=layer.depthwise_conv.kernel_size,
+                strides=layer.depthwise_conv.strides,
+                padding=layer.depthwise_conv.padding,
+                dilation_rate=layer.depthwise_conv.dilation_rate,
+                use_bias=layer.pointwise_conv.use_bias,
+                depthwise_regularizer=layer.depthwise_conv.depthwise_regularizer,
+                pointwise_regularizer=layer.pointwise_conv.kernel_regularizer,
+                activity_regularizer=layer.activity_regularizer,
+            )
+            x = new_layer(x)
+            use_bias = layer.pointwise_conv.use_bias
+            depthwise_weight, _ = _prune_and_quantize_layer(layer.depthwise_conv, False)
+            pointwise_weight, bias = _prune_and_quantize_layer(layer.pointwise_conv, layer.pointwise_conv.use_bias)
+            new_layer.set_weights(
+                [depthwise_weight, pointwise_weight, bias] if use_bias else [depthwise_weight, pointwise_weight]
+            )
 
         elif isinstance(layer, CompressedLayerConv1dKeras):
             new_layer = Conv1D(
@@ -740,7 +644,8 @@ def post_pretrain_functions(model, config):
         ):
             layer.pruning_layer.post_pre_train_function()
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
-            layer.post_pre_train_function()
+            layer.depthwise_conv.pruning_layer.post_pre_train_function()
+            layer.pointwise_conv.pruning_layer.post_pre_train_function()
         elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
@@ -909,7 +814,6 @@ def get_model_losses_tf(model, losses):
             loss = layer.depthwise_conv.pruning_layer.calculate_additional_loss()
             loss += layer.pointwise_conv.pruning_layer.calculate_additional_loss()
             if layer.enable_quantization and layer.use_high_granularity_quantization:
-                loss += layer.hgq_loss()  # Depthwise output HGQ
                 loss += layer.depthwise_conv.hgq_loss()
                 loss += layer.pointwise_conv.hgq_loss()
             losses += loss
@@ -972,10 +876,9 @@ def add_compression_layers_tf(model, config, input_shape=None):
             act = check_activation(layer, config)
         elif isinstance(layer, SeparableConv2D):
             new_layer = CompressedLayerSeparableConv2dKeras(config, layer)
-            dw_i_bits_w, dw_f_bits_w, dw_out_i_bits, dw_out_f_bits, pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b = (
+            dw_i_bits_w, dw_f_bits_w, pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b = (
                 get_quantization_bits_weights_biases(config, layer)
             )
-            new_layer.set_quantization_bits(dw_out_i_bits, dw_out_f_bits)
             new_layer.depthwise_conv.set_quantization_bits(dw_i_bits_w, dw_f_bits_w, pw_i_bits_b, pw_f_bits_b)
             new_layer.pointwise_conv.set_quantization_bits(pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b)
             enable_pruning_depthwise, enable_pruning_pointwise = get_enable_pruning(layer, config)
@@ -993,8 +896,6 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer.pointwise_conv.pruning_layer.build(pointwise_pruning_layer_input.shape)
             new_layer.depthwise_conv.build(x.shape)
             y = new_layer.depthwise_conv(x).shape
-            if new_layer.use_high_granularity_quantization:
-                new_layer.hgq.build(y)  # Build quantizer for depthwise output
             new_layer.pointwise_conv.build(y)
             x = new_layer(x)
             act = check_activation(layer, config)
@@ -1070,18 +971,13 @@ def get_quantization_bits_activations(config, layer):
 def get_quantization_bits_weights_biases(config, layer):
     layer_specific = config["quantization_parameters"]["layer_specific"]
     if isinstance(layer, SeparableConv2D):
-        dw_i_bits_w = dw_out_i_bits = pw_i_bits_w = pw_i_bits_b = config["quantization_parameters"]["default_integer_bits"]
-        dw_f_bits_w = dw_out_f_bits = pw_f_bits_w = pw_f_bits_b = config["quantization_parameters"][
-            "default_fractional_bits"
-        ]
+        dw_i_bits_w = pw_i_bits_w = pw_i_bits_b = config["quantization_parameters"]["default_integer_bits"]
+        dw_f_bits_w = pw_f_bits_w = pw_f_bits_b = config["quantization_parameters"]["default_fractional_bits"]
         if layer.name in layer_specific:
             if "depthwise" in layer_specific[layer.name]:
                 if "weight" in layer_specific[layer.name]["depthwise"]:
                     dw_i_bits_w = layer_specific[layer.name]["depthwise"]["weight"]["integer_bits"]
                     dw_f_bits_w = layer_specific[layer.name]["depthwise"]["weight"]["fractional_bits"]
-                if "output" in layer_specific[layer.name]["depthwise"]:
-                    dw_out_i_bits = layer_specific[layer.name]["depthwise"]["output"]["integer_bits"]
-                    dw_out_f_bits = layer_specific[layer.name]["depthwise"]["output"]["fractional_bits"]
             if "pointwise" in layer_specific[layer.name]:
                 if "weight" in layer_specific[layer.name]["pointwise"]:
                     pw_i_bits_w = layer_specific[layer.name]["pointwise"]["weight"]["integer_bits"]
@@ -1089,7 +985,7 @@ def get_quantization_bits_weights_biases(config, layer):
                 if "bias" in layer_specific[layer.name]:
                     pw_i_bits_b = layer_specific[layer.name]["pointwise"]["bias"]["integer_bits"]
                     pw_f_bits_b = layer_specific[layer.name]["pointwise"]["bias"]["fractional_bits"]
-        return dw_i_bits_w, dw_f_bits_w, dw_out_i_bits, dw_out_f_bits, pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b
+        return dw_i_bits_w, dw_f_bits_w, pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b
     else:
         i_bits_w = i_bits_b = config["quantization_parameters"]["default_integer_bits"]
         f_bits_w = f_bits_b = config["quantization_parameters"]["default_fractional_bits"]
@@ -1140,7 +1036,6 @@ def add_default_layer_quantization_pruning_to_config_tf(model, config):
                 custom_scheme["layer_specific"][layer.name] = {
                     "depthwise": {
                         "weight": {"integer_bits": 0.0, "fractional_bits": 7.0},
-                        "output": {"integer_bits": 0.0, "fractional_bits": 7.0},
                     },
                     "pointwise": {
                         "weight": {"integer_bits": 0.0, "fractional_bits": 7.0},
