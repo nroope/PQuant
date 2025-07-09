@@ -4,6 +4,7 @@ import pytest
 from keras import ops
 from keras.api.layers import (
     Activation,
+    AveragePooling2D,
     Conv1D,
     Conv2D,
     Dense,
@@ -54,6 +55,7 @@ def config_pdp():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -81,6 +83,7 @@ def config_ap():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -111,6 +114,7 @@ def config_wanda():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -137,6 +141,7 @@ def config_cs():
             "layer_specific": [],
             "use_high_granularity_quantization": False,
             "use_real_tanh": False,
+            "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
@@ -146,18 +151,18 @@ def config_cs():
 @pytest.fixture
 def conv2d_input():
     if keras.backend.image_data_format() == "channels_first":
-        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, KERNEL_SIZE, KERNEL_SIZE))
+        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, 32, 32))
     else:
-        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, KERNEL_SIZE, KERNEL_SIZE, IN_FEATURES))
+        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, 32, 32, IN_FEATURES))
     return inp
 
 
 @pytest.fixture
 def conv1d_input():
     if keras.backend.image_data_format() == "channels_first":
-        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, STEPS))
+        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, IN_FEATURES, 32))
     else:
-        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, STEPS, IN_FEATURES))
+        inp = ops.convert_to_tensor(np.random.rand(BATCH_SIZE, 32, IN_FEATURES))
     return inp
 
 
@@ -203,6 +208,7 @@ def test_separable_conv2d_call(config_pdp, conv2d_input):
 
 
 def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
+    # Case pruning not quantizing
     config_pdp["pruning_parameters"]["enable_pruning"] = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
@@ -223,6 +229,7 @@ def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
     model.layers[1].pointwise_conv.pruning_layer.mask = mask_50pct_pw
 
     output1 = model(conv2d_input)
+
     model = remove_pruning_from_model_tf(model, config_pdp)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
@@ -506,9 +513,10 @@ def test_hgq_activation_built(config_pdp, conv2d_input):
     config_pdp["quantization_parameters"]["enable_quantization"] = True
     config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
-    out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=True)(inputs)
+    out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=True, padding="same")(inputs)
     act = ReLU()(out)
-    model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d_hgq")
+    avg = AveragePooling2D(2)(act)
+    model = keras.Model(inputs=inputs, outputs=avg, name="test_conv2d_hgq")
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
 
     is_built = []

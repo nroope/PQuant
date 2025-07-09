@@ -15,7 +15,6 @@ class QuantizedTanh(keras.layers.Layer):
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
         self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
         if self.use_high_granularity_quantization:
@@ -39,6 +38,8 @@ class QuantizedTanh(keras.layers.Layer):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -75,8 +76,8 @@ class QuantizedReLU(keras.layers.Layer):
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.is_pretraining = True
         self.overflow = "SAT"
+        self.use_multiplier = config["quantization_parameters"]["use_relu_multiplier"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
 
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
@@ -99,11 +100,15 @@ class QuantizedReLU(keras.layers.Layer):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
     def build(self, input_shape):
         super().build(input_shape)
         if self.use_high_granularity_quantization:
             self.hgq.build(input_shape)
+        elif self.use_multiplier:
+            self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -119,7 +124,9 @@ class QuantizedReLU(keras.layers.Layer):
         if self.use_high_granularity_quantization:
             return self.hgq(x)
         else:
-            x = self.quantizer(x, k=0.0, i=self.i, f=self.f, training=True)
+            if self.use_multiplier:
+                x = x * 2 ** (ops.stop_gradient(ops.round(self.multiplier) - self.multiplier) + self.multiplier)
+            x = self.quantizer(x, k=convert_to_tensor(0.0), i=self.i, f=self.f, training=True)
             return x
 
 

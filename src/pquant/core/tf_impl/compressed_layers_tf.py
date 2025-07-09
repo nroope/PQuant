@@ -3,6 +3,9 @@ from hgq.quantizer import Quantizer
 from keras import ops
 from keras.api.layers import (
     Activation,
+    AveragePooling1D,
+    AveragePooling2D,
+    AveragePooling3D,
     Conv1D,
     Conv2D,
     Dense,
@@ -97,7 +100,7 @@ class CompressedLayerBase(keras.layers.Layer):
                     )
                     self.hgq_bias.build(self.bias.shape)
         else:
-            self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
     def save_weights(self):
         self.init_weight = self.weight.value
@@ -332,6 +335,103 @@ class CompressedLayerDenseKeras(CompressedLayerBase):
         return x
 
 
+class QuantizedPooling(keras.layers.Layer):
+    def __init__(self, config, layer):
+        super().__init__()
+        self.i = ops.convert_to_tensor(config["quantization_parameters"]["default_integer_bits"])
+        self.f = ops.convert_to_tensor(config["quantization_parameters"]["default_fractional_bits"])
+
+        self.is_pretraining = True
+
+        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+
+        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.pool_size = layer.pool_size
+        self.strides = layer.strides
+        self.padding = layer.padding
+        self.data_format = layer.data_format
+        self.dimensions = layer.__class__.__name__[-2]
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
+
+    def set_quantization_bits(self, i_bits, f_bits):
+        self.i = ops.convert_to_tensor(i_bits)
+        self.f = ops.convert_to_tensor(f_bits)
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        if self.use_high_granularity_quantization:
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=1.0,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+                self.hgq.build(input_shape)
+            else:
+                self.hgq = Quantizer(
+                    k0=1.0,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+                self.hgq.build(input_shape)
+
+            self.hgq_gamma = self.hgq_gamma
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
+
+    def hgq_loss(self):
+        if self.is_pretraining:
+            return 0.0
+        loss = (ops.sum(self.hgq_weight.quantizer.i) + ops.sum(self.hgq_weight.quantizer.f)) * self.hgq_gamma
+        if self.bias is not None:
+            loss += (ops.sum(self.hgq_bias.quantizer.i) + ops.sum(self.hgq_bias.quantizer.f)) * self.hgq_gamma
+        return loss
+
+    def quantize_i(self, x):
+        if self.use_high_granularity_quantization:
+            x = self.hgq(x)
+        else:
+            x = self.quantizer(x, k=ops.convert_to_tensor(1.0), i=self.i, f=self.f, training=True)
+        return x
+
+    def call(self, x):
+        x = ops.average_pool(
+            x,
+            pool_size=self.pool_size,
+            strides=self.strides,
+            padding=self.padding,
+            data_format=self.data_format,
+        )
+        return self.quantize_i(x)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "i": self.i,
+                "f": self.f,
+                "is_pretraining": self.is_pretraining,
+                "overflow": self.overflow,
+                "hgq_gamma": self.hgq_gamma,
+                "hgq_heterogeneous": self.hgq_heterogeneous,
+                "pooling": self.pooling,
+            }
+        )
+        return config
+
+
 def call_post_round_functions(model, rewind, rounds, r):
     if rewind == "round":
         rewind_weights_functions(model)
@@ -546,7 +646,7 @@ def post_pretrain_functions(model, config):
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
             layer.depthwise_conv.pruning_layer.post_pre_train_function()
             layer.pointwise_conv.pruning_layer.post_pre_train_function()
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
@@ -707,17 +807,17 @@ def get_model_losses_tf(model, losses):
             ),
         ):
             loss = layer.pruning_layer.calculate_additional_loss()
-            if layer.use_high_granularity_quantization:
+            if layer.enable_quantization and layer.use_high_granularity_quantization:
                 loss += layer.hgq_loss()
             losses += loss
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
             loss = layer.depthwise_conv.pruning_layer.calculate_additional_loss()
             loss += layer.pointwise_conv.pruning_layer.calculate_additional_loss()
-            if layer.depthwise_conv.use_high_granularity_quantization:
+            if layer.enable_quantization and layer.use_high_granularity_quantization:
                 loss += layer.depthwise_conv.hgq_loss()
                 loss += layer.pointwise_conv.hgq_loss()
             losses += loss
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             if layer.use_high_granularity_quantization:
                 losses += layer.hgq_loss()
     return losses
@@ -822,7 +922,6 @@ def add_compression_layers_tf(model, config, input_shape=None):
             transpose_shape = new_layer.weight_transpose
             pruning_layer_input = ops.transpose(pruning_layer_input, transpose_shape)
             new_layer.pruning_layer.build(pruning_layer_input.shape)
-
             x = new_layer(x)
             act = check_activation(layer, config)
         # Activation layers
@@ -838,6 +937,15 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer = check_activation(layer, config)
             if new_layer is not None:
                 x = new_layer(x)
+        elif isinstance(layer, (AveragePooling1D, AveragePooling2D, AveragePooling3D)):
+            if config["quantization_parameters"]["enable_quantization"]:
+                i_bits, f_bits = get_quantization_bits_activations(config, layer)
+                new_layer = QuantizedPooling(config, layer)
+                new_layer.set_quantization_bits(i_bits, f_bits)
+                new_layer.build(layer.output.shape)
+                x = new_layer(x)
+            else:
+                x = layer(x)
         else:
             x = layer(x)
         if act is not None:
@@ -851,7 +959,7 @@ def get_quantization_bits_activations(config, layer):
     f_bits = config["quantization_parameters"]["default_fractional_bits"]
     layer_specific = config["quantization_parameters"]["layer_specific"]
     if layer.name in layer_specific:
-        if layer.activation.__name__ in layer_specific[layer.name]:
+        if hasattr(layer, "activation") and layer.activation.__name__ in layer_specific[layer.name]:
             i_bits = layer_specific[layer.name][layer.activation.__name__]["integer_bits"]
             f_bits = layer_specific[layer.name][layer.activation.__name__]["fractional_bits"]
         else:
@@ -946,7 +1054,7 @@ def add_default_layer_quantization_pruning_to_config_tf(model, config):
                 }
             custom_scheme["disable_pruning_for_layers"].append(layer.name + "_depthwise")
             custom_scheme["disable_pruning_for_layers"].append(layer.name + "_pointwise")
-        elif layer.__class__ in [Activation, ReLU]:
+        elif layer.__class__ in [Activation, ReLU, AveragePooling1D, AveragePooling2D, AveragePooling3D]:
             custom_scheme["layer_specific"][layer.name] = {"integer_bits": 0.0, "fractional_bits": 7.0}
     config["quantization_parameters"]["layer_specific"] = custom_scheme["layer_specific"]
     config["pruning_parameters"]["disable_pruning_for_layers"] = custom_scheme["disable_pruning_for_layers"]
