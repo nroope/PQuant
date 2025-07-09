@@ -8,6 +8,7 @@ from pquant.pruning_methods.cs import ContinuousSparsification
 from pquant.pruning_methods.dst import DST
 from pquant.pruning_methods.pdp import PDP
 from pquant.pruning_methods.wanda import Wanda
+from pquant.pruning_methods.mdmm import MDMM
 
 
 def get_pruning_layer(config, layer_type):
@@ -24,6 +25,8 @@ def get_pruning_layer(config, layer_type):
         return ActivationPruning(config, layer_type)
     elif pruning_method == "wanda":
         return Wanda(config, layer_type)
+    elif pruning_method == "mdmm":
+        return MDMM(config, layer_type)
 
 
 def get_default_config(pruning_method: str):
@@ -34,6 +37,7 @@ def get_default_config(pruning_method: str):
         "dst",
         "pdp",
         "wanda",
+        "mdmm",
     ], "Unkown pruning method. Acceptable pruning methods: autosparse, ap, cs, dst, pdp, wanda"
     yaml_name = f"config_{pruning_method}.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
