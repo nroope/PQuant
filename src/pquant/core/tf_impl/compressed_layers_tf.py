@@ -1,7 +1,7 @@
 import keras
 from hgq.quantizer import Quantizer
 from keras import ops
-from keras.api.layers import (
+from keras.layers import (
     Activation,
     AveragePooling1D,
     AveragePooling2D,
@@ -178,16 +178,23 @@ class CompressedLayerDepthwiseConv2dKeras(CompressedLayerBase):
         self.padding = layer.padding
         self.kernel_size = layer.kernel_size
         self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.init_bias = layer.bias.value if layer.use_bias else None
         self.weight_shape = layer.kernel.shape
+        self.init_weight = layer.kernel.value
         self.weight_transpose = (3, 2, 0, 1)
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
         self.do_transpose_data = layer.data_format == "channels_last"
 
     def build(self, input_shape):
-        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.depthwise_regularizer)
-        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
-        self.init_weight = self.weight.value
+        self.weight = self.add_weight(
+            self.weight_shape, initializer=self.init_weight, trainable=True, regularizer=self.depthwise_regularizer
+        )
+        self.bias = (
+            self.add_weight(self.bias_shape, initializer=self.init_bias, trainable=True)
+            if self.bias_shape is not None
+            else None
+        )
         super().build(input_shape)
 
     def call(self, x, training=None):
@@ -215,16 +222,23 @@ class CompressedLayerConv2dKeras(CompressedLayerBase):
         if hasattr(layer, "groups"):
             self.groups = layer.groups
         self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.init_bias = layer.bias.value if layer.use_bias else None
         self.weight_shape = layer.kernel.shape
+        self.init_weight = layer.kernel.value
         self.weight_transpose = (3, 2, 0, 1)
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
         self.do_transpose_data = layer.data_format == "channels_last"
 
     def build(self, input_shape):
-        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.kernel_regularizer)
-        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
-        self.init_weight = self.weight.value
+        self.weight = self.add_weight(
+            self.weight_shape, initializer=self.init_weight, trainable=True, regularizer=self.kernel_regularizer
+        )
+        self.bias = (
+            self.add_weight(self.bias_shape, initializer=self.init_bias, trainable=True)
+            if self.bias_shape is not None
+            else None
+        )
         super().build(input_shape)
 
     def call(self, x, training=None):
@@ -279,16 +293,23 @@ class CompressedLayerConv1dKeras(CompressedLayerBase):
         self.kernel_size = layer.kernel_size
         self.groups = layer.groups
         self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.init_bias = layer.bias.value if layer.use_bias else None
         self.weight_shape = layer.kernel.shape
+        self.init_weight = layer.kernel.value
         self.weight_transpose = (2, 1, 0)
         self.weight_transpose_back = (2, 1, 0)
         self.data_transpose = (0, 2, 1)
         self.do_transpose_data = layer.data_format == "channels_last"
 
     def build(self, input_shape):
-        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.kernel_regularizer)
-        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
-        self.init_weight = self.weight.value
+        self.weight = self.add_weight(
+            self.weight_shape, initializer=self.init_weight, trainable=True, regularizer=self.kernel_regularizer
+        )
+        self.bias = (
+            self.add_weight(self.bias_shape, initializer=self.init_bias, trainable=True)
+            if self.bias_shape is not None
+            else None
+        )
         super().build(input_shape)
 
     def call(self, x, training=None):
@@ -312,15 +333,22 @@ class CompressedLayerDenseKeras(CompressedLayerBase):
         self.use_bias = layer.use_bias
         self.units = layer.units
         self.bias_shape = layer.bias.shape if layer.use_bias else None
+        self.init_bias = layer.bias.value if layer.use_bias else None
         self.weight_shape = layer.kernel.shape
+        self.init_weight = layer.kernel.value
         self.weight_transpose = (1, 0)
         self.weight_transpose_back = (1, 0)
         self.data_transpose = (0, 1)  # Always (BATCH_SIZE, OUT_FEATURES)
 
     def build(self, input_shape):
-        self.weight = self.add_weight(self.weight_shape, trainable=True, regularizer=self.kernel_regularizer)
-        self.bias = self.add_weight(self.bias_shape, trainable=True) if self.bias_shape is not None else None
-        self.init_weight = self.weight.value
+        self.weight = self.add_weight(
+            self.weight_shape, initializer=self.init_weight, trainable=True, regularizer=self.kernel_regularizer
+        )
+        self.bias = (
+            self.add_weight(self.bias_shape, initializer=self.init_bias, trainable=True)
+            if self.bias_shape is not None
+            else None
+        )
         super().build(input_shape)
 
     def call(self, x, training=None):

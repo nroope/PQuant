@@ -2,7 +2,7 @@ import keras
 import numpy as np
 import pytest
 from keras import ops
-from keras.api.layers import (
+from keras.layers import (
     Activation,
     AveragePooling2D,
     Conv1D,
@@ -1293,3 +1293,36 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
     assert model.layers[1].hgq_weight.quantizer._i.shape == (1, 1)
     assert model.layers[2].hgq.quantizer._i.shape == (1, 1)
+
+
+def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_input, dense_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = False
+    config_pdp["pruning_parameters"]["enable_pruning"] = False
+    # Case Dense
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=True)(inputs)
+    model = keras.Model(inputs=inputs, outputs=out)
+
+    orig_output = model(dense_input)
+    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    output = model(dense_input)
+    assert ops.all(ops.equal(orig_output, output))
+
+    # Case Conv2D
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    model = keras.Model(inputs=inputs, outputs=out)
+
+    orig_output = model(conv2d_input)
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    output = model(conv2d_input)
+    assert ops.all(ops.equal(orig_output, output))
+    # Case Conv1D
+    inputs = keras.Input(shape=conv1d_input.shape[1:])
+    out = Conv1D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    model = keras.Model(inputs=inputs, outputs=out)
+
+    orig_output = model(conv1d_input)
+    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    output = model(conv1d_input)
+    assert ops.all(ops.equal(orig_output, output))
