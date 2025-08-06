@@ -230,6 +230,9 @@ class QuantizedPooling(nn.Module):
         self.is_pretraining = True
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.pooling = layer
+        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+
+    def build(self, input_shape):
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq = Quantizer(
@@ -252,8 +255,7 @@ class QuantizedPooling(nn.Module):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
-
-            self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+            self.hgq.build(input_shape)
         else:
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
@@ -268,6 +270,8 @@ class QuantizedPooling(nn.Module):
         ]
 
     def quantize(self, x):
+        if not hasattr(self, "hgq") or not hasattr(self, "quantizer"):
+            self.build(x.shape)
         if self.use_high_granularity_quantization:
             x = self.hgq(x)
         else:

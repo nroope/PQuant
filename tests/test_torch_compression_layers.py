@@ -13,6 +13,7 @@ from pquant.core.torch_impl.compressed_layers_torch import (
     CompressedLayerConv1d,
     CompressedLayerConv2d,
     CompressedLayerLinear,
+    QuantizedPooling,
     add_compression_layers_torch,
     get_layer_keep_ratio_torch,
     post_pretrain_functions,
@@ -516,13 +517,13 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     assert model.activation.hgq.quantizer._i.shape == (1, 1)
 
 
-def test_set_activation_custom_bits(config_pdp, dense_input):
+def test_set_activation_custom_bits(config_pdp, conv2d_input):
     config_pdp["quantization_parameters"]["enable_quantization"] = True
     config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
-    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=True)
-    layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=True)
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    layer2 = AvgPool2d(2)
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
 
     for m in model.modules():
         if isinstance(m, (CompressedLayerBase)):
@@ -549,16 +550,13 @@ def test_set_activation_custom_bits(config_pdp, dense_input):
             'weight': {'integer_bits': 1, 'fractional_bits': 3},
             'bias': {'integer_bits': 1, 'fractional_bits': 3},
         },
-        'submodule2': {
-            'weight': {'integer_bits': 1, 'fractional_bits': 3},
-            'bias': {'integer_bits': 1, 'fractional_bits': 3},
-        },
+        'submodule2': {'integer_bits': 1, 'fractional_bits': 3},
         'activation': {'integer_bits': 0, 'fractional_bits': 4},
         'activation2': {'integer_bits': 0, 'fractional_bits': 3},
     }
 
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
 
     for m in model.modules():
         if isinstance(m, (CompressedLayerBase)):
@@ -579,3 +577,8 @@ def test_set_activation_custom_bits(config_pdp, dense_input):
             assert m.f == 4.0
             assert torch.all(m.hgq.quantizer.i == 0.0)
             assert torch.all(m.hgq.quantizer.f == 4.0)
+        elif isinstance(m, QuantizedPooling):
+            assert m.i == 1.0
+            assert m.f == 3.0
+            assert torch.all(m.hgq.quantizer.i == 1.0)
+            assert torch.all(m.hgq.quantizer.f == 3.0)
