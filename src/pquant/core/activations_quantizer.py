@@ -17,6 +17,9 @@ class QuantizedTanh(keras.layers.Layer):
         self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
         self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+
+    def build(self, input_shape):
+        super().build(input_shape)
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq = Quantizer(
@@ -38,13 +41,10 @@ class QuantizedTanh(keras.layers.Layer):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
+            self.hgq.build(input_shape)
+
         else:
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        if self.use_high_granularity_quantization:
-            self.hgq.build(input_shape)
 
     def hgq_loss(self):
         if self.is_pretraining:
@@ -79,6 +79,8 @@ class QuantizedReLU(keras.layers.Layer):
         self.use_multiplier = config["quantization_parameters"]["use_relu_multiplier"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
 
+    def build(self, input_shape):
+        super().build(input_shape)
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq = Quantizer(
@@ -100,14 +102,10 @@ class QuantizedReLU(keras.layers.Layer):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
+            self.hgq.build(input_shape)
         else:
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        if self.use_high_granularity_quantization:
-            self.hgq.build(input_shape)
-        elif self.use_multiplier:
+        if self.use_multiplier:
             self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
 
     def post_pre_train_function(self):
