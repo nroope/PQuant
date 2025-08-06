@@ -596,12 +596,6 @@ def create_default_layer_quantization_pruning_config(model):
             config["disable_pruning_for_layers"].append(name)
         elif layer.__class__ in [nn.Tanh, nn.ReLU, nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             config["layer_specific"][name] = {"integer_bits": 0, "fractional_bits": 7}
-    traced_model = symbolic_trace(model)
-    for node in traced_model.graph.nodes:
-        if node.op == "call_method" and node.target == "tanh":
-            config["layer_specific"][node.name] = {"bits": 8}
-        elif node.op == "call_function" and "function relu" == str(node.target):
-            config["layer_specific"][node.name] = {"bits": 8}
     return config
 
 
