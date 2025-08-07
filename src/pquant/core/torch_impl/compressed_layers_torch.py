@@ -259,6 +259,10 @@ class QuantizedPooling(nn.Module):
         else:
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
+    def set_activation_bits(self, i, f):
+        self.i = torch.tensor(i)
+        self.f = torch.tensor(f)
+
     def post_pre_train_function(self):
         self.is_pretraining = False
 
@@ -306,8 +310,7 @@ def add_layer_specific_quantization_to_model(module, config):
             if name in config["quantization_parameters"]["layer_specific"]:
                 i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
                 f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
-                layer.i = i
-                layer.f = f
+                layer.set_activation_bits(i, f)
     return module
 
 
@@ -329,8 +332,6 @@ def add_quantized_activations_to_model_layer(module, config):
             setattr(module, name, tanh)
         elif layer.__class__ in [nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             new_layer = QuantizedPooling(config, layer)
-            new_layer.i = i
-            new_layer.f = f
             setattr(module, name, new_layer)
         else:
             layer = add_quantized_activations_to_model_layer(layer, config)

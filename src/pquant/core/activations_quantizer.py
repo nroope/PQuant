@@ -46,6 +46,10 @@ class QuantizedTanh(keras.layers.Layer):
         else:
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
 
+    def set_activation_bits(self, i, f):
+        self.i = convert_to_tensor(i)
+        self.f = convert_to_tensor(f)
+
     def hgq_loss(self):
         if self.is_pretraining:
             return 0.0
@@ -107,6 +111,10 @@ class QuantizedReLU(keras.layers.Layer):
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
         if self.use_multiplier:
             self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
+
+    def set_activation_bits(self, i, f):
+        self.i = convert_to_tensor(i)
+        self.f = convert_to_tensor(f)
 
     def post_pre_train_function(self):
         self.is_pretraining = False

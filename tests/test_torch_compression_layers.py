@@ -517,7 +517,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     assert model.activation.hgq.quantizer._i.shape == (1, 1)
 
 
-def test_set_activation_custom_bits(config_pdp, conv2d_input):
+def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     config_pdp["quantization_parameters"]["enable_quantization"] = True
     config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
@@ -528,9 +528,11 @@ def test_set_activation_custom_bits(config_pdp, conv2d_input):
     for m in model.modules():
         if isinstance(m, (CompressedLayerBase)):
             assert m.i_weight == 0.0
+            assert m.i_bias == 0.0
             assert torch.all(m.hgq_weight.quantizer.i == 0.0)
             assert torch.all(m.hgq_bias.quantizer.i == 0.0)
 
+            assert m.f_weight == 7.0
             assert m.f_bias == 7.0
             assert torch.all(m.hgq_weight.quantizer.f == 7.0)
             assert torch.all(m.hgq_bias.quantizer.f == 7.0)
@@ -545,10 +547,16 @@ def test_set_activation_custom_bits(config_pdp, conv2d_input):
             assert torch.all(m.hgq.quantizer.i == 0.0)
             assert torch.all(m.hgq.quantizer.f == 8.0)
 
+        elif isinstance(m, QuantizedPooling):
+            assert m.i == 0.0
+            assert m.f == 7.0
+            assert torch.all(m.hgq.quantizer.i == 0.0)
+            assert torch.all(m.hgq.quantizer.f == 7.0)
+
     config_pdp["quantization_parameters"]["layer_specific"] = {
         'submodule': {
             'weight': {'integer_bits': 1, 'fractional_bits': 3},
-            'bias': {'integer_bits': 1, 'fractional_bits': 3},
+            'bias': {'integer_bits': 2, 'fractional_bits': 4},
         },
         'submodule2': {'integer_bits': 1, 'fractional_bits': 3},
         'activation': {'integer_bits': 0, 'fractional_bits': 4},
@@ -561,12 +569,14 @@ def test_set_activation_custom_bits(config_pdp, conv2d_input):
     for m in model.modules():
         if isinstance(m, (CompressedLayerBase)):
             assert m.i_weight == 1.0
+            assert m.i_bias == 2.0
             assert torch.all(m.hgq_weight.quantizer.i == 1.0)
-            assert torch.all(m.hgq_bias.quantizer.i == 1.0)
+            assert torch.all(m.hgq_bias.quantizer.i == 2.0)
 
-            assert m.f_bias == 3.0
+            assert m.f_weight == 3.0
+            assert m.f_bias == 4.0
             assert torch.all(m.hgq_weight.quantizer.f == 3.0)
-            assert torch.all(m.hgq_bias.quantizer.f == 3.0)
+            assert torch.all(m.hgq_bias.quantizer.f == 4.0)
         elif isinstance(m, (QuantizedTanh)):
             assert m.i == 0.0
             assert m.f == 3.0
@@ -582,3 +592,50 @@ def test_set_activation_custom_bits(config_pdp, conv2d_input):
             assert m.f == 3.0
             assert torch.all(m.hgq.quantizer.i == 1.0)
             assert torch.all(m.hgq.quantizer.f == 3.0)
+
+
+def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = False
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    layer2 = AvgPool2d(2)
+    model = TestModel2(layer, layer2, "relu", "tanh")
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+
+    for m in model.modules():
+        if isinstance(m, (CompressedLayerBase)):
+            assert m.i_weight == 0.0
+            assert m.f_bias == 7.0
+        elif isinstance(m, (QuantizedTanh)):
+            assert m.i == 0.0
+            assert m.f == 7.0
+        elif isinstance(m, (QuantizedReLU)):
+            assert m.i == 0.0
+            assert m.f == 8.0
+
+    config_pdp["quantization_parameters"]["layer_specific"] = {
+        'submodule': {
+            'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+            'bias': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        },
+        'submodule2': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        'activation': {'integer_bits': 0.0, 'fractional_bits': 4.0},
+        'activation2': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+    }
+
+    model = TestModel2(layer, layer2, "relu", "tanh")
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+
+    for m in model.modules():
+        if isinstance(m, (CompressedLayerBase)):
+            assert m.i_weight == 1.0
+            assert m.f_bias == 3.0
+        elif isinstance(m, (QuantizedTanh)):
+            assert m.i == 0.0
+            assert m.f == 3.0
+        elif isinstance(m, (QuantizedReLU)):
+            assert m.i == 0.0
+            assert m.f == 4.0
+        elif isinstance(m, QuantizedPooling):
+            assert m.i == 1.0
+            assert m.f == 3.0

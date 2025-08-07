@@ -955,6 +955,8 @@ def add_compression_layers_tf(model, config, input_shape=None):
         # Activation layers
         elif isinstance(layer, ReLU):
             if config["quantization_parameters"]["enable_quantization"]:
+                i_bits = config["quantization_parameters"]["default_integer_bits"]
+                f_bits = config["quantization_parameters"]["default_fractional_bits"]
                 i_bits, f_bits = get_quantization_bits_activations(config, layer)
                 new_layer = QuantizedReLU(config, i_bits, f_bits)
                 new_layer.build(layer.input.shape)
@@ -985,6 +987,8 @@ def add_compression_layers_tf(model, config, input_shape=None):
 def get_quantization_bits_activations(config, layer):
     i_bits = config["quantization_parameters"]["default_integer_bits"]
     f_bits = config["quantization_parameters"]["default_fractional_bits"]
+    if isinstance(layer, ReLU):
+        f_bits += 1  # Unsigned, add 1 bit to default value only
     layer_specific = config["quantization_parameters"]["layer_specific"]
     if layer.name in layer_specific:
         if hasattr(layer, "activation") and layer.activation.__name__ in layer_specific[layer.name]:
