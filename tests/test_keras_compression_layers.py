@@ -19,6 +19,7 @@ from pquant.core.tf_impl.compressed_layers_tf import (
     CompressedLayerConv2dKeras,
     CompressedLayerDenseKeras,
     CompressedLayerSeparableConv2dKeras,
+    QuantizedPooling,
     add_compression_layers_tf,
     get_layer_keep_ratio_tf,
     post_pretrain_functions,
@@ -1326,3 +1327,151 @@ def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_inp
     model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
     output = model(conv1d_input)
     assert ops.all(ops.equal(orig_output, output))
+
+
+def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    out = ReLU()(out)
+    out = AveragePooling2D(2)(out)
+    out = Activation("tanh")(out)
+    model = keras.Model(inputs=inputs, outputs=out)
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+
+    for m in model.layers:
+        if isinstance(m, (CompressedLayerConv2dKeras)):
+            assert m.i_weight == 0.0
+            assert m.i_bias == 0.0
+            assert ops.all(m.hgq_weight.quantizer.i == 0.0)
+            assert ops.all(m.hgq_bias.quantizer.i == 0.0)
+
+            assert m.f_weight == 7.0
+            assert m.f_bias == 7.0
+            assert ops.all(m.hgq_weight.quantizer.f == 7.0)
+            assert ops.all(m.hgq_bias.quantizer.f == 7.0)
+        elif isinstance(m, (QuantizedTanh)):
+            assert m.i == 0.0
+            assert m.f == 7.0
+            assert ops.all(m.hgq.quantizer.i == 0.0)
+            assert ops.all(m.hgq.quantizer.f == 7.0)
+        elif isinstance(m, (QuantizedReLU)):
+            assert m.i == 0.0
+            assert m.f == 8.0
+            assert ops.all(m.hgq.quantizer.i == 0.0)
+            assert ops.all(m.hgq.quantizer.f == 8.0)
+        elif isinstance(m, (QuantizedPooling)):
+            assert m.i == 0.0
+            assert m.f == 7.0
+            assert ops.all(m.hgq.quantizer.i == 0.0)
+            assert ops.all(m.hgq.quantizer.f == 7.0)
+
+    config_pdp["quantization_parameters"]["layer_specific"] = {
+        'conv2d_17': {
+            'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+            'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
+        },
+        're_lu_7': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        'average_pooling2d_2': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        'activation_7': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+    }
+
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    out = ReLU()(out)
+    out = AveragePooling2D(2)(out)
+    out = Activation("tanh")(out)
+    model = keras.Model(inputs=inputs, outputs=out)
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+
+    for m in model.layers:
+        if isinstance(m, (CompressedLayerConv2dKeras)):
+            assert m.i_weight == 1.0
+            assert m.i_bias == 2.0
+            assert ops.all(m.hgq_weight.quantizer.i == 1.0)
+            assert ops.all(m.hgq_bias.quantizer.i == 2.0)
+
+            assert m.f_weight == 3.0
+            assert m.f_bias == 4.0
+            assert ops.all(m.hgq_weight.quantizer.f == 3.0)
+            assert ops.all(m.hgq_bias.quantizer.f == 4.0)
+        elif isinstance(m, (QuantizedTanh)):
+            assert m.i == 0.0
+            assert m.f == 3.0
+            assert ops.all(m.hgq.quantizer.i == 0.0)
+            assert ops.all(m.hgq.quantizer.f == 3.0)
+        elif isinstance(m, (QuantizedReLU)):
+            assert m.i == 1.0
+            assert m.f == 3.0
+            assert ops.all(m.hgq.quantizer.i == 1.0)
+            assert ops.all(m.hgq.quantizer.f == 3.0)
+        elif isinstance(m, (QuantizedPooling)):
+            assert m.i == 1.0
+            assert m.f == 3.0
+            assert ops.all(m.hgq.quantizer.i == 1.0)
+            assert ops.all(m.hgq.quantizer.f == 3.0)
+
+
+def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
+    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = False
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    out = ReLU()(out)
+    out = AveragePooling2D(2)(out)
+    out = Activation("tanh")(out)
+    model = keras.Model(inputs=inputs, outputs=out)
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+
+    for m in model.layers:
+        if isinstance(m, (CompressedLayerConv2dKeras)):
+            assert m.i_weight == 0.0
+            assert m.i_bias == 0.0
+
+            assert m.f_weight == 7.0
+            assert m.f_bias == 7.0
+        elif isinstance(m, (QuantizedTanh)):
+            assert m.i == 0.0
+            assert m.f == 7.0
+        elif isinstance(m, (QuantizedReLU)):
+            assert m.i == 0.0
+            assert m.f == 8.0
+        elif isinstance(m, (QuantizedPooling)):
+            assert m.i == 0.0
+            assert m.f == 7.0
+
+    config_pdp["quantization_parameters"]["layer_specific"] = {
+        'conv2d_19': {
+            'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+            'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
+        },
+        're_lu_9': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        'average_pooling2d_4': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        'activation_9': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+    }
+
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    out = ReLU()(out)
+    out = AveragePooling2D(2)(out)
+    out = Activation("tanh")(out)
+    model = keras.Model(inputs=inputs, outputs=out)
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+
+    for m in model.layers:
+        if isinstance(m, (CompressedLayerConv2dKeras)):
+            assert m.i_weight == 1.0
+            assert m.i_bias == 2.0
+
+            assert m.f_weight == 3.0
+            assert m.f_bias == 4.0
+        elif isinstance(m, (QuantizedTanh)):
+            assert m.i == 0.0
+            assert m.f == 3.0
+        elif isinstance(m, (QuantizedReLU)):
+            assert m.i == 1.0
+            assert m.f == 3.0
+        elif isinstance(m, (QuantizedPooling)):
+            assert m.i == 1.0
+            assert m.f == 3.0

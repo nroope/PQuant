@@ -23,7 +23,17 @@ class CompressedLayerBase(nn.Module):
         self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        if config["quantization_parameters"]["use_high_granularity_quantization"]:
+
+        self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
+        self.init_weight = self.weight.clone()
+        self.pruning_first = config["training_parameters"]["pruning_first"]
+        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
+        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.enable_pruning = config["pruning_parameters"]["enable_pruning"]
+        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+
+    def build(self, input_shape):
+        if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq_weight = Quantizer(
                     k0=1.0,
@@ -35,7 +45,7 @@ class CompressedLayerBase(nn.Module):
                     homogeneous_axis=(),
                 )
                 self.hgq_weight.build(self.weight.shape)
-                if layer.bias is not None:
+                if self.bias is not None:
                     self.hgq_bias = Quantizer(
                         k0=1.0,
                         i0=self.i_bias,
@@ -45,7 +55,7 @@ class CompressedLayerBase(nn.Module):
                         q_type="kif",
                         homogeneous_axis=(),
                     )
-                    self.hgq_bias.build(layer.bias.shape)
+                    self.hgq_bias.build(self.bias.shape)
             else:
                 self.hgq_weight = Quantizer(
                     k0=1.0,
@@ -57,7 +67,7 @@ class CompressedLayerBase(nn.Module):
                     heterogeneous_axis=(),
                 )
                 self.hgq_weight.build(self.weight.shape)
-                if layer.bias is not None:
+                if self.bias is not None:
                     self.hgq_bias = Quantizer(
                         k0=1.0,
                         i0=self.i_bias,
@@ -67,15 +77,7 @@ class CompressedLayerBase(nn.Module):
                         q_type="kif",
                         heterogeneous_axis=(),
                     )
-                    self.hgq_bias.build(layer.bias.shape)
-            self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
-
-        self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
-        self.init_weight = self.weight.clone()
-        self.pruning_first = config["training_parameters"]["pruning_first"]
-        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
-        self.enable_pruning = config["pruning_parameters"]["enable_pruning"]
+                    self.hgq_bias.build(self.bias.shape)
 
     def save_weights(self):
         self.init_weight = self.weight.clone()
@@ -228,6 +230,9 @@ class QuantizedPooling(nn.Module):
         self.is_pretraining = True
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.pooling = layer
+        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+
+    def build(self, input_shape):
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq = Quantizer(
@@ -250,10 +255,13 @@ class QuantizedPooling(nn.Module):
                     q_type="kif",
                     heterogeneous_axis=(),
                 )
-
-            self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+            self.hgq.build(input_shape)
         else:
             self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
+
+    def set_activation_bits(self, i, f):
+        self.i = torch.tensor(i)
+        self.f = torch.tensor(f)
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -266,6 +274,8 @@ class QuantizedPooling(nn.Module):
         ]
 
     def quantize(self, x):
+        if not hasattr(self, "hgq") or not hasattr(self, "quantizer"):
+            self.build(x.shape)
         if self.use_high_granularity_quantization:
             x = self.hgq(x)
         else:
@@ -279,7 +289,7 @@ class QuantizedPooling(nn.Module):
 
 def add_layer_specific_quantization_to_model(module, config):
     for name, layer in module.named_modules():
-        if layer.__class__ in [CompressedLayerLinear, CompressedLayerConv2d, CompressedLayerConv1d]:
+        if isinstance(layer, CompressedLayerBase):
             if name in config["quantization_parameters"]["layer_specific"]:
                 if "weight" in config["quantization_parameters"]["layer_specific"][name]:
                     weight_int_bits = config["quantization_parameters"]["layer_specific"][name]["weight"]["integer_bits"]
@@ -295,6 +305,12 @@ def add_layer_specific_quantization_to_model(module, config):
                     ]
                     layer.i_bias = torch.tensor(bias_int_bits)
                     layer.f_bias = torch.tensor(bias_fractional_bits)
+            layer.build(None)
+        elif layer.__class__ in [QuantizedPooling, QuantizedReLU, QuantizedTanh]:
+            if name in config["quantization_parameters"]["layer_specific"]:
+                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+                layer.set_activation_bits(i, f)
     return module
 
 
@@ -306,27 +322,16 @@ def add_quantized_activations_to_model_layer(module, config):
         i = config["quantization_parameters"]["default_integer_bits"]
         f = config["quantization_parameters"]["default_fractional_bits"]
         if layer.__class__ in [nn.ReLU]:
-            if name in config["quantization_parameters"]["layer_specific"]:
-                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
-                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
-            else:
-                # For ReLU, if using default values, add 1 bit since values are unsigned.
-                # Otherwise user provides bits. TODO: Find better way to do this
-                f = config["quantization_parameters"]["default_fractional_bits"] + 1
+            # For ReLU, if using default values, add 1 bit since values are unsigned.
+            # Otherwise user provides bits. TODO: Find better way to do this
+            f = config["quantization_parameters"]["default_fractional_bits"] + 1
             relu = QuantizedReLU(config, i=i, f=f)
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
-            if name in config["quantization_parameters"]["layer_specific"]:
-                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
-            tanh = QuantizedTanh(config, i=i, f=f)
+            tanh = QuantizedTanh(config, i=0.0, f=f)
             setattr(module, name, tanh)
         elif layer.__class__ in [nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             new_layer = QuantizedPooling(config, layer)
-            if name in config["quantization_parameters"]["layer_specific"]:
-                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
-                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
-                new_layer.i = i
-                new_layer.f = f
             setattr(module, name, new_layer)
         else:
             layer = add_quantized_activations_to_model_layer(layer, config)
