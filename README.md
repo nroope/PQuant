@@ -25,6 +25,9 @@ Example notebook can be found [here](https://github.com/nroope/PQuant/tree/main/
 ### Pruning methods
 A description of the pruning methods and their hyperparameters can be found [here](docs/pruning_methods.md).
 
+### Quantization parameters
+A description of the quantization parameters can be found [here](docs/quantization_parameters.md).
+
 
 ### Installation
 
