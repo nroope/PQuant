@@ -1,5 +1,9 @@
 from enum import Enum
+<<<<<<< HEAD
 from typing import List, Literal, Optional
+=======
+from typing import List, Literal
+>>>>>>> d8cc713 (Add fine-tuning feature v1)
 
 from pydantic import BaseModel, Field
 
@@ -34,8 +38,13 @@ class PDPPruningModel(BasePruningModel):
 
 class WandaPruningModel(BasePruningModel):
     pruning_method: Literal["wanda"] = "wanda"
+<<<<<<< HEAD
     M: Optional[int] = Field(default=None),
     N: Optional[int] = Field(default=None),
+=======
+    M: int = Field(default=0)
+    N: int = Field(default=0)
+>>>>>>> d8cc713 (Add fine-tuning feature v1)
     sparsity: float = Field(default=0.9)
     t_delta: int = Field(default=100)
     t_start_collecting_batch: int = Field(default=100)

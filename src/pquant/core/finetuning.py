@@ -196,7 +196,7 @@ class TuningTask:
 
         if numerical_params:
             self.set_numerical_params(numerical_params)
-        if categorical_params:
+        elif categorical_params:
             self.set_categorical_params(categorical_params)
 
     def set_numerical_params(self, numerical_params):

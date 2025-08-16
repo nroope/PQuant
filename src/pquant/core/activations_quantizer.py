@@ -100,6 +100,7 @@ class QuantizedReLU(keras.layers.Layer):
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.post_fitcompress_calibration = False
         self.saved_inputs = []
+    
 
     def build(self, input_shape):
         super().build(input_shape)

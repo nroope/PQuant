@@ -19,7 +19,6 @@ from pquant.pruning_methods.metric_functions import (
     UnstructuredSparsityMetric,
 )
 
-
 PRUNING_MODEL_REGISTRY = {
     "cs": CSPruningModel,
     "dst": DSTPruningModel,
@@ -43,6 +42,7 @@ SAMPLER_REGISTRY = {
     "BruteForceSampler": optuna.samplers.BruteForceSampler,
 }
 
+
 try:
     import mlflow
     LOG_FUNCTIONS_REGISTRY = {
@@ -51,6 +51,10 @@ try:
     }
 except ModuleNotFoundError:
     LOG_FUNCTIONS_REGISTRY = {}
+
+
+TRACKING_URI = "http://0.0.0.0:5000/"
+DB_STORAGE = "sqlite:///optuna_study.db"
 
 JAX_BACKEND = "jax"
 
