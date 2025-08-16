@@ -78,8 +78,8 @@ def post_training_prune(model, calibration_data, config):
             remove_pruning_from_model_torch,
         )
 
-        t_delta = config["pruning_parameters"]["t_delta"]
-        config["pruning_parameters"]["t_start_collecting_batch"] = 0
+        t_delta = config.pruning_parameters.t_delta
+        config.pruning_parameters.t_start_collecting_batch = 0
         for i in range(t_delta):
             inputs = calibration_data[i]
             if i == 0:
@@ -94,8 +94,8 @@ def post_training_prune(model, calibration_data, config):
             remove_pruning_from_model_tf,
         )
 
-        t_delta = config["pruning_parameters"]["t_delta"]
-        config["pruning_parameters"]["t_start_collecting_batch"] = 0
+        t_delta = config.pruning_parameters.t_delta
+        config.pruning_parameters.t_start_collecting_batch = 0
 
         for i in range(t_delta):
             inputs = calibration_data[i]

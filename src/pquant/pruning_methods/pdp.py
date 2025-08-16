@@ -2,13 +2,18 @@ import keras
 from keras import ops
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class PDP(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.init_r = ops.convert_to_tensor(config["pruning_parameters"]["sparsity"])
-        self.epsilon = ops.convert_to_tensor(config["pruning_parameters"]["epsilon"])
-        self.r = config["pruning_parameters"]["sparsity"]
-        self.temp = config["pruning_parameters"]["temperature"]
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
+        self.init_r = ops.convert_to_tensor(config.pruning_parameters.sparsity)
+        self.epsilon = ops.convert_to_tensor(config.pruning_parameters.epsilon)
+        self.r = config.pruning_parameters.sparsity
+        self.temp = config.pruning_parameters.temperature
         self.is_pretraining = True
         self.config = config
         self.fine_tuning = False
@@ -35,7 +40,7 @@ class PDP(keras.layers.Layer):
     def get_hard_mask(self, weight):
         if self.fine_tuning:
             return self.mask
-        if self.config["pruning_parameters"]["structured_pruning"]:
+        if self.config.pruning_parameters.structured_pruning:
             if self.layer_type == "conv":
                 mask = self.get_mask_structured_channel(weight)
             else:
@@ -70,7 +75,7 @@ class PDP(keras.layers.Layer):
         t = ops.ones(norm.shape) * 0.5 * (Wh + Wt)
         soft_input = ops.concatenate((t**2, norm**2), axis=0) / self.temp
         softmax_result = ops.softmax(soft_input, axis=0)
-        zw, mw = ops.unstack(softmax_result, axis=0)
+        _, mw = ops.unstack(softmax_result, axis=0)
         mw = ops.expand_dims(mw, 0)
         self.mask = mw
         return mw
@@ -121,7 +126,7 @@ class PDP(keras.layers.Layer):
         t = self.t * (Wh + Wt)
         soft_input = ops.concatenate((t**2, weight_reshaped**2), axis=-1) / self.temp
         softmax_result = ops.softmax(soft_input, axis=-1)
-        zw, mw = ops.unstack(softmax_result, axis=-1)
+        _, mw = ops.unstack(softmax_result, axis=-1)
         mask = ops.reshape(mw, weight.shape)
         self.mask = mask
         return mask
@@ -130,7 +135,7 @@ class PDP(keras.layers.Layer):
         if self.fine_tuning:
             mask = self.mask
         else:
-            if self.config["pruning_parameters"]["structured_pruning"]:
+            if self.config.pruning_parameters.structured_pruning:
                 if self.layer_type == "conv":
                     mask = self.get_mask_structured_channel(weight)
                 else:
@@ -149,3 +154,13 @@ class PDP(keras.layers.Layer):
 
     def post_epoch_function(self, epoch, total_epochs):
         pass
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "config": self.config.get_dict(),
+                "layer_type": self.layer_type,
+            }
+        )
+        return config

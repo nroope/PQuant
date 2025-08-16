@@ -2,10 +2,14 @@ import keras
 from keras import ops
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class Wanda(keras.layers.Layer):
-
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         self.config = config
         self.act_type = "relu"
         self.t = 0
@@ -14,11 +18,11 @@ class Wanda(keras.layers.Layer):
         self.inputs = None
         self.total = 0.0
         self.done = False
-        self.sparsity = self.config["pruning_parameters"]["sparsity"]
+        self.sparsity = self.config.pruning_parameters.sparsity
         self.is_pretraining = True
-        self.N = self.config["pruning_parameters"]["N"]
-        self.M = self.config["pruning_parameters"]["M"]
-        self.t_start_collecting_batch = self.config["pruning_parameters"]["t_start_collecting_batch"]
+        self.N = self.config.pruning_parameters.N
+        self.M = self.config.pruning_parameters.M
+        self.t_start_collecting_batch = self.config.pruning_parameters.t_start_collecting_batch
 
     def build(self, input_shape):
         self.mask = ops.ones(input_shape)
@@ -95,7 +99,7 @@ class Wanda(keras.layers.Layer):
         self.total += 1
 
         self.inputs = x if self.inputs is None else self.inputs + x
-        if self.batches_collected % (self.config["pruning_parameters"]["t_delta"]) == 0:
+        if self.batches_collected % (self.config.pruning_parameters.t_delta) == 0:
             inputs_avg = self.inputs / self.total
             self.prune(inputs_avg, weight)
             self.done = True
@@ -135,3 +139,14 @@ class Wanda(keras.layers.Layer):
         if self.is_pretraining is False:
             self.t += 1
         pass
+
+    def get_config(self):
+        config = super().get_config()
+
+        config.update(
+            {
+                "config": self.config.get_dict(),
+                "layer_type": self.layer_type,
+            }
+        )
+        return config
