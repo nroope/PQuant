@@ -398,6 +398,97 @@ def add_pruning_to_model(module, config):
     return module
 
 
+# PQuant Functions
+
+
+def set_layer_quantization_attributes(layer, config, new_layer=None):
+    if isinstance(layer, CompressedLayerBase):
+        if config["quantization_parameters"]["use_high_granularity_quantization"]:
+            i_weight = layer.hgq_weight.quantizer.i.cpu().numpy()
+            f_weight = layer.hgq_weight.quantizer.f.cpu().numpy()
+            quantization_parameters = {
+                "i_weight": i_weight,
+                "f_weight": f_weight,
+                "k_weight": 1.0,
+                "overflow": layer.overflow,
+            }
+            if layer.use_bias:
+                i_bias = layer.hgq_bias.quantizer.i.cpu().numpy()
+                f_bias = layer.hgq_bias.quantizer.f.cpu().numpy()
+
+                quantization_parameters["i_bias"] = i_bias.cpu().numpy()
+                quantization_parameters["f_bias"] = f_bias.cpu().numpy()
+                quantization_parameters["k_bias"] = 1.0
+        else:
+            quantization_parameters = {
+                "i_weight": layer.i_weight.cpu().numpy(),
+                "f_weight": layer.f_weight.cpu().numpy(),
+                "k_weight": 1.0,
+                "i_bias": layer.i_bias.cpu().numpy(),
+                "f_bias": layer.f_bias.cpu().numpy(),
+                "k_bias": 1.0,
+                "overflow": layer.overflow,
+            }
+        quantization_parameters["use_high_granularity_quantization"] = config["quantization_parameters"][
+            "use_high_granularity_quantization"
+        ]
+    if new_layer is not None:
+        new_layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
+def set_activation_quantization_parameters(layer, config):
+    if config["quantization_parameters"]["use_high_granularity_quantization"]:
+        i = layer.hgq.quantizer.i.cpu().numpy()
+        f = layer.hgq.quantizer.f.cpu().numpy()
+        k = layer.hgq.quantizer.k.cpu().numpy()
+        quantization_parameters = {
+            "i_act": i,
+            "f_act": f,
+            "k_act": k,
+            "overflow": layer.overflow,
+        }
+    else:
+        quantization_parameters = {
+            "i_act": layer.i.cpu().numpy(),
+            "f_act": layer.f.cpu().numpy(),
+            "k_act": layer.k.cpu().numpy(),
+            "overflow": layer.overflow,
+        }
+
+    quantization_parameters["use_high_granularity_quantization"] = config["quantization_parameters"][
+        "use_high_granularity_quantization"
+    ]
+    layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
+def set_pooling_quantization_parameters(layer, config):
+    if config["quantization_parameters"]["use_high_granularity_quantization"]:
+        i = layer.hgq.quantizer.i.cpu().numpy()
+        f = layer.hgq.quantizer.f.cpu().numpy()
+        k = layer.hgq.quantizer.k.cpu().numpy()
+        quantization_parameters = {
+            "i_pool": i,
+            "f_pool": f,
+            "k_pool": k,
+            "overflow": layer.overflow,
+        }
+    else:
+        quantization_parameters = {
+            "i_pool": layer.i.cpu().numpy(),
+            "f_pool": layer.f.cpu().numpy(),
+            "k_pool": 1.0,
+            "overflow": layer.overflow,
+        }
+
+    quantization_parameters["use_high_granularity_quantization"] = config["quantization_parameters"][
+        "use_high_granularity_quantization"
+    ]
+    layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
 def remove_pruning_from_model_torch(module, config):
     for name, layer in module.named_children():
         if isinstance(layer, CompressedLayerLinear):
@@ -417,7 +508,9 @@ def remove_pruning_from_model_torch(module, config):
             bias_values = bias
             in_features = layer.in_features
             bias = True if bias_values is not None else False
-            setattr(module, name, nn.Linear(in_features=in_features, out_features=out_features, bias=bias))
+            new_layer = nn.Linear(in_features=in_features, out_features=out_features, bias=bias)
+            set_layer_quantization_attributes(layer, config, new_layer)
+            setattr(module, name, new_layer)
             getattr(module, name).weight.data.copy_(weight)
             if getattr(module, name).bias is not None:
                 getattr(module, name).bias.data.copy_(bias_values.data)
@@ -437,6 +530,7 @@ def remove_pruning_from_model_torch(module, config):
             bias_values = bias
             bias = True if bias_values is not None else False
             conv = nn.Conv2d if isinstance(layer, CompressedLayerConv2d) else nn.Conv1d
+            set_layer_quantization_attributes(layer, config, conv)
             setattr(
                 module,
                 name,
@@ -455,6 +549,10 @@ def remove_pruning_from_model_torch(module, config):
             getattr(module, name).weight.data.copy_(weight)
             if getattr(module, name).bias is not None:
                 getattr(module, name).bias.data.copy_(bias_values.data)
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+            set_activation_quantization_parameters(layer, config)
+        elif isinstance(layer, (QuantizedPooling)):
+            set_pooling_quantization_parameters(layer, config)
         else:
             remove_pruning_from_model_torch(layer, config)
     return module

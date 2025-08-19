@@ -478,6 +478,94 @@ def _prune_and_quantize_layer(layer, use_bias):
     return weight, bias
 
 
+def set_layer_quantization_attributes(layer, config, new_layer=None):
+    if isinstance(layer, CompressedLayerBase):
+        if config["quantization_parameters"]["use_high_granularity_quantization"]:
+            i_weight = layer.hgq_weight.quantizer.i.cpu().numpy()
+            f_weight = layer.hgq_weight.quantizer.f.cpu().numpy()
+            quantization_parameters = {
+                "i_weight": i_weight,
+                "f_weight": f_weight,
+                "k_weight": 1.0,
+                "overflow": layer.overflow,
+            }
+            if layer.use_bias:
+                i_bias = layer.hgq_bias.quantizer.i.cpu().numpy()
+                f_bias = layer.hgq_bias.quantizer.f.cpu().numpy()
+
+                quantization_parameters["i_bias"] = i_bias.cpu().numpy()
+                quantization_parameters["f_bias"] = f_bias.cpu().numpy()
+                quantization_parameters["k_bias"] = 1.0
+        else:
+            quantization_parameters = {
+                "i_weight": layer.i_weight.cpu().numpy(),
+                "f_weight": layer.f_weight.cpu().numpy(),
+                "k_weight": 1.0,
+                "i_bias": layer.i_bias.cpu().numpy(),
+                "f_bias": layer.f_bias.cpu().numpy(),
+                "k_bias": 1.0,
+                "overflow": layer.overflow,
+            }
+        quantization_parameters["use_high_granularity_quantization"] = config["quantization_parameters"][
+            "use_high_granularity_quantization"
+        ]
+    if new_layer is not None:
+        new_layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
+def set_activation_quantization_parameters(layer, config):
+    if config["quantization_parameters"]["use_high_granularity_quantization"]:
+        i = layer.hgq.quantizer.i.cpu().numpy()
+        f = layer.hgq.quantizer.f.cpu().numpy()
+        k = layer.hgq.quantizer.k.cpu().numpy()
+        quantization_parameters = {
+            "i_act": i,
+            "f_act": f,
+            "k_act": k,
+            "overflow": layer.overflow,
+        }
+    else:
+        quantization_parameters = {
+            "i_act": layer.i.cpu().numpy(),
+            "f_act": layer.f.cpu().numpy(),
+            "k_act": layer.k.cpu().numpy(),
+            "overflow": layer.overflow,
+        }
+
+    quantization_parameters["use_high_granularity_quantization"] = config["quantization_parameters"][
+        "use_high_granularity_quantization"
+    ]
+    layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
+def set_pooling_quantization_parameters(layer, config):
+    if config["quantization_parameters"]["use_high_granularity_quantization"]:
+        i = layer.hgq.quantizer.i.cpu().numpy()
+        f = layer.hgq.quantizer.f.cpu().numpy()
+        k = layer.hgq.quantizer.k.cpu().numpy()
+        quantization_parameters = {
+            "i_pool": i,
+            "f_pool": f,
+            "k_pool": k,
+            "overflow": layer.overflow,
+        }
+    else:
+        quantization_parameters = {
+            "i_pool": layer.i.cpu().numpy(),
+            "f_pool": layer.f.cpu().numpy(),
+            "k_pool": 1.0,
+            "overflow": layer.overflow,
+        }
+
+    quantization_parameters["use_high_granularity_quantization"] = config["quantization_parameters"][
+        "use_high_granularity_quantization"
+    ]
+    layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
 def remove_pruning_from_model_tf(model, config):
     x = model.layers[0].output
     for layer in model.layers[1:]:
@@ -491,6 +579,7 @@ def remove_pruning_from_model_tf(model, config):
                 depthwise_regularizer=layer.depthwise_regularizer,
                 activity_regularizer=layer.activity_regularizer,
             )
+            set_layer_quantization_attributes(layer, config, new_layer)
             x = new_layer(x)
             use_bias = layer.use_bias
             weight, bias = _prune_and_quantize_layer(layer, use_bias)
@@ -522,6 +611,7 @@ def remove_pruning_from_model_tf(model, config):
                 pointwise_regularizer=layer.pointwise_conv.kernel_regularizer,
                 activity_regularizer=layer.activity_regularizer,
             )
+            set_layer_quantization_attributes(layer, config, new_layer)
             x = new_layer(x)
             use_bias = layer.pointwise_conv.use_bias
             depthwise_weight, _ = _prune_and_quantize_layer(layer.depthwise_conv, False)
@@ -541,16 +631,24 @@ def remove_pruning_from_model_tf(model, config):
                 kernel_regularizer=layer.kernel_regularizer,
                 activity_regularizer=layer.activity_regularizer,
             )
+            set_layer_quantization_attributes(layer, config, new_layer)
             x = new_layer(x)
             use_bias = layer.use_bias
             weight, bias = _prune_and_quantize_layer(layer, use_bias)
             new_layer.set_weights([weight, bias] if use_bias else [weight])
         elif isinstance(layer, CompressedLayerDenseKeras):
             new_layer = Dense(units=layer.units, use_bias=layer.use_bias, kernel_regularizer=layer.kernel_regularizer)
+            set_layer_quantization_attributes(layer, config, new_layer)
             x = new_layer(x)
             use_bias = new_layer.use_bias
             weight, bias = _prune_and_quantize_layer(layer, use_bias)
             new_layer.set_weights([weight, bias] if use_bias else [weight])
+        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
+            set_activation_quantization_parameters(layer, config)
+            x = layer(x)
+        elif isinstance(layer, (QuantizedPooling)):
+            set_pooling_quantization_parameters(layer, config)
+            x = layer(x)
         else:
             x = layer(x)
     replaced_model = keras.Model(inputs=model.inputs, outputs=x)
