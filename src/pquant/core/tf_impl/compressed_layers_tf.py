@@ -368,7 +368,7 @@ class QuantizedPooling(keras.layers.Layer):
         super().__init__()
         self.i = ops.convert_to_tensor(config["quantization_parameters"]["default_integer_bits"])
         self.f = ops.convert_to_tensor(config["quantization_parameters"]["default_fractional_bits"])
-
+        self.k = ops.convert_to_tensor(1.0)
         self.is_pretraining = True
 
         self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
@@ -394,7 +394,7 @@ class QuantizedPooling(keras.layers.Layer):
         if self.use_high_granularity_quantization:
             if self.hgq_heterogeneous:
                 self.hgq = Quantizer(
-                    k0=1.0,
+                    k0=self.k,
                     i0=self.i,
                     f0=self.f,
                     round_mode="RND",
@@ -405,7 +405,7 @@ class QuantizedPooling(keras.layers.Layer):
                 self.hgq.build(input_shape)
             else:
                 self.hgq = Quantizer(
-                    k0=1.0,
+                    k0=self.k,
                     i0=self.i,
                     f0=self.f,
                     round_mode="RND",
@@ -431,7 +431,7 @@ class QuantizedPooling(keras.layers.Layer):
         if self.use_high_granularity_quantization:
             x = self.hgq(x)
         else:
-            x = self.quantizer(x, k=ops.convert_to_tensor(1.0), i=self.i, f=self.f, training=True)
+            x = self.quantizer(x, k=self.k, i=self.i, f=self.f, training=True)
         return x
 
     def call(self, x):
@@ -454,7 +454,6 @@ class QuantizedPooling(keras.layers.Layer):
                 "overflow": self.overflow,
                 "hgq_gamma": self.hgq_gamma,
                 "hgq_heterogeneous": self.hgq_heterogeneous,
-                "pooling": self.pooling,
             }
         )
         return config
