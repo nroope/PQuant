@@ -1,4 +1,6 @@
 import keras
+import torch
+import torch.nn as nn
 from hgq.quantizer import Quantizer
 from keras import ops
 from keras.ops import convert_to_tensor, maximum, minimum, tanh
@@ -134,6 +136,75 @@ class QuantizedReLU(keras.layers.Layer):
                 x = x * 2 ** (ops.stop_gradient(ops.round(self.multiplier) - self.multiplier) + self.multiplier)
             x = self.quantizer(x, k=convert_to_tensor(0.0), i=self.i, f=self.f, training=True)
             return x
+
+
+class QuantizedPooling(nn.Module):
+
+    def __init__(self, config, layer):
+        super().__init__()
+        self.f = torch.tensor(config.quantization_parameters.default_fractional_bits)
+        self.i = torch.tensor(config.quantization_parameters.default_integer_bits)
+        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
+        self.config = config
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
+        self.is_pretraining = True
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+        self.pooling = layer
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
+
+    def build(self, input_shape):
+        if self.use_high_granularity_quantization:
+            if self.hgq_heterogeneous:
+                self.hgq = Quantizer(
+                    k0=1.0,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    homogeneous_axis=(0,),
+                )
+
+            else:
+                self.hgq = Quantizer(
+                    k0=1.0,
+                    i0=self.i,
+                    f0=self.f,
+                    round_mode="RND",
+                    overflow_mode=self.overflow,
+                    q_type="kif",
+                    heterogeneous_axis=(),
+                )
+            self.hgq.build(input_shape)
+        else:
+            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
+
+    def set_activation_bits(self, i, f):
+        self.i = torch.tensor(i)
+        self.f = torch.tensor(f)
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
+
+    def hgq_loss(self):
+        if self.is_pretraining:
+            return 0.0
+        return (
+            torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)
+        ) * self.config.quantization_parameters.hgq_gamma
+
+    def quantize(self, x):
+        if not hasattr(self, "hgq") or not hasattr(self, "quantizer"):
+            self.build(x.shape)
+        if self.use_high_granularity_quantization:
+            x = self.hgq(x)
+        else:
+            x = self.quantizer(x, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+        return x
+
+    def forward(self, x):
+        x = self.pooling(x)
+        return self.quantize(x)
 
 
 def hard_sigmoid(x):
