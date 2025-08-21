@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from hgq.layers.batch_normalization import QBatchNormalization
 from hgq.quantizer import Quantizer
+from hgq.quantizer.config import QuantizerConfig
 from quantizers import get_fixed_quantizer
 from torch.fx import symbolic_trace
 
@@ -208,6 +210,24 @@ class CompressedLayerConv1d(CompressedLayerBase):
         return x
 
 
+class QuantizedActivationTorchWrapper(torch.nn.Module):
+    def __init__(self, activation):
+        super().__init__()
+        self.activation = activation
+
+    def forward(self, x):
+        return self.activation(x)
+
+
+class QBatchNormalizationWrapper(torch.nn.Module):
+    def __init__(self, q_batch_norm):
+        super().__init__()
+        self.q_batch_norm = q_batch_norm
+
+    def forward(self, x):
+        return self.q_batch_norm(x)
+
+
 def add_compression_layers_torch(model, config, input_shape):
     model = add_quantized_activations_to_model_layer(model, config)
     # model = add_quantized_activations_to_model_functional(model, config)
@@ -306,11 +326,34 @@ def add_layer_specific_quantization_to_model(module, config):
                     layer.i_bias = torch.tensor(bias_int_bits)
                     layer.f_bias = torch.tensor(bias_fractional_bits)
             layer.build(None)
-        elif layer.__class__ in [QuantizedPooling, QuantizedReLU, QuantizedTanh]:
+        elif layer.__class__ == QuantizedPooling:
             if name in config["quantization_parameters"]["layer_specific"]:
                 i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
                 f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
                 layer.set_activation_bits(i, f)
+        elif layer.__class__ == QuantizedActivationTorchWrapper:
+            if name in config["quantization_parameters"]["layer_specific"]:
+                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
+                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+                layer.activation.set_activation_bits(i, f)
+        elif layer.__class__ == QBatchNormalizationWrapper:
+            layer_specific = config["quantization_parameters"]["layer_specific"]
+            if name in layer_specific:
+                if "inputs" in layer_specific[name]:
+                    i_iq = layer_specific[name]["inputs"]["integer_bits"]
+                    f_iq = layer_specific[name]["inputs"]["fractional_bits"]
+                    layer.q_batch_norm.iq.quantizer._i0.value = float(i_iq)
+                    layer.q_batch_norm.iq.quantizer._f0.value = float(f_iq)
+                if "scale" in layer_specific[name]:
+                    i_bq = layer_specific[name]["scale"]["integer_bits"]
+                    f_bq = layer_specific[name]["scale"]["fractional_bits"]
+                    layer.q_batch_norm.bq.quantizer._i0.value = float(i_bq)
+                    layer.q_batch_norm.bq.quantizer._f0.value = float(f_bq)
+                if "bias" in layer_specific[name]:
+                    i_kq = layer_specific[name]["bias"]["integer_bits"]
+                    f_kq = layer_specific[name]["bias"]["fractional_bits"]
+                    layer.q_batch_norm.kq.quantizer._i0.value = float(i_kq)
+                    layer.q_batch_norm.kq.quantizer._f0.value = float(f_kq)
     return module
 
 
@@ -325,13 +368,39 @@ def add_quantized_activations_to_model_layer(module, config):
             # For ReLU, if using default values, add 1 bit since values are unsigned.
             # Otherwise user provides bits. TODO: Find better way to do this
             f = config["quantization_parameters"]["default_fractional_bits"] + 1
-            relu = QuantizedReLU(config, i=i, f=f)
+            relu = QuantizedActivationTorchWrapper(QuantizedReLU(config, i=i, f=f))
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
-            tanh = QuantizedTanh(config, i=0.0, f=f)
+            tanh = QuantizedActivationTorchWrapper(QuantizedTanh(config, i=0.0, f=f))
             setattr(module, name, tanh)
         elif layer.__class__ in [nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             new_layer = QuantizedPooling(config, layer)
+            setattr(module, name, new_layer)
+        elif layer.__class__ in [nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d]:
+            i = config["quantization_parameters"]["default_integer_bits"]
+            f = config["quantization_parameters"]["default_fractional_bits"]
+            overflow_mode = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+            iq = QuantizerConfig(
+                q_type='kif', place='datalane', k0=1.0, i0=i, f0=f, overflow_mode=overflow_mode, heterogeneous_axis=()
+            )
+            bq = QuantizerConfig(
+                q_type='kif', place='bias', k0=1.0, i0=i, f0=f, overflow_mode=overflow_mode, heterogeneous_axis=()
+            )
+            kq = QuantizerConfig(
+                q_type='kif', place='weight', k0=1.0, i0=i, f0=f, overflow_mode=overflow_mode, heterogeneous_axis=()
+            )
+            new_layer = QBatchNormalizationWrapper(
+                QBatchNormalization(
+                    axis=1,
+                    momentum=1.0 - layer.momentum,
+                    epsilon=layer.eps,
+                    center=layer.affine,
+                    scale=layer.affine,
+                    iq_conf=iq,
+                    bq_conf=bq,
+                    kq_conf=kq,
+                )
+            )
             setattr(module, name, new_layer)
         else:
             layer = add_quantized_activations_to_model_layer(layer, config)
@@ -463,6 +532,26 @@ def set_activation_quantization_parameters(layer, config):
     return quantization_parameters
 
 
+def set_batchnorm_quantization_parameters(layer, config):
+    quantization_parameters = {
+        "iq_i": layer.iq.quantizer.i.detach().cpu().numpy(),
+        "iq_f": layer.iq.quantizer.f.detach().cpu().numpy(),
+        "iq_k": layer.iq.quantizer.k.detach().cpu().numpy(),
+        "iq_overflow": layer.iq.quantizer.overflow_mode,
+        "bq_i": layer.bq.quantizer.i.detach().cpu().numpy(),
+        "bq_f": layer.bq.quantizer.f.detach().cpu().numpy(),
+        "bq_k": layer.bq.quantizer.k.detach().cpu().numpy(),
+        "bq_overflow": layer.bq.quantizer.overflow_mode,
+        "kq_i": layer.kq.quantizer.i.detach().cpu().numpy(),
+        "kq_f": layer.kq.quantizer.f.detach().cpu().numpy(),
+        "kq_k": layer.kq.quantizer.k.detach().cpu().numpy(),
+        "kq_overflow": layer.kq.quantizer.overflow_mode,
+    }
+    quantization_parameters["use_high_granularity_quantization"] = False
+    layer.quantization_parameters = quantization_parameters
+    return quantization_parameters
+
+
 def set_pooling_quantization_parameters(layer, config):
     if config["quantization_parameters"]["use_high_granularity_quantization"]:
         i = layer.hgq.quantizer.i.cpu().numpy()
@@ -549,8 +638,10 @@ def remove_pruning_from_model_torch(module, config):
             getattr(module, name).weight.data.copy_(weight)
             if getattr(module, name).bias is not None:
                 getattr(module, name).bias.data.copy_(bias_values.data)
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh)):
-            set_activation_quantization_parameters(layer, config)
+        elif isinstance(layer, QuantizedActivationTorchWrapper):
+            set_activation_quantization_parameters(layer.activation, config)
+        elif isinstance(layer, QBatchNormalizationWrapper):
+            set_batchnorm_quantization_parameters(layer.q_batch_norm, config)
         elif isinstance(layer, (QuantizedPooling)):
             set_pooling_quantization_parameters(layer, config)
         else:
@@ -607,7 +698,9 @@ def post_pretrain_functions(model, config):
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             layer.pruning_layer.post_pre_train_function()
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
+        elif isinstance(layer, QuantizedActivationTorchWrapper):
+            layer.activation.post_pre_train_function()
+        elif isinstance(layer, QuantizedPooling):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
@@ -679,7 +772,10 @@ def get_model_losses_torch(model, losses):
             if layer.use_high_granularity_quantization:
                 loss += layer.hgq_loss()
             losses += loss
-        elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
+        elif isinstance(layer, QuantizedActivationTorchWrapper):
+            if layer.activation.use_high_granularity_quantization:
+                losses += layer.activation.hgq_loss()
+        elif isinstance(layer, QuantizedPooling):
             if layer.use_high_granularity_quantization:
                 losses += layer.hgq_loss()
     return losses
@@ -699,6 +795,13 @@ def create_default_layer_quantization_pruning_config(model):
             config["disable_pruning_for_layers"].append(name)
         elif layer.__class__ in [nn.Tanh, nn.ReLU, nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             config["layer_specific"][name] = {"integer_bits": 0, "fractional_bits": 7}
+        elif layer.__class__ in [nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d]:
+            config["layer_specific"][name] = {
+                "inputs": {"integer_bits": 0, "fractional_bits": 7},
+                "scale": {"integer_bits": 0, "fractional_bits": 7},
+                "bias": {"integer_bits": 0, "fractional_bits": 7},
+            }
+
     return config
 
 

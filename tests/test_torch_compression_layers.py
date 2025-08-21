@@ -13,8 +13,10 @@ from pquant.core.torch_impl.compressed_layers_torch import (
     CompressedLayerConv1d,
     CompressedLayerConv2d,
     CompressedLayerLinear,
+    QuantizedActivationTorchWrapper,
     QuantizedPooling,
     add_compression_layers_torch,
+    add_default_layer_quantization_pruning_to_config_torch,
     get_layer_keep_ratio_torch,
     post_pretrain_functions,
     pre_finetune_functions,
@@ -335,8 +337,8 @@ def test_check_activation(config_pdp, dense_input):
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    assert isinstance(model.activation, QuantizedReLU)
-
+    assert isinstance(model.activation, QuantizedActivationTorchWrapper)
+    assert isinstance(model.activation.activation, QuantizedReLU)
     # Tanh
     config_pdp["quantization_parameters"]["enable_quantization"] = False
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
@@ -348,7 +350,8 @@ def test_check_activation(config_pdp, dense_input):
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    assert isinstance(model.activation, QuantizedTanh)
+    assert isinstance(model.activation, QuantizedActivationTorchWrapper)
+    assert isinstance(model.activation.activation, QuantizedTanh)
 
 
 def check_keras_layer_is_built(module, is_built):
@@ -480,16 +483,16 @@ def test_trigger_post_pretraining(config_pdp, dense_input):
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
 
     assert model.submodule.pruning_layer.is_pretraining is True
-    assert model.activation.is_pretraining is True
+    assert model.activation.activation.is_pretraining is True
     assert model.submodule2.pruning_layer.is_pretraining is True
-    assert model.activation2.is_pretraining is True
+    assert model.activation2.activation.is_pretraining is True
 
     post_pretrain_functions(model, config_pdp)
 
     assert model.submodule.pruning_layer.is_pretraining is False
-    assert model.activation.is_pretraining is False
+    assert model.activation.activation.is_pretraining is False
     assert model.submodule2.pruning_layer.is_pretraining is False
-    assert model.activation2.is_pretraining is False
+    assert model.activation2.activation.is_pretraining is False
 
 
 def test_hgq_weight_shape(config_pdp, dense_input):
@@ -503,7 +506,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     post_pretrain_functions(model, config_pdp)
 
     assert model.submodule.hgq_weight.quantizer._i.shape == model.submodule.weight.shape
-    assert model.activation.hgq.quantizer._i.shape == (1, OUT_FEATURES)
+    assert model.activation.activation.hgq.quantizer._i.shape == (1, OUT_FEATURES)
 
     config_pdp["quantization_parameters"]["hgq_heterogeneous"] = False
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
@@ -514,7 +517,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     post_pretrain_functions(model, config_pdp)
 
     assert model.submodule.hgq_weight.quantizer._i.shape == (1, 1)
-    assert model.activation.hgq.quantizer._i.shape == (1, 1)
+    assert model.activation.activation.hgq.quantizer._i.shape == (1, 1)
 
 
 def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
@@ -602,16 +605,16 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     model = TestModel2(layer, layer2, "relu", "tanh")
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
 
-    for m in model.modules():
+    for n, m in model.named_modules():
         if isinstance(m, (CompressedLayerBase)):
             assert m.i_weight == 0.0
             assert m.f_bias == 7.0
-        elif isinstance(m, (QuantizedTanh)):
-            assert m.i == 0.0
-            assert m.f == 7.0
-        elif isinstance(m, (QuantizedReLU)):
-            assert m.i == 0.0
-            assert m.f == 8.0
+        elif n == "activation2":
+            assert m.activation.i == 0.0
+            assert m.activation.f == 7.0
+        elif n == "activation":
+            assert m.activation.i == 0.0
+            assert m.activation.f == 8.0
 
     config_pdp["quantization_parameters"]["layer_specific"] = {
         'submodule': {
@@ -626,16 +629,122 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     model = TestModel2(layer, layer2, "relu", "tanh")
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
 
-    for m in model.modules():
+    for n, m in model.named_modules():
         if isinstance(m, (CompressedLayerBase)):
             assert m.i_weight == 1.0
             assert m.f_bias == 3.0
-        elif isinstance(m, (QuantizedTanh)):
-            assert m.i == 0.0
-            assert m.f == 3.0
-        elif isinstance(m, (QuantizedReLU)):
-            assert m.i == 0.0
-            assert m.f == 4.0
+        elif n == "activation2":
+            assert m.activation.i == 0.0
+            assert m.activation.f == 3.0
+        elif n == "activation":
+            assert m.activation.i == 0.0
+            assert m.activation.f == 4.0
         elif isinstance(m, QuantizedPooling):
             assert m.i == 1.0
             assert m.f == 3.0
+
+
+CONV_WIDTH_HEIGHT = 12
+CONV_IN_CHANNELS = 4
+CONV_OUT_CHANNELS = 8
+CONV1D_OUT_CHANNELS = 4
+CONV_KERNEL_SIZE = 3
+CONV1D_KERNEL_SIZE = 3
+LINEAR_INPUT_UNITS = 48
+BATCH_SIZE = 10
+
+
+INPUT_SIZE = (1, CONV_IN_CHANNELS, CONV_WIDTH_HEIGHT, CONV_WIDTH_HEIGHT)
+data_train = torch.rand(INPUT_SIZE)
+
+
+class TestModelWithVariousLayers(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.conv2d = nn.Conv2d(CONV_IN_CHANNELS, CONV_OUT_CHANNELS, kernel_size=3, stride=2, padding=1, bias=True)
+        self.bn = nn.BatchNorm2d(CONV_OUT_CHANNELS)
+        self.relu = nn.ReLU()
+        self.conv1d = nn.Conv1d(CONV_OUT_CHANNELS, CONV1D_OUT_CHANNELS, kernel_size=3, stride=1, padding=1, bias=True)
+        self.bn1d = nn.BatchNorm1d(CONV1D_OUT_CHANNELS)
+        self.tanh = nn.Tanh()
+        self.avg = nn.AvgPool1d(kernel_size=3, stride=3)
+        self.linear1 = nn.Linear(LINEAR_INPUT_UNITS, 10, bias=True)
+
+    def forward(self, x):
+        x = self.conv2d(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = x.view(8, 36)
+        x = self.conv1d(x)
+        x = self.bn1d(x)
+        x = self.tanh(x)
+        x = self.avg(x)
+        x = x.view(-1)
+        x = self.linear1(x)
+        return x
+
+
+class CustomFXTracer(torch.fx.Tracer):
+
+    def is_leaf_module(self, m, module_qualified_name: str) -> bool:
+        """
+        Custom Tracer class for hls4ml to define Brevitas modules and custom modules as leaf modules so they are not traced
+        through by torch.FX
+        """
+        import torch
+
+        return (m.__module__.startswith('pquant')) and not isinstance(m, torch.nn.Sequential)
+
+
+def test_trace_model_for_hls4ml(config_cs):
+    config_cs["quantization_parameters"]["enable_quantization"] = True
+    model = TestModelWithVariousLayers()
+    model = add_compression_layers_torch(model, config_cs, INPUT_SIZE)
+    model = remove_pruning_from_model_torch(model, config_cs)
+    tracer = CustomFXTracer()
+    tracer.trace(model)
+    assert True  # Test fails if trace throws error
+
+
+def test_set_qbatchnorm_bits(config_cs):
+    class ConvAndBN(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(CONV_IN_CHANNELS, CONV_OUT_CHANNELS, kernel_size=3, stride=2, padding=1, bias=True)
+            self.bn = nn.BatchNorm2d(CONV_OUT_CHANNELS)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.bn(self.conv(x)))
+
+    config_cs["quantization_parameters"]["enable_quantization"] = True
+    model = ConvAndBN()
+    config_new = add_default_layer_quantization_pruning_to_config_torch(model, config_cs)
+    config_new["quantization_parameters"]["layer_specific"]["bn"]["inputs"]["integer_bits"] = 1
+    config_new["quantization_parameters"]["layer_specific"]["bn"]["inputs"]["fractional_bits"] = 2
+
+    config_new["quantization_parameters"]["layer_specific"]["bn"]["scale"]["integer_bits"] = 3
+    config_new["quantization_parameters"]["layer_specific"]["bn"]["scale"]["fractional_bits"] = 4
+
+    config_new["quantization_parameters"]["layer_specific"]["bn"]["bias"]["integer_bits"] = 5
+    config_new["quantization_parameters"]["layer_specific"]["bn"]["bias"]["fractional_bits"] = 6
+    model = add_compression_layers_torch(model, config_new, INPUT_SIZE)
+
+    qbn = model.get_submodule("bn")
+    assert qbn.q_batch_norm.iq.quantizer._i == 1
+    assert qbn.q_batch_norm.iq.quantizer._f == 2
+    assert qbn.q_batch_norm.bq.quantizer._i == 3
+    assert qbn.q_batch_norm.bq.quantizer._f == 4
+    assert qbn.q_batch_norm.kq.quantizer._i == 5
+    assert qbn.q_batch_norm.kq.quantizer._f == 6
+
+    model = remove_pruning_from_model_torch(model, config_new)
+    qbn = model.get_submodule("bn")
+    q_params = qbn.q_batch_norm.quantization_parameters
+    assert q_params["iq_i"] == 1
+    assert q_params["iq_f"] == 2
+    assert q_params["bq_i"] == 3
+    assert q_params["bq_f"] == 4
+    assert q_params["kq_i"] == 5
+    assert q_params["kq_f"] == 6
