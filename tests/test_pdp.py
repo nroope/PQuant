@@ -9,6 +9,7 @@ from pquant.pruning_methods.pdp import PDP
 def config():
     return {
         "pruning_parameters": {
+            "pruning_method": "pdp",
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
             "epsilon": 1.0,

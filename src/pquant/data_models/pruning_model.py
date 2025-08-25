@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,8 +34,8 @@ class PDPPruningModel(BasePruningModel):
 
 class WandaPruningModel(BasePruningModel):
     pruning_method: Literal["wanda"] = "wanda"
-    M: int = Field(default=0)
-    N: int = Field(default=0)
+    M: Optional[int] = Field(default=None),
+    N: Optional[int] = Field(default=None),
     sparsity: float = Field(default=0.9)
     t_delta: int = Field(default=100)
     t_start_collecting_batch: int = Field(default=100)
