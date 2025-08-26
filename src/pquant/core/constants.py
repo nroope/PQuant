@@ -43,9 +43,6 @@ SAMPLER_REGISTRY = {
     "BruteForceSampler": optuna.samplers.BruteForceSampler,
 }
 
-TRACKING_URI = "http://0.0.0.0:5000/"
-DB_STORAGE = "sqlite:///optuna_study.db"
-
 LOG_FUNCTIONS_REGISTRY = {
     "torch": mlflow.pytorch.log_model,
     "tensorflow": mlflow.tensorflow.log_model,

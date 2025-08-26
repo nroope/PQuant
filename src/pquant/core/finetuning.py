@@ -123,7 +123,15 @@ class TuningTask:
         self._scheduler_function: Optional[Callable] = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.enable_mlflow = False
-
+        self.tracking_uri = None
+        self.storage_db = None
+    
+    def set_tracking_uri(self, tracking_uri: str):
+        self.tracking_uri = tracking_uri
+    
+    def set_storage_db(self, storage_db: str):
+        self.storage_db = storage_db
+    
     def set_enable_mlflow(self):
         self.enable_mlflow = True
 
@@ -175,15 +183,6 @@ class TuningTask:
             raise ValueError("Scheduler function is not set.")
         return self._scheduler_function
 
-    def update(self, **kwargs):
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            elif isinstance(value, tuple) and len(value) in {2, 3}:
-                self.param_ranges[key] = value
-            else:
-                raise ValueError(f"Invalid range format for {key}. Must be (min, max) or (min, max, step).")
-
     def set_hyperparameters(self):
         hp_config = self.config.finetuning_parameters.hyperparameter_search
         numerical_params = hp_config.numerical
@@ -191,7 +190,7 @@ class TuningTask:
 
         if numerical_params:
             self.set_numerical_params(numerical_params)
-        elif categorical_params:
+        if categorical_params:
             self.set_categorical_params(categorical_params)
 
     def set_numerical_params(self, numerical_params):
@@ -277,13 +276,12 @@ class TuningTask:
         ]
 
         if self.enable_mlflow:
-            mlflow.end_run()
-            with mlflow.start_run():
+            with mlflow.start_run(nested=True):
                 mlflow.log_params({param_name: getattr(self.config, param_name) for param_name in self.config.model_fields})
                 mlflow.log_metrics({key: val for key, val in zip(self.objectives.keys(), objectives)})
                 signature = infer_signature(sample_input.cpu().numpy(), sample_output.detach().cpu().numpy())
 
-                mlflow.log_dict(self.get_dict(), 'config.yaml')
+                mlflow.log_text(yaml.safe_dump(self.get_dict()), "config.yaml")
                 log_model_by_backend(
                     model=trained_model,
                     name=self.config.training_parameters.model,
@@ -295,24 +293,25 @@ class TuningTask:
 
     def run_optimization(self, model, **kwargs):
         if self.enable_mlflow:
-            mlflow.set_tracking_uri(constants.TRACKING_URI)
+            if not self.tracking_uri:
+                raise ValueError("Tracking URI must be set when MLflow logging is enabled.")
+            mlflow.set_tracking_uri(self.tracking_uri)
             finetuning_parameters = self.config.finetuning_parameters
             mlflow.set_experiment(finetuning_parameters.experiment_name)
-
+            
         sampler = get_sampler(finetuning_parameters.sampler)
         study = optuna.create_study(
             study_name=finetuning_parameters.experiment_name,
-            storage=constants.DB_STORAGE,
+            storage=self.storage_db,
             sampler=sampler,
             load_if_exists=True,
             directions=[metric_object.direction for _, metric_object in self.objectives.items()],
         )
 
-        model_copy = copy.deepcopy(model).to(self.device)
         num_trials = finetuning_parameters.num_trials
         study.optimize(
             lambda trial: self.objective(
-                trial, model_copy, self.get_training_function(), self.get_validation_function(), **kwargs
+                trial, copy.deepcopy(model.cpu()).to(self.device), self.get_training_function(), self.get_validation_function(), **kwargs
             ),
             n_trials=num_trials,
             n_jobs=1,
