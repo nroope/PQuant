@@ -29,9 +29,9 @@ from pquant.data_models.quantization_model import BaseQuantizationModel
 from pquant.data_models.training_model import BaseTrainingModel
 
 
-def get_sampler(sampler_type):
+def get_sampler(sampler_type, **kwargs):
     try:
-        return constants.SAMPLER_REGISTRY[sampler_type]()
+        return constants.SAMPLER_REGISTRY[sampler_type](**kwargs)
     except KeyError:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
@@ -299,7 +299,7 @@ class TuningTask:
             finetuning_parameters = self.config.finetuning_parameters
             mlflow.set_experiment(finetuning_parameters.experiment_name)
             
-        sampler = get_sampler(finetuning_parameters.sampler)
+        sampler = get_sampler(finetuning_parameters.sampler.type, **finetuning_parameters.sampler.params)
         study = optuna.create_study(
             study_name=finetuning_parameters.experiment_name,
             storage=self.storage_db,

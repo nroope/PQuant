@@ -38,10 +38,11 @@ training_parameters:
 finetuning_parameters:
     experiment_name: resnet_18_experiment_2
     num_trials: 10
-    sampler: TPESampler
+    sampler:
+      type: TPESampler
     hyperparameter_search:
       numerical:
-        learning_rate: [1e-5, 1e-3, 0.2]
+        lr: [1e-5, 1e-3, 0.2]
         batch_size: [16, 128, 32]
         default_integer_bits: [0, 8, 1]
       categorical:

@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 class BaseTrainingModel(BaseModel):
     model_config = ConfigDict(extra='allow')
     epochs: int = Field(default=200)
-    learning_rate: float = Field(default=0.0)
     fine_tuning_epochs: int = Field(default=0)
     pretraining_epochs: int = Field(default=50)
     pruning_first: bool = Field(default=False)
