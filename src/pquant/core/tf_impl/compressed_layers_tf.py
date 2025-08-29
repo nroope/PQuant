@@ -712,7 +712,7 @@ def pdp_setup(model, config):
 
     abs_global_weights = ops.abs(global_weights)
     global_weight_topk, _ = ops.top_k(abs_global_weights, ops.size(abs_global_weights))
-    threshold = global_weight_topk[int((1 - config["pruning_parameters"]["sparsity"]) * float(ops.size(global_weight_topk)))]
+    threshold = global_weight_topk[int((1 - config.pruning_parameters.sparsity) * float(ops.size(global_weight_topk)))]
     global_weights_below_threshold = ops.where(abs_global_weights < threshold, 1, 0)
     idx = 0
     for layer in model.layers:
