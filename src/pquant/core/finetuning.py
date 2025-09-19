@@ -4,6 +4,7 @@ import logging
 from typing import Annotated, Callable, Dict, Optional, Union
 
 import keras
+import os
 import mlflow
 import optuna
 import torch
@@ -128,6 +129,13 @@ class TuningTask:
     
     def set_tracking_uri(self, tracking_uri: str):
         self.tracking_uri = tracking_uri
+        os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
+    
+    def set_user(self, user_email: str, access_token: str):
+        os.environ.pop("MLFLOW_TRACKING_TOKEN", None)
+        os.environ["MLFLOW_TRACKING_USERNAME"] = user_email
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = access_token
+        os.environ["NO_PROXY"] = "ngt.cern.ch"
     
     def set_storage_db(self, storage_db: str):
         self.storage_db = storage_db
@@ -298,7 +306,7 @@ class TuningTask:
             mlflow.set_tracking_uri(self.tracking_uri)
             finetuning_parameters = self.config.finetuning_parameters
             mlflow.set_experiment(finetuning_parameters.experiment_name)
-            
+          
         sampler = get_sampler(finetuning_parameters.sampler.type, **finetuning_parameters.sampler.params)
         study = optuna.create_study(
             study_name=finetuning_parameters.experiment_name,
