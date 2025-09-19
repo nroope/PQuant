@@ -9,6 +9,7 @@ from pquant.pruning_methods.wanda import Wanda
 def config():
     return {
         "pruning_parameters": {
+            "pruning_method": "wanda",
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
             "sparsity": 0.75,

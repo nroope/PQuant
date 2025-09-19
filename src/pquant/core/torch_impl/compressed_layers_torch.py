@@ -12,25 +12,24 @@ from pquant.core.utils import get_pruning_layer
 class CompressedLayerBase(nn.Module):
     def __init__(self, config, layer, layer_type):
         super().__init__()
-        self.f_weight = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
-        self.i_weight = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
-        self.f_bias = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
-        self.i_bias = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
-
+        self.f_weight = torch.tensor(config.quantization_parameters.default_fractional_bits)
+        self.i_weight = torch.tensor(config.quantization_parameters.default_integer_bits)
+        self.f_bias = torch.tensor(config.quantization_parameters.default_fractional_bits)
+        self.i_bias = torch.tensor(config.quantization_parameters.default_integer_bits)
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
-        self.pruning_method = config["pruning_parameters"]["pruning_method"]
-        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.pruning_method = config.pruning_parameters.pruning_method
+        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
         self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.init_weight = self.weight.clone()
-        self.pruning_first = config["training_parameters"]["pruning_first"]
-        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
-        self.enable_pruning = config["pruning_parameters"]["enable_pruning"]
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+        self.pruning_first = config.training_parameters.pruning_first
+        self.enable_quantization = config.quantization_parameters.enable_quantization
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+        self.enable_pruning = config.pruning_parameters.enable_pruning
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
     def build(self, input_shape):
         if self.use_high_granularity_quantization:
@@ -222,15 +221,15 @@ class QuantizedPooling(nn.Module):
 
     def __init__(self, config, layer):
         super().__init__()
-        self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
-        self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
-        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
+        self.f = torch.tensor(config.quantization_parameters.default_fractional_bits)
+        self.i = torch.tensor(config.quantization_parameters.default_integer_bits)
+        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
         self.config = config
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.is_pretraining = True
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
         self.pooling = layer
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
     def build(self, input_shape):
         if self.use_high_granularity_quantization:
@@ -269,9 +268,9 @@ class QuantizedPooling(nn.Module):
     def hgq_loss(self):
         if self.is_pretraining:
             return 0.0
-        return (torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)) * self.config["quantization_parameters"][
-            "hgq_gamma"
-        ]
+        return (
+            torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)
+        ) * self.config.quantization_parameters.hgq_gamma
 
     def quantize(self, x):
         if not hasattr(self, "hgq") or not hasattr(self, "quantizer"):
@@ -290,41 +289,37 @@ class QuantizedPooling(nn.Module):
 def add_layer_specific_quantization_to_model(module, config):
     for name, layer in module.named_modules():
         if isinstance(layer, CompressedLayerBase):
-            if name in config["quantization_parameters"]["layer_specific"]:
-                if "weight" in config["quantization_parameters"]["layer_specific"][name]:
-                    weight_int_bits = config["quantization_parameters"]["layer_specific"][name]["weight"]["integer_bits"]
-                    weight_fractional_bits = config["quantization_parameters"]["layer_specific"][name]["weight"][
-                        "fractional_bits"
-                    ]
+            if name in config.quantization_parameters.layer_specific:
+                if "weight" in config.quantization_parameters.layer_specific[name]:
+                    weight_int_bits = config.quantization_parameters.layer_specific[name]["weight"]["integer_bits"]
+                    weight_fractional_bits = config.quantization_parameters.layer_specific[name]["weight"]["fractional_bits"]
                     layer.i_weight = torch.tensor(weight_int_bits)
                     layer.f_weight = torch.tensor(weight_fractional_bits)
-                if "bias" in config["quantization_parameters"]["layer_specific"][name]:
-                    bias_int_bits = config["quantization_parameters"]["layer_specific"][name]["bias"]["integer_bits"]
-                    bias_fractional_bits = config["quantization_parameters"]["layer_specific"][name]["bias"][
-                        "fractional_bits"
-                    ]
+                if "bias" in config.quantization_parameters.layer_specific[name]:
+                    bias_int_bits = config.quantization_parameters.layer_specific[name]["bias"]["integer_bits"]
+                    bias_fractional_bits = config.quantization_parameters.layer_specific[name]["bias"]["fractional_bits"]
                     layer.i_bias = torch.tensor(bias_int_bits)
                     layer.f_bias = torch.tensor(bias_fractional_bits)
             layer.build(None)
         elif layer.__class__ in [QuantizedPooling, QuantizedReLU, QuantizedTanh]:
-            if name in config["quantization_parameters"]["layer_specific"]:
-                i = config["quantization_parameters"]["layer_specific"][name]["integer_bits"]
-                f = config["quantization_parameters"]["layer_specific"][name]["fractional_bits"]
+            if name in config.quantization_parameters.layer_specific:
+                i = config.quantization_parameters.layer_specific[name]["integer_bits"]
+                f = config.quantization_parameters.layer_specific[name]["fractional_bits"]
                 layer.set_activation_bits(i, f)
     return module
 
 
 def add_quantized_activations_to_model_layer(module, config):
-    if not config["quantization_parameters"]["enable_quantization"]:
+    if not config.quantization_parameters.enable_quantization:
         return module
     # Replaces ReLU and Tanh layers with quantized versions
     for name, layer in module.named_children():
-        i = config["quantization_parameters"]["default_integer_bits"]
-        f = config["quantization_parameters"]["default_fractional_bits"]
+        i = config.quantization_parameters.default_integer_bits
+        f = config.quantization_parameters.default_fractional_bits
         if layer.__class__ in [nn.ReLU]:
             # For ReLU, if using default values, add 1 bit since values are unsigned.
             # Otherwise user provides bits. TODO: Find better way to do this
-            f = config["quantization_parameters"]["default_fractional_bits"] + 1
+            f = config.quantization_parameters.default_fractional_bits + 1
             relu = QuantizedReLU(config, i=i, f=f)
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
@@ -340,28 +335,28 @@ def add_quantized_activations_to_model_layer(module, config):
 
 def add_quantized_activations_to_model_functional(module, config):
     # Currently not in use. TODO: Fix this
-    if config["quantization_parameters"]["use_high_granularity_quantization"]:
+    if config.quantization_parameters.use_high_granularity_quantization:
         return module
     # Replaces functional activation calls with quantized versions
     traced_model = symbolic_trace(module)
     for node in traced_model.graph.nodes:
         if node.op in ["call_method", "call_function"] and (node.target == "tanh" or "function relu" in str(node.target)):
             with traced_model.graph.inserting_after(node):
-                if node.name in config["quantization_parameters"]["layer_specific"]:
-                    bits = config["quantization_parameters"]["layer_specific"][node.name]["bits"]
+                if node.name in config.quantization_parameters.layer_specific:
+                    bits = config.quantization_parameters.layer_specific[node.name]["bits"]
                 else:
                     bits = (
-                        config["quantization_parameters"]["default_integer_bits"]
-                        + config["quantization_parameters"]["default_fractional_bits"]
+                        config.quantization_parameters.default_integer_bits
+                        + config.quantization_parameters.default_fractional_bits
                         + 1
                     )  # 1 sign bit
                 kwargs = {"bits": bits}
                 if node.target == "tanh":
-                    kwargs["use_real_tanh"] = config["quantization_parameters"]["use_real_tanh"]
-                    kwargs["use_symmetric"] = config["quantization_parameters"]["use_symmetric_quantization"]
+                    kwargs["use_real_tanh"] = config.quantization_parameters.use_real_tanh
+                    kwargs["use_symmetric"] = config.quantization_parameters.use_symmetric_quantization
                     # new_node = traced_model.graph.call_function(quantized_tanh, node.args, kwargs)
                 else:
-                    kwargs = {"integer_bits": config["quantization_parameters"]["default_integer_bits"], "bits": bits}
+                    kwargs = {"integer_bits": config.quantization_parameters.default_integer_bits, "bits": bits}
                     # new_node = traced_model.graph.call_function(quantized_relu, node.args, kwargs)
                 # node.replace_all_uses_with(new_node)
             traced_model.graph.erase_node(node)
@@ -373,7 +368,7 @@ def add_quantized_activations_to_model_functional(module, config):
 
 def disable_pruning_from_layers(module, config):
     for name, layer in module.named_modules():
-        enable_pruning = name not in config["pruning_parameters"]["disable_pruning_for_layers"]
+        enable_pruning = name not in config.pruning_parameters.disable_pruning_for_layers
         if layer.__class__ in [CompressedLayerLinear, CompressedLayerConv2d, CompressedLayerConv1d] and not enable_pruning:
             layer.enable_pruning = enable_pruning
     return module
@@ -401,8 +396,8 @@ def add_pruning_to_model(module, config):
 def remove_pruning_from_model_torch(module, config):
     for name, layer in module.named_children():
         if isinstance(layer, CompressedLayerLinear):
-            if config["pruning_parameters"]["pruning_method"] == "pdp":  # Find better solution later
-                if config["training_parameters"]["pruning_first"]:
+            if config.pruning_parameters.pruning_method == "pdp":  # Find better solution later
+                if config.training_parameters.pruning_first:
                     weight = layer.weight
                     if layer.enable_pruning:
                         weight = layer.pruning_layer.get_hard_mask(weight) * weight
@@ -422,8 +417,8 @@ def remove_pruning_from_model_torch(module, config):
             if getattr(module, name).bias is not None:
                 getattr(module, name).bias.data.copy_(bias_values.data)
         elif isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d)):
-            if config["pruning_parameters"]["pruning_method"] == "pdp":  # Find better solution later
-                if config["training_parameters"]["pruning_first"]:
+            if config.pruning_parameters.pruning_method == "pdp":  # Find better solution later
+                if config.training_parameters.pruning_first:
                     weight = layer.weight
                     if layer.enable_pruning:
                         weight = layer.pruning_layer.get_hard_mask(weight) * weight
@@ -511,9 +506,8 @@ def post_pretrain_functions(model, config):
             layer.pruning_layer.post_pre_train_function()
         elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
-    if config["pruning_parameters"]["pruning_method"] == "pdp" or (
-        config["pruning_parameters"]["pruning_method"] == "wanda"
-        and config["pruning_parameters"]["calculate_pruning_budget"]
+    if config.pruning_parameters.pruning_method == "pdp" or (
+        config.pruning_parameters.pruning_method == "wanda" and config.pruning_parameters.calculate_pruning_budget
     ):
         pdp_setup(model, config)
 
@@ -533,7 +527,7 @@ def pdp_setup(model, config):
 
     abs_global_weights = torch.abs(global_weights)
     global_weight_topk, _ = torch.topk(abs_global_weights, abs_global_weights.numel())
-    threshold = global_weight_topk[int((1 - config["pruning_parameters"]["sparsity"]) * global_weight_topk.numel())]
+    threshold = global_weight_topk[int((1 - config.pruning_parameters.sparsity) * global_weight_topk.numel())]
     global_weights_below_threshold = torch.where(abs_global_weights < threshold, 1, 0)
     idx = 0
     for layer in model.modules():
@@ -606,6 +600,6 @@ def create_default_layer_quantization_pruning_config(model):
 
 def add_default_layer_quantization_pruning_to_config_torch(model, config):
     custom_scheme = create_default_layer_quantization_pruning_config(model)
-    config["quantization_parameters"]["layer_specific"] = custom_scheme["layer_specific"]
-    config["pruning_parameters"]["disable_pruning_for_layers"] = custom_scheme["disable_pruning_for_layers"]
+    config.quantization_parameters.layer_specific = custom_scheme["layer_specific"]
+    config.pruning_parameters.disable_pruning_for_layers = custom_scheme["disable_pruning_for_layers"]
     return config

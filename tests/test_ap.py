@@ -9,6 +9,7 @@ from pquant.pruning_methods.activation_pruning import ActivationPruning
 def config():
     return {
         "pruning_parameters": {
+            "pruning_method": "activation_pruning",
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
             "threshold": 0.3,

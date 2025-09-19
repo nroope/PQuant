@@ -23,22 +23,22 @@ from pquant.core.utils import get_pruning_layer
 class CompressedLayerBase(keras.layers.Layer):
     def __init__(self, config, layer, layer_type):
         super().__init__()
-        i_bits = config["quantization_parameters"]["default_integer_bits"]
-        f_bits = config["quantization_parameters"]["default_fractional_bits"]
+        i_bits = config.quantization_parameters.default_integer_bits
+        f_bits = config.quantization_parameters.default_fractional_bits
         self.i_weight = ops.convert_to_tensor(i_bits)
         self.f_weight = ops.convert_to_tensor(f_bits)
         self.i_bias = ops.convert_to_tensor(i_bits)
         self.f_bias = ops.convert_to_tensor(f_bits)
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
-        self.pruning_method = config["pruning_parameters"]["pruning_method"]
-        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+        self.pruning_method = config.pruning_parameters.pruning_method
+        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
-        self.pruning_first = config["training_parameters"]["pruning_first"]
-        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        self.enable_pruning = config["pruning_parameters"]["enable_pruning"]
+        self.pruning_first = config.training_parameters.pruning_first
+        self.enable_quantization = config.quantization_parameters.enable_quantization
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
+        self.enable_pruning = config.pruning_parameters.enable_pruning
         self.do_transpose_data = None
         self.weight_transpose = None
         self.data_transpose = None
@@ -366,16 +366,16 @@ class CompressedLayerDenseKeras(CompressedLayerBase):
 class QuantizedPooling(keras.layers.Layer):
     def __init__(self, config, layer):
         super().__init__()
-        self.i = ops.convert_to_tensor(config["quantization_parameters"]["default_integer_bits"])
-        self.f = ops.convert_to_tensor(config["quantization_parameters"]["default_fractional_bits"])
+        self.i = ops.convert_to_tensor(config.quantization_parameters.default_integer_bits)
+        self.f = ops.convert_to_tensor(config.quantization_parameters.default_fractional_bits)
 
         self.is_pretraining = True
 
-        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.pool_size = layer.pool_size
         self.strides = layer.strides
         self.padding = layer.padding
@@ -676,9 +676,8 @@ def post_pretrain_functions(model, config):
             layer.pointwise_conv.pruning_layer.post_pre_train_function()
         elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
-    if config["pruning_parameters"]["pruning_method"] == "pdp" or (
-        config["pruning_parameters"]["pruning_method"] == "wanda"
-        and config["pruning_parameters"]["calculate_pruning_budget"]
+    if config.pruning_parameters.pruning_method == "pdp" or (
+        config.pruning_parameters.pruning_method == "wanda" and config.pruning_parameters.calculate_pruning_budget
     ):
         pdp_setup(model, config)
 
@@ -713,7 +712,7 @@ def pdp_setup(model, config):
 
     abs_global_weights = ops.abs(global_weights)
     global_weight_topk, _ = ops.top_k(abs_global_weights, ops.size(abs_global_weights))
-    threshold = global_weight_topk[int((1 - config["pruning_parameters"]["sparsity"]) * float(ops.size(global_weight_topk)))]
+    threshold = global_weight_topk[int((1 - config.pruning_parameters.sparsity) * float(ops.size(global_weight_topk)))]
     global_weights_below_threshold = ops.where(abs_global_weights < threshold, 1, 0)
     idx = 0
     for layer in model.layers:
@@ -856,7 +855,7 @@ def check_activation(layer, config):
     Replaces activations with quantized activations.
     The activation can be a part of another layer such as Conv2D, or an Activation layer
     """
-    quantization_enabled = config["quantization_parameters"]["enable_quantization"]
+    quantization_enabled = config.quantization_parameters.enable_quantization
     act = None
     if hasattr(layer.activation, "__name__"):
         if layer.activation.__name__ == "relu":
@@ -954,9 +953,9 @@ def add_compression_layers_tf(model, config, input_shape=None):
             act = check_activation(layer, config)
         # Activation layers
         elif isinstance(layer, ReLU):
-            if config["quantization_parameters"]["enable_quantization"]:
-                i_bits = config["quantization_parameters"]["default_integer_bits"]
-                f_bits = config["quantization_parameters"]["default_fractional_bits"]
+            if config.quantization_parameters.enable_quantization:
+                i_bits = config.quantization_parameters.default_integer_bits
+                f_bits = config.quantization_parameters.default_fractional_bits
                 i_bits, f_bits = get_quantization_bits_activations(config, layer)
                 new_layer = QuantizedReLU(config, i_bits, f_bits)
                 new_layer.build(layer.input.shape)
@@ -968,7 +967,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
             if new_layer is not None:
                 x = new_layer(x)
         elif isinstance(layer, (AveragePooling1D, AveragePooling2D, AveragePooling3D)):
-            if config["quantization_parameters"]["enable_quantization"]:
+            if config.quantization_parameters.enable_quantization:
                 i_bits, f_bits = get_quantization_bits_activations(config, layer)
                 new_layer = QuantizedPooling(config, layer)
                 new_layer.set_quantization_bits(i_bits, f_bits)
@@ -985,11 +984,11 @@ def add_compression_layers_tf(model, config, input_shape=None):
 
 
 def get_quantization_bits_activations(config, layer):
-    i_bits = config["quantization_parameters"]["default_integer_bits"]
-    f_bits = config["quantization_parameters"]["default_fractional_bits"]
+    i_bits = config.quantization_parameters.default_integer_bits
+    f_bits = config.quantization_parameters.default_fractional_bits
     if isinstance(layer, ReLU):
         f_bits += 1  # Unsigned, add 1 bit to default value only
-    layer_specific = config["quantization_parameters"]["layer_specific"]
+    layer_specific = config.quantization_parameters.layer_specific
     if layer.name in layer_specific:
         if hasattr(layer, "activation") and layer.activation.__name__ in layer_specific[layer.name]:
             i_bits = layer_specific[layer.name][layer.activation.__name__]["integer_bits"]
@@ -1001,10 +1000,10 @@ def get_quantization_bits_activations(config, layer):
 
 
 def get_quantization_bits_weights_biases(config, layer):
-    layer_specific = config["quantization_parameters"]["layer_specific"]
+    layer_specific = config.quantization_parameters.layer_specific
     if isinstance(layer, SeparableConv2D):
-        dw_i_bits_w = pw_i_bits_w = pw_i_bits_b = config["quantization_parameters"]["default_integer_bits"]
-        dw_f_bits_w = pw_f_bits_w = pw_f_bits_b = config["quantization_parameters"]["default_fractional_bits"]
+        dw_i_bits_w = pw_i_bits_w = pw_i_bits_b = config.quantization_parameters.default_integer_bits
+        dw_f_bits_w = pw_f_bits_w = pw_f_bits_b = config.quantization_parameters.default_fractional_bits
         if layer.name in layer_specific:
             if "depthwise" in layer_specific[layer.name]:
                 if "weight" in layer_specific[layer.name]["depthwise"]:
@@ -1019,8 +1018,8 @@ def get_quantization_bits_weights_biases(config, layer):
                     pw_f_bits_b = layer_specific[layer.name]["pointwise"]["bias"]["fractional_bits"]
         return dw_i_bits_w, dw_f_bits_w, pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b
     else:
-        i_bits_w = i_bits_b = config["quantization_parameters"]["default_integer_bits"]
-        f_bits_w = f_bits_b = config["quantization_parameters"]["default_fractional_bits"]
+        i_bits_w = i_bits_b = config.quantization_parameters.default_integer_bits
+        f_bits_w = f_bits_b = config.quantization_parameters.default_fractional_bits
         if layer.name in layer_specific:
             if "weight" in layer_specific[layer.name]:
                 i_bits_w = layer_specific[layer.name]["weight"]["integer_bits"]
@@ -1032,16 +1031,16 @@ def get_quantization_bits_weights_biases(config, layer):
 
 
 def get_enable_pruning(layer, config):
-    enable_pruning = config["pruning_parameters"]["enable_pruning"]
+    enable_pruning = config.pruning_parameters.enable_pruning
     if isinstance(layer, SeparableConv2D):
         enable_pruning_depthwise = enable_pruning_pointwise = True
-        if layer.name + "_depthwise" in config["pruning_parameters"]["disable_pruning_for_layers"]:
+        if layer.name + "_depthwise" in config.pruning_parameters.disable_pruning_for_layers:
             enable_pruning_depthwise = False
-        if layer.name + "pointwise" in config["pruning_parameters"]["disable_pruning_for_layers"]:
+        if layer.name + "pointwise" in config.pruning_parameters.disable_pruning_for_layers:
             enable_pruning_pointwise = False
         return enable_pruning_depthwise, enable_pruning_pointwise
     else:
-        if layer.name in config["pruning_parameters"]["disable_pruning_for_layers"]:
+        if layer.name in config.pruning_parameters.disable_pruning_for_layers:
             enable_pruning = False
         return enable_pruning
 
@@ -1088,6 +1087,6 @@ def add_default_layer_quantization_pruning_to_config_tf(model, config):
             custom_scheme["disable_pruning_for_layers"].append(layer.name + "_pointwise")
         elif layer.__class__ in [Activation, ReLU, AveragePooling1D, AveragePooling2D, AveragePooling3D]:
             custom_scheme["layer_specific"][layer.name] = {"integer_bits": 0.0, "fractional_bits": 7.0}
-    config["quantization_parameters"]["layer_specific"] = custom_scheme["layer_specific"]
-    config["pruning_parameters"]["disable_pruning_for_layers"] = custom_scheme["disable_pruning_for_layers"]
+    config.quantization_parameters.layer_specific = custom_scheme["layer_specific"]
+    config.pruning_parameters.disable_pruning_for_layers = custom_scheme["disable_pruning_for_layers"]
     return config

@@ -3,18 +3,24 @@ from keras import ops
 from keras.initializers import Constant
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class ContinuousSparsification(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         self.config = config
         self.beta = 1.0
-        self.final_temp = config["pruning_parameters"]["final_temp"]
+        self.final_temp = config.pruning_parameters.final_temp
         self.do_hard_mask = False
+        self.layer_type = layer_type
         self.mask = None
         self.is_pretraining = True
 
     def build(self, input_shape):
-        self.s_init = ops.convert_to_tensor(self.config["pruning_parameters"]["threshold_init"] * ops.ones(input_shape))
+        self.s_init = ops.convert_to_tensor(self.config.pruning_parameters.threshold_init * ops.ones(input_shape))
         self.s = self.add_weight(name="threshold", shape=input_shape, initializer=Constant(self.s_init), trainable=True)
         self.scaling = 1.0 / ops.sigmoid(self.s_init)
         super().build(input_shape)
@@ -45,7 +51,7 @@ class ContinuousSparsification(keras.layers.Layer):
         self.beta *= self.final_temp ** (1 / (total_epochs - 1))
 
     def get_hard_mask(self, weight=None):
-        if self.config["pruning_parameters"]["enable_pruning"]:
+        if self.config.pruning_parameters.enable_pruning:
             return ops.cast((self.s > 0), self.s.dtype)
         return ops.convert_to_tensor(1.0)
 
@@ -56,8 +62,19 @@ class ContinuousSparsification(keras.layers.Layer):
 
     def calculate_additional_loss(self):
         return ops.convert_to_tensor(
-            self.config["pruning_parameters"]["threshold_decay"] * ops.norm(ops.ravel(self.get_mask()), ord=1)
+            self.config.pruning_parameters.threshold_decay * ops.norm(ops.ravel(self.get_mask()), ord=1)
         )
 
     def get_layer_sparsity(self, weight):
         return ops.sum(self.get_hard_mask()) / ops.size(weight)
+
+    def get_config(self):
+        config = super().get_config()
+
+        config.update(
+            {
+                "config": self.config.get_dict(),
+                "layer_type": self.layer_type,
+            }
+        )
+        return config

@@ -21,11 +21,11 @@ def cosine_sigmoid_decay(i, T):
 
 
 def get_threshold_size(config, weight_shape):
-    if config["pruning_parameters"]["threshold_type"] == "layerwise":
+    if config.pruning_parameters.threshold_type == "layerwise":
         return (1, 1)
-    elif config["pruning_parameters"]["threshold_type"] == "channelwise":
+    elif config.pruning_parameters.threshold_type == "channelwise":
         return (weight_shape[0], 1)
-    elif config["pruning_parameters"]["threshold_type"] == "weightwise":
+    elif config.pruning_parameters.threshold_type == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
 
 
@@ -52,13 +52,19 @@ def autosparse_prune(x, alpha):
     return mask, grad
 
 
+@keras.saving.register_keras_serializable(package="Layers")
 class AutoSparse(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         self.g = ops.sigmoid
         self.config = config
+        self.layer_type = layer_type
         global BACKWARD_SPARSITY
-        BACKWARD_SPARSITY = config["pruning_parameters"]["backward_sparsity"]
+        BACKWARD_SPARSITY = config.pruning_parameters.backward_sparsity
         self.is_pretraining = True
 
     def build(self, input_shape):
@@ -66,10 +72,10 @@ class AutoSparse(keras.layers.Layer):
         self.threshold = self.add_weight(
             name="threshold",
             shape=self.threshold_size,
-            initializer=Constant(self.config["pruning_parameters"]["threshold_init"]),
+            initializer=Constant(self.config.pruning_parameters.threshold_init),
             trainable=True,
         )
-        self.alpha = ops.convert_to_tensor(self.config["pruning_parameters"]["alpha"], dtype="float32")
+        self.alpha = ops.convert_to_tensor(self.config.pruning_parameters.alpha, dtype="float32")
         super().build(input_shape)
 
     def call(self, weight):
@@ -111,5 +117,16 @@ class AutoSparse(keras.layers.Layer):
 
     def post_epoch_function(self, epoch, total_epochs):
         self.alpha *= cosine_sigmoid_decay(epoch, total_epochs)
-        if epoch == self.config["pruning_parameters"]["alpha_reset_epoch"]:
+        if epoch == self.config.pruning_parameters.alpha_reset_epoch:
             self.alpha *= 0.0
+
+    def get_config(self):
+        config = super().get_config()
+
+        config.update(
+            {
+                "config": self.config.get_dict(),
+                "layer_type": self.layer_type,
+            }
+        )
+        return config
