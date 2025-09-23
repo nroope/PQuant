@@ -8,6 +8,12 @@ from torch.fx import symbolic_trace
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.utils import get_pruning_layer
 
+import typing 
+if typing.TYPE_CHECKING:
+    from pquant.core.torch_impl.fit_compress import call_fitcompress 
+
+
+from keras import ops
 
 class CompressedLayerBase(nn.Module):
     def __init__(self, config, layer, layer_type):
@@ -99,7 +105,7 @@ class CompressedLayerBase(nn.Module):
                 weight = self.hgq_weight(weight)
                 bias = None if bias is None else self.hgq_bias(bias)
             else:
-                weight = self.quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=True)
+                weight = self.quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=False)
                 bias = (
                     None
                     if bias is None
@@ -136,9 +142,19 @@ class CompressedLayerLinear(CompressedLayerBase):
         super().__init__(config, layer, layer_type)
         self.in_features = layer.in_features
         self.out_features = layer.out_features
+        self.use_fitcompress = config["fitcompress_parameters"]["enable_fitcompress"]
+        self.is_pretraining = True 
+
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
 
     def forward(self, x):
-        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        if self.use_fitcompress and self.is_pretraining:
+            weight, bias = self.weight, self.bias
+        else:
+            weight, bias = self.prune_and_quantize(self.weight, self.bias)
+
         if self.pruning_method == "wanda":
             self.pruning_layer.collect_input(x, self.weight, self.training)
         x = F.linear(x, weight, bias)
@@ -158,9 +174,18 @@ class CompressedLayerConv2d(CompressedLayerBase):
         self.out_channels = layer.out_channels
         self.kernel_size = layer.kernel_size
         self.padding_mode = layer.padding_mode
+        self.use_fitcompress = config["fitcompress_parameters"]["enable_fitcompress"]
+        self.is_pretraining = True 
+
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
 
     def forward(self, x):
-        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        if self.use_fitcompress and self.is_pretraining:
+            weight, bias = self.weight, self.bias
+        else:
+            weight, bias = self.prune_and_quantize(self.weight, self.bias)
         if self.pruning_method == "wanda":
             self.pruning_layer.collect_input(x, weight, self.training)
         x = F.conv2d(
@@ -189,9 +214,18 @@ class CompressedLayerConv1d(CompressedLayerBase):
         self.out_channels = layer.out_channels
         self.kernel_size = layer.kernel_size
         self.padding_mode = layer.padding_mode
+        self.use_fitcompress = config["fitcompress_parameters"]["enable_fitcompress"]
+        self.is_pretraining = True 
+
+
+    def post_pre_train_function(self):
+        self.is_pretraining = False
 
     def forward(self, x):
-        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+        if self.use_fitcompress and self.is_pretraining:
+            weight, bias = self.weight, self.bias
+        else:
+            weight, bias = self.prune_and_quantize(self.weight, self.bias)
         if self.pruning_method == "wanda":
             self.pruning_layer.collect_input(x, self.weight, self.training)
         x = F.conv1d(
@@ -230,7 +264,10 @@ class QuantizedPooling(nn.Module):
         self.is_pretraining = True
         self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
         self.pooling = layer
+        self.use_fitcompress = config["fitcompress_parameters"]["enable_fitcompress"]
+        self.post_fitcompress_calibration = False
         self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
+        self.saved_inputs = []
 
     def build(self, input_shape):
         if self.use_high_granularity_quantization:
@@ -279,6 +316,12 @@ class QuantizedPooling(nn.Module):
         if self.use_high_granularity_quantization:
             x = self.hgq(x)
         else:
+            if self.use_fitcompress and self.is_pretraining:
+                if self.post_fitcompress_calibration:
+                    # Save inputs
+                    self.saved_inputs.append(x)
+                # During FITcompress, we do not use any quantized pooling
+                return ops.average_pool(x, pool_size = 1)
             x = self.quantizer(x, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
         return x
 
@@ -505,16 +548,28 @@ def pre_finetune_functions(model):
             layer.pruning_layer.pre_finetune_function()
 
 
-def post_pretrain_functions(model, config):
+def post_pretrain_functions(model, config, train_loader = None, loss_func=None):
+
+    if config["fitcompress_parameters"]["enable_fitcompress"]:
+        from pquant.core.torch_impl.fit_compress import call_fitcompress
+        config, pruning_mask_importance_scores = call_fitcompress(config, model, train_loader, loss_func)
+
+    #idx = 0
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             layer.pruning_layer.post_pre_train_function()
+            layer.post_pre_train_function()
+            
+            #layer.pruning_layer.mask = pruning_mask_importance_scores[idx]
+            #idx += 1
+
         elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
             layer.post_pre_train_function()
     if config["pruning_parameters"]["pruning_method"] == "pdp" or (
         config["pruning_parameters"]["pruning_method"] == "wanda"
         and config["pruning_parameters"]["calculate_pruning_budget"]
     ):
+       # pass
         pdp_setup(model, config)
 
 
@@ -541,9 +596,9 @@ def pdp_setup(model, config):
             weight_size = layer.weight.numel()
             w = torch.sum(global_weights_below_threshold[idx : idx + weight_size])
             layer.pruning_layer.init_r = w / weight_size
+            print(f"PDP Layer {layer} target: {layer.pruning_layer.init_r}")
             layer.pruning_layer.sparsity = w / weight_size  # Wanda
             idx += weight_size
-
 
 @torch.no_grad
 def get_layer_keep_ratio_torch(model):

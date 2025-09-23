@@ -64,7 +64,10 @@ class ActivationPruning(keras.layers.Layer):
             self.done = True
 
     def call(self, weight):  # Mask is only updated every t_delta step, using collect_output
-        return self.mask * weight
+        if self.is_pretraining and self.config["fitcompress_parameters"]["enable_fitcompress"]:
+            return weight
+        else:
+            return self.mask * weight
 
     def get_hard_mask(self, weight):
         return self.mask

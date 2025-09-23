@@ -82,6 +82,9 @@ class QuantizedReLU(keras.layers.Layer):
         self.overflow = "SAT"
         self.use_multiplier = config["quantization_parameters"]["use_relu_multiplier"]
         self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.use_fitcompress = config["fitcompress_parameters"]["enable_fitcompress"]
+        self.post_fitcompress_calibration = False
+        self.saved_inputs = []
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -130,9 +133,16 @@ class QuantizedReLU(keras.layers.Layer):
         if self.use_high_granularity_quantization:
             return self.hgq(x)
         else:
+            if self.use_fitcompress and self.is_pretraining:
+                if self.post_fitcompress_calibration:
+                    # Save quantized input into ReLU
+                    self.saved_inputs.append(x)
+                # During FITcompress, we do not use any quantized activations
+                return ops.relu(x)
+            # Multiplier after fitcompress if condition, such that we don't use any relu multiplier during FITcompress search
             if self.use_multiplier:
                 x = x * 2 ** (ops.stop_gradient(ops.round(self.multiplier) - self.multiplier) + self.multiplier)
-            x = self.quantizer(x, k=convert_to_tensor(0.0), i=self.i, f=self.f, training=True)
+            x = self.quantizer(x, k=convert_to_tensor(0.0), i=convert_to_tensor(self.i), f=convert_to_tensor(self.f), training=True)
             return x
 
 
