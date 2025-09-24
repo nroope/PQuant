@@ -8,33 +8,37 @@ from pquant.pruning_methods.cs import ContinuousSparsification
 from pquant.pruning_methods.dst import DST
 from pquant.pruning_methods.pdp import PDP
 from pquant.pruning_methods.wanda import Wanda
+from pquant.pruning_methods.mdmm import MDMM
 
 
-def get_pruning_layer(config, layer, out_size):
+def get_pruning_layer(config, layer_type):
     pruning_method = config["pruning_parameters"]["pruning_method"]
     if pruning_method == "dst":
-        return DST(config, layer, out_size)
+        return DST(config, layer_type)
     elif pruning_method == "autosparse":
-        return AutoSparse(config, layer, out_size)
+        return AutoSparse(config, layer_type)
     elif pruning_method == "cs":
-        return ContinuousSparsification(config, layer, out_size)
+        return ContinuousSparsification(config, layer_type)
     elif pruning_method == "pdp":
-        return PDP(config, layer, out_size)
-    elif pruning_method == "continual_learning":
-        return ActivationPruning(config, layer, out_size)
+        return PDP(config, layer_type)
+    elif pruning_method == "activation_pruning":
+        return ActivationPruning(config, layer_type)
     elif pruning_method == "wanda":
-        return Wanda(config, layer, out_size)
+        return Wanda(config, layer_type)
+    elif pruning_method == "mdmm":
+        return MDMM(config, layer_type)
 
 
 def get_default_config(pruning_method: str):
     assert pruning_method in [
         "autosparse",
-        "cl",
+        "ap",
         "cs",
         "dst",
         "pdp",
         "wanda",
-    ], "Unkown pruning method. Acceptable pruning methods: autosparse, cl, cs, dst, pdp, wanda"
+        "mdmm",
+    ], "Unkown pruning method. Acceptable pruning methods: autosparse, ap, cs, dst, pdp, wanda"
     yaml_name = f"config_{pruning_method}.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
@@ -95,7 +99,7 @@ def validate_pruning_parameters(config):
             "threshold_decay",
             "structured_pruning",
         ]
-    elif pruning_method == "continual_learning":
+    elif pruning_method == "activation_pruning":
         valid_keys = [
             "disable_pruning_for_layers",
             "enable_pruning",

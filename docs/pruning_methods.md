@@ -2,13 +2,14 @@
 
 Our implementations follow the actual implementations of the author's of the papers, whenever we were able to find one. Because of this some of the functionality of the pruning methods can differ slightly from the equations shown in the papers.
 
-#### [Activation pruning (continual learning)](https://arxiv.org/abs/1903.04476)
+#### [Activation pruning](https://arxiv.org/abs/1903.04476)
 Collect layer outputs to calculate average layer activity (how often layer neuron / channel outputs values greater than 0). Prune those neurons and channels which have smaller activity value than a given threshold.
 
 **Hyperparameters**
 - `threshold`: If a neuron or channel is less active than this threshold, prune it.
 - `threshold_decay`: Not used.
 - `t_delta`: How many batches to collect as calibration data.
+- `t_start_collecting_batch`: At which epoch during training the collection begins
 
 #### [AutoSparse](https://arxiv.org/abs/2304.06941)
 $x = sign(W) \cdot ReLU(|W| - \sigma(T))$.
@@ -33,7 +34,7 @@ A multi-round pruning algorithm.
 ```math
  x = W\cdot M
 ```
-where 
+where
 ```math
 M=(\frac{\sigma(\beta s)}{\sigma(s_{init})})
 ```
@@ -101,6 +102,7 @@ Using a calibration data set, calculate a metric based on the average input to t
 For linear layers, the metric is calculated as L2 norm over the batch dimension. For convolutions, reduce dimensions by taking the average of the batch dimension, then calculate L2 norm over a flattened kernel dimension.
 
 **Hyperparameters**
+- `calculate_pruning_budget`: If True, calculate the pruning budget for each layer, while keeping the target sparsity. If False, prunes every layer using target sparsity.
 - `M`: If doing N:M pruning, N and M should be non-null (N < M)
 - `N`: If doing N:M pruning, N and M should be non-null (N < M)
 - `threshold_decay`: not used

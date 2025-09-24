@@ -1,24 +1,25 @@
 import keras
-import torch.nn as nn
 from keras import ops
 
 
 class PDP(keras.layers.Layer):
-    def __init__(self, config, layer, out_size, *args, **kwargs):
+    def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.init_r = config["pruning_parameters"]["sparsity"]
+        self.init_r = ops.convert_to_tensor(config["pruning_parameters"]["sparsity"])
+        self.epsilon = ops.convert_to_tensor(config["pruning_parameters"]["epsilon"])
         self.r = config["pruning_parameters"]["sparsity"]
         self.temp = config["pruning_parameters"]["temperature"]
         self.is_pretraining = True
         self.config = config
         self.fine_tuning = False
-        self.layer_type = "linear" if isinstance(layer, nn.Linear) else "conv"
+        self.layer_type = layer_type
 
     def build(self, input_shape):
         input_shape_concatenated = list(input_shape) + [1]
         self.softmax_shape = input_shape_concatenated
         self.t = ops.ones(input_shape_concatenated) * 0.5
         self.mask = ops.ones(input_shape)
+        self.flat_weight_size = ops.cast(ops.size(self.mask), self.mask.dtype)
         super().build(input_shape)
 
     def post_pre_train_function(self):
@@ -26,14 +27,14 @@ class PDP(keras.layers.Layer):
 
     def pre_epoch_function(self, epoch, total_epochs):
         if not self.is_pretraining:
-            self.r = ops.minimum(1.0, self.config["pruning_parameters"]["epsilon"] * (epoch + 1)) * self.init_r
+            self.r = ops.minimum(1.0, self.epsilon * (epoch + 1)) * self.init_r
 
     def post_round_function(self):
         pass
 
     def get_hard_mask(self, weight):
         if self.fine_tuning:
-            return (self.mask >= 0.5).float()
+            return self.mask
         if self.config["pruning_parameters"]["structured_pruning"]:
             if self.layer_type == "conv":
                 mask = self.get_mask_structured_channel(weight)
@@ -41,12 +42,12 @@ class PDP(keras.layers.Layer):
                 mask = self.get_mask_structured_linear(weight)
         else:
             mask = self.get_mask(weight)
-        self.mask = (mask >= 0.5).float()
-        return (mask >= 0.5).float()
+        self.mask = ops.cast((mask >= 0.5), mask.dtype)
+        return self.mask
 
     def pre_finetune_function(self):
         self.fine_tuning = True
-        self.mask = (self.mask >= 0.5).float()
+        self.mask = ops.cast((self.mask >= 0.5), self.mask.dtype)
 
     def get_mask_structured_linear(self, weight):
         """
@@ -56,12 +57,13 @@ class PDP(keras.layers.Layer):
         if self.is_pretraining:
             return self.mask
         norm = ops.norm(weight, axis=0, ord=2, keepdims=True)
-        norm_flat = ops.reshape(norm, -1)
+        norm_flat = ops.ravel(norm)
         """ Do top_k for all neuron norms. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
         W_all, _ = ops.top_k(norm_flat, ops.size(norm_flat))
-        lim = ops.clip(int((1 - self.r) * ops.size(W_all)), 0, ops.size(W_all) - 2)
-
+        size = ops.cast(ops.size(W_all), self.mask.dtype)
+        ind = ops.cast((1 - self.r) * size, "int32") - 1
+        lim = ops.clip(ind, 0, ops.cast(size - 2, "int32"))
         Wh = W_all[lim]
         Wt = W_all[lim + 1]
         # norm = ops.expand_dims(norm, -1)
@@ -82,11 +84,13 @@ class PDP(keras.layers.Layer):
             return self.mask
         weight_reshaped = ops.reshape(weight, (weight.shape[0], weight.shape[1], -1))
         norm = ops.norm(weight_reshaped, axis=2, ord=2)
-        norm_flat = ops.reshape(norm, -1)
+        norm_flat = ops.ravel(norm)
         """ Do top_k for all channel norms. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
         W_all, _ = ops.top_k(norm_flat, ops.size(norm_flat))
-        lim = ops.clip(int((1 - self.r) * ops.size(W_all)), 0, ops.size(W_all) - 2)
+        size = ops.cast(ops.size(W_all), self.mask.dtype)
+        ind = ops.cast((1 - self.r) * size, "int32") - 1
+        lim = ops.clip(ind, 0, ops.cast(size - 2, "int32"))
 
         Wh = W_all[lim]
         Wt = W_all[lim + 1]
@@ -106,11 +110,12 @@ class PDP(keras.layers.Layer):
             self.mask = ops.ones(weight.shape)
             return self.mask
         weight_reshaped = ops.reshape(weight, self.softmax_shape)
-        abs_weight_flat = ops.reshape(ops.abs(weight), -1)
+        abs_weight_flat = ops.ravel(ops.abs(weight))
         """ Do top_k for all weights. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(weight)) to calculate t directly """
         all, _ = ops.top_k(abs_weight_flat, ops.size(abs_weight_flat))
-        lim = ops.clip(int((1 - self.r) * ops.size(abs_weight_flat)), 0, ops.size(abs_weight_flat) - 2)
+        ind = ops.cast((1 - self.r) * self.flat_weight_size, "int32") - 1  # Index begins from 0
+        lim = ops.clip(ind, 0, ops.cast(self.flat_weight_size - 2, "int32"))
         Wh = all[lim]
         Wt = all[lim + 1]
         t = self.t * (Wh + Wt)
@@ -138,8 +143,7 @@ class PDP(keras.layers.Layer):
         return 0
 
     def get_layer_sparsity(self, weight):
-        mask = self.mask
-        masked_weight_rounded = (mask >= 0.5).float()
+        masked_weight_rounded = ops.cast((self.mask >= 0.5), self.mask.dtype)
         masked_weight = masked_weight_rounded * weight
         return ops.count_nonzero(masked_weight) / ops.size(masked_weight)
 

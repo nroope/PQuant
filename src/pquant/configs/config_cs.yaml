@@ -11,10 +11,22 @@ quantization_parameters:
   default_fractional_bits: 7.
   enable_quantization: true
   hgq_gamma: 0.0003
+  hgq_heterogeneous: True
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
+  use_relu_multiplier: false
   use_symmetric_quantization: false
+fitcompress_parameters:
+  enable_fitcompress : true
+  optimize_quantization : true
+  quantization_schedule : [7.,4.,3.,2.,1.]
+  pruning_schedule : {start : 0, end : -3, steps : 40}
+  compression_goal : 0.10
+  optimize_pruning : false
+  greedy_astar : true 
+  approximate : true 
+  lambda : 1
 training_parameters:
   epochs: 85
   fine_tuning_epochs: 85
@@ -23,7 +35,7 @@ training_parameters:
   rewind: post-ticket-search
   rounds: 3
   save_weights_epoch: 2
-batch_size: 128
+batch_size: 64
 cosine_tmax: 200
 gamma: 0.1
 l2_decay: 0.0001

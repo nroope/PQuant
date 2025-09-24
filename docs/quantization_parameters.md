@@ -1,0 +1,11 @@
+# Descriptions of the quantization parameters
+ - `default_integer_bits`: Default integer bits used for quantization
+ - `default_fractional_bits`: Default fractional bits used for quantization. For ReLU, because it is unsigned and no bits are used for the sign, 1 bit is added to the default value during adding of compression layers.
+ - `enable_quantization`: Enables quantization
+ - `hgq_gamma`: scales the loss of HGQ. If too high, can prune the whole model.
+ - `hgq_heterogeneous`: If true, HGQ learns one set of bits for each weight in the model. If false, learns one set of bits for each layer in the model
+ - `layer_specific`: Layers that use non-default quantization bits, should be added here. A default config with all the layers can be created using the function `pquant.add_default_layer_quantization_pruning_to_config`
+ - `use_high_granularity_quantization`: If true, uses HGQ instead of fixed quantizers
+ - `use_real_tanh`: If true, use real tanh function before quantization. If false, uses hard tanh
+ - `use_relu_multiplier`: If true, multiply the input of QuantizedReLU with a learned multiplier before the QuantizedReLU operation. The multiplication operation will be `inputs_to_relu = inputs_to_relu * 2 ** (round(learned_multiplier))`. Learned multiplier is initialized at -1, therefore at the beginning of the training the inputs are multiplied by 0.5 before QuantizedReLU.
+ - `use_symmetric_quantization`: if true, `minimum_quantized_value == -maximum_quantized_value`

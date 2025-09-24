@@ -1,79 +1,79 @@
-import torch
-import torch.nn as nn
+import keras
+from keras import ops
 
 
-class Wanda(nn.Module):
+class Wanda(keras.layers.Layer):
 
-    def __init__(self, config, layer, out_size, *args, **kwargs):
+    def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = config
         self.act_type = "relu"
         self.t = 0
-        self.layer_type = "linear" if isinstance(layer, nn.Linear) else "conv"
-        self.mask = torch.tensor(1.0)
+        self.layer_type = layer_type
+        self.batches_collected = 0
         self.inputs = None
         self.total = 0.0
-        self.weight = layer.weight
         self.done = False
         self.sparsity = self.config["pruning_parameters"]["sparsity"]
         self.is_pretraining = True
         self.N = self.config["pruning_parameters"]["N"]
         self.M = self.config["pruning_parameters"]["M"]
-        self.t_start_collecting = self.config["pruning_parameters"]["t_start_collecting"]
+        self.t_start_collecting_batch = self.config["pruning_parameters"]["t_start_collecting_batch"]
 
-    def handle_linear(self, x):
-        norm = x.norm(p=2, dim=0)
-        metric = self.weight.abs() * norm
+    def build(self, input_shape):
+        self.mask = ops.ones(input_shape)
+        super().build(input_shape)
+
+    def get_mask(self, weight, metric, sparsity):
+        d0, d1 = metric.shape
+        keep_idxs = ops.argsort(metric, axis=1)[:, int(d1 * sparsity) :] + ops.arange(d0)[:, None] * d1
+        keep_idxs = ops.ravel(keep_idxs)
+        kept_values = ops.reshape(
+            ops.scatter(keep_idxs[:, None], ops.take(ops.ravel(weight), keep_idxs), ops.array((ops.size(weight),))),
+            weight.shape,
+        )
+        mask = ops.cast(kept_values != 0, weight.dtype)
+        return mask
+
+    def handle_linear(self, x, weight):
+        norm = ops.norm(x, ord=2, axis=0)
+        metric = ops.abs(weight) * norm
         if self.N is not None and self.M is not None:
             # N:M pruning
-            W_mask = torch.zeros_like(self.weight)
-            for ii in range(self.weight.shape[1]):
-                if ii % self.M == 0:
-                    tmp = metric.abs()[:, ii : (ii + self.M)].float()
-                    if tmp.shape[1] < self.M:
-                        continue
-                    indices = ii + torch.topk(tmp, self.N, dim=1, largest=False)[1]
-                    W_mask = torch.scatter(W_mask, 1, indices, 1)
-                    self.mask.data = W_mask.view(self.weight.shape)
+            metric_reshaped = ops.reshape(metric, (-1, self.M))
+            weight_reshaped = ops.reshape(weight, (-1, self.M))
+            mask = self.get_mask(weight_reshaped, metric_reshaped, sparsity=self.N / self.M)
+            self.mask = ops.reshape(mask, weight.shape)
         else:
             # Unstructured pruning
-            _, sorted_idx = torch.sort(metric, dim=1)
-            pruned_idx = sorted_idx[:, : int(self.weight.shape[1] * self.sparsity)]
-            self.weight.data = self.weight.data.scatter_(
-                dim=1, index=pruned_idx, src=torch.zeros(pruned_idx.shape).to(self.weight.device)
-            )
-            self.mask.data = (self.weight != 0).float()
+            metric_reshaped = ops.reshape(metric, (1, -1))
+            weight_reshaped = ops.reshape(weight, (1, -1))
+            mask = self.get_mask(weight_reshaped, metric_reshaped, sparsity=self.sparsity)
+            self.mask = ops.reshape(mask, weight.shape)
 
-    def handle_conv(self, x):
-        inputs_avg = torch.mean(x.view(x.shape[0], x.shape[1], -1), dim=0)
-        norm = inputs_avg.norm(p=2, dim=-1).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-        metric = self.weight.abs() * norm
+    def handle_conv(self, x, weight):
+        inputs_avg = ops.mean(ops.reshape(x, (x.shape[0], x.shape[1], -1)), axis=0)
+        norm = ops.norm(inputs_avg, ord=2, axis=-1)
+        if len(weight.shape) == 3:
+            norm = ops.reshape(norm, [1] + list(norm.shape) + [1])
+        else:
+            norm = ops.reshape(norm, [1] + list(norm.shape) + [1, 1])
+        metric = ops.abs(weight) * norm
         if self.N is not None and self.M is not None:
             # N:M pruning
-            metric = x.view(metric.shape[0], -1)
-            W_mask = torch.zeros(self.weight.shape, device=metric.device)
-            W_mask = W_mask.view(W_mask.shape[0], -1)
-            for ii in range(W_mask.shape[1]):
-                if ii % self.M == 0:
-                    tmp = metric.abs()[:, ii : (ii + self.M)].float()
-                    if tmp.shape[1] < self.M:
-                        continue
-                    n = min(self.N, W_mask.shape[1] - ii)
-                    indices = ii + torch.topk(tmp, n, dim=1, largest=False)[1]
-                    indices_limited = torch.minimum(indices, torch.tensor(W_mask.shape[1] - 1))
-                    W_mask = torch.scatter(W_mask, 1, indices_limited, 1)
-            self.mask.data = W_mask.view(self.weight.shape)
+            metric_reshaped = ops.reshape(metric, (-1, self.M))
+            weight_reshaped = ops.reshape(weight, (-1, self.M))
+            mask = self.get_mask(weight_reshaped, metric_reshaped, sparsity=self.N / self.M)
+            self.mask = ops.reshape(mask, weight.shape)
         else:
             # Unstructured pruning
-            _, sorted_idx = torch.sort(metric, dim=1)
-            pruned_idx = sorted_idx[:, : int(self.weight.shape[1] * self.sparsity)]
-            self.weight.data = self.weight.data.scatter_(
-                dim=1, index=pruned_idx, src=torch.zeros(pruned_idx.shape).to(self.weight.device)
-            )
-            self.mask.data = (self.weight != 0).float()
+            metric_reshaped = ops.reshape(metric, (metric.shape[0], -1))
+            weight_reshaped = ops.reshape(weight, (weight.shape[0], -1))
+            mask = self.get_mask(weight_reshaped, metric_reshaped, sparsity=self.sparsity)
+            self.mask = ops.reshape(mask, weight.shape)
 
-    def collect_input(self, x):
-        if self.done or self.is_pretraining:
+    def collect_input(self, x, weight, training):
+        if self.done or not training:
             return
         """
             Accumulates layer inputs starting at step t_start_collecting for t_delta steps, then averages it.
@@ -86,33 +86,28 @@ class Wanda(nn.Module):
         if self.inputs is not None:
             batch_size = self.inputs.shape[0]
             ok_batch = x.shape[0] == batch_size
-        if not self.training or not ok_batch:
+        if not training or not ok_batch:
             # Don't collect during validation
             return
-        self.t += 1
-        if self.t < self.t_start_collecting:
+        if self.t < self.t_start_collecting_batch:
             return
+        self.batches_collected += 1
         self.total += 1
-        self.inputs = x if self.inputs is None else self.inputs + x
 
-        if self.t % (self.t_start_collecting + self.config["pruning_parameters"]["t_delta"]) == 0:
+        self.inputs = x if self.inputs is None else self.inputs + x
+        if self.batches_collected % (self.config["pruning_parameters"]["t_delta"]) == 0:
             inputs_avg = self.inputs / self.total
-            self.prune(inputs_avg)
+            self.prune(inputs_avg, weight)
             self.done = True
             self.inputs = None
 
-    def prune(self, x):
+    def prune(self, x, weight):
         if self.layer_type == "linear":
-            self.handle_linear(x)
+            self.handle_linear(x, weight)
         else:
-            self.handle_conv(x)
+            self.handle_conv(x, weight)
 
-    def build(self, weight):
-        # Since this is a torch layer, do nothing
-        pass
-
-    def forward(self, weight):  # Mask is only updated every t_delta step, using collect_output
-        self.weight.data = weight
+    def call(self, weight):  # Mask is only updated every t_delta step, using collect_output
         return self.mask * weight
 
     def post_pre_train_function(self):
@@ -133,5 +128,10 @@ class Wanda(nn.Module):
     def get_layer_sparsity(self, weight):
         pass
 
+    def get_hard_mask(self, weight=None):
+        return self.mask
+
     def post_epoch_function(self, epoch, total_epochs):
+        if self.is_pretraining is False:
+            self.t += 1
         pass
