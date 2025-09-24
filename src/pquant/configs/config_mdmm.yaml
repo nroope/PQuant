@@ -17,7 +17,7 @@ pruning_parameters:
   l0_mode: "coarse" # 'coarse' or 'smooth'
 
 quantization_parameters:
-  enable_quantization: false
+  enable_quantization: true
   default_integer_bits: 0.
   default_fractional_bits: 7.
   hgq_gamma: 0.0003
@@ -25,8 +25,8 @@ quantization_parameters:
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
+  use_relu_multiplier: false
   use_symmetric_quantization: false
-
 training_parameters:
   epochs: 200
   fine_tuning_epochs: 30
@@ -35,7 +35,17 @@ training_parameters:
   rewind: never
   rounds: 1
   save_weights_epoch: -1
-batch_size: 128
+fitcompress_parameters:
+  enable_fitcompress : true
+  optimize_quantization : true
+  quantization_schedule : [7.,4.,3.,2]
+  pruning_schedule : {start : 0, end : -3, steps : 40}
+  compression_goal : 0.10
+  optimize_pruning : false
+  greedy_astar : true
+  approximate : true 
+  lambda : 1
+batch_size: 64
 cosine_tmax: 200
 gamma: 0.1
 l2_decay: 0.0001
