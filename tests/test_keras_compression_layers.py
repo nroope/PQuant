@@ -60,6 +60,7 @@ def config_pdp():
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
+        "fitcompress_parameters": {"enable_fitcompress": False},
     }
 
 
@@ -88,6 +89,7 @@ def config_ap():
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
+        "fitcompress_parameters": {"enable_fitcompress": False},
     }
 
 
@@ -119,6 +121,7 @@ def config_wanda():
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
+        "fitcompress_parameters": {"enable_fitcompress": False},
     }
 
 
@@ -146,6 +149,7 @@ def config_cs():
             "use_symmetric_quantization": False,
         },
         "training_parameters": {"pruning_first": False},
+        "fitcompress_parameters": {"enable_fitcompress": False},
     }
 
 
