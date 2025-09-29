@@ -264,12 +264,13 @@ class CompressedLayerConv1d(CompressedLayerBase):
         return x
 
 
-def add_compression_layers_torch(model, config, input_shape):
+def add_compression_layers_torch(model, config, input_shape, device="cuda"):
     model = add_quantized_activations_to_model_layer(model, config)
     # model = add_quantized_activations_to_model_functional(model, config)
     model = add_pruning_to_model(model, config)
     model = disable_pruning_from_layers(model, config)
     model = add_layer_specific_quantization_to_model(model, config)
+    model.to(device)
     model(torch.rand(input_shape, device=next(model.parameters()).device))
     return model
 
@@ -348,9 +349,10 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         momentum: typing.Optional[float] = 0.1,
         affine: bool = True,
         track_running_stats: bool = True,
+        device=None,
         dtype=None,
     ):
-        super().__init__(num_features, eps, momentum, affine, track_running_stats, device="cuda", dtype=dtype)
+        super().__init__(num_features, eps, momentum, affine, track_running_stats, device=device, dtype=dtype)
         self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
         self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
         self.overflow = config["quantization_parameters"]["overflow"]
