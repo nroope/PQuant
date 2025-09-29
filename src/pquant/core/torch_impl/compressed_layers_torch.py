@@ -348,10 +348,9 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         momentum: typing.Optional[float] = 0.1,
         affine: bool = True,
         track_running_stats: bool = True,
-        device=None,
         dtype=None,
     ):
-        super().__init__(num_features, eps, momentum, affine, track_running_stats, device=device, dtype=dtype)
+        super().__init__(num_features, eps, momentum, affine, track_running_stats, device="cuda", dtype=dtype)
         self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
         self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
         self.overflow = config["quantization_parameters"]["overflow"]
