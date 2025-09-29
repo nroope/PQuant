@@ -44,7 +44,7 @@ class DST(keras.layers.Layer):
     def build(self, input_shape):
         self.threshold_size = get_threshold_size(self.config, input_shape)
         self.threshold = self.add_weight(shape=self.threshold_size, initializer="zeros", trainable=True)
-        self.mask = ops.ones(input_shape)
+        self.mask = self.add_weight(shape=input_shape, initializer="ones")
 
     def call(self, weight):
         """
@@ -53,14 +53,16 @@ class DST(keras.layers.Layer):
             0.4           if 0.4 < |W| <= 1
             0             if |W| > 1
         """
-        if self.is_pretraining and self.config.fitcompress_parameters.enable_fitcompress:
+        if self.is_pretraining:
             return weight
         mask = self.get_mask(weight)
         ratio = 1.0 - ops.sum(mask) / ops.cast(ops.size(mask), mask.dtype)
         flag = ratio >= self.config.pruning_parameters.max_pruning_pct
         self.threshold.assign(ops.where(flag, ops.ones(self.threshold.shape), self.threshold))
         mask = self.get_mask(weight)
+        self.mask.assign(mask)
         masked_weight = weight * mask
+        self.add_loss(self.calculate_additional_loss())
         return masked_weight
 
     def get_hard_mask(self, weight):
@@ -72,7 +74,6 @@ class DST(keras.layers.Layer):
         pre_binarystep_weights = ops.abs(weights_reshaped) - self.threshold
         mask = binary_step(pre_binarystep_weights)
         mask = ops.reshape(mask, weight_orig_shape)
-        self.mask = mask
         return mask
 
     def pre_epoch_function(self, epoch, total_epochs):

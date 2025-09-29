@@ -18,6 +18,8 @@ quantization_parameters:
   use_real_tanh: false
   use_relu_multiplier: true
   use_symmetric_quantization: false
+  overflow: SAT
+  round_mode: RND
 fitcompress_parameters:
   enable_fitcompress : false
   optimize_quantization : true
@@ -36,7 +38,7 @@ training_parameters:
   rewind: never
   rounds: 1
   save_weights_epoch: -1
-batch_size: 64
+batch_size: 256
 cosine_tmax: 200
 gamma: 0.1
 l2_decay: 0.0001

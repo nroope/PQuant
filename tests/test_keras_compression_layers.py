@@ -69,6 +69,8 @@ def config_pdp():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -99,6 +101,8 @@ def config_ap():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -132,6 +136,8 @@ def config_wanda():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -161,6 +167,8 @@ def config_cs():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -1298,21 +1306,9 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
 
     model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
-    assert model.layers[1].hgq_weight.quantizer._i.shape == model.layers[1].weight.shape
+    assert model.layers[1].weight_quantizer.quantizer._i.shape == model.layers[1].weight.shape
     layer_2_input_shape = [1] + list(model.layers[2].input.shape[1:])
-    assert model.layers[2].hgq.quantizer._i.shape == layer_2_input_shape
-
-    config_pdp.quantization_parameters.hgq_heterogeneous = False
-    inputs = keras.Input(shape=dense_input.shape[1:])
-    out = Dense(OUT_FEATURES, use_bias=False)(inputs)
-    act1 = Activation("tanh")(out)
-    out2 = Dense(OUT_FEATURES, use_bias=False)(act1)
-    act2 = ReLU()(out2)
-    model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
-
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
-    assert model.layers[1].hgq_weight.quantizer._i.shape == (1, 1)
-    assert model.layers[2].hgq.quantizer._i.shape == (1, 1)
+    assert model.layers[2].quantizer.quantizer._i.shape == layer_2_input_shape
 
 
 def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_input, dense_input):
@@ -1363,23 +1359,23 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
         if isinstance(m, (CompressedLayerConv2dKeras)):
             assert m.i_weight == 0.0
             assert m.i_bias == 0.0
-            assert ops.all(m.hgq_weight.quantizer.i == 0.0)
-            assert ops.all(m.hgq_bias.quantizer.i == 0.0)
+            assert ops.all(m.weight_quantizer.quantizer.i == 0.0)
+            assert ops.all(m.bias_quantizer.quantizer.i == 0.0)
 
             assert m.f_weight == 7.0
             assert m.f_bias == 7.0
-            assert ops.all(m.hgq_weight.quantizer.f == 7.0)
-            assert ops.all(m.hgq_bias.quantizer.f == 7.0)
+            assert ops.all(m.weight_quantizer.quantizer.f == 7.0)
+            assert ops.all(m.bias_quantizer.quantizer.f == 7.0)
         elif isinstance(m, (QuantizedTanh)):
             assert m.i == 0.0
             assert m.f == 7.0
-            assert ops.all(m.hgq.quantizer.i == 0.0)
-            assert ops.all(m.hgq.quantizer.f == 7.0)
+            assert ops.all(m.quantizer.quantizer.i == 0.0)
+            assert ops.all(m.quantizer.quantizer.f == 7.0)
         elif isinstance(m, (QuantizedReLU)):
             assert m.i == 0.0
             assert m.f == 8.0
-            assert ops.all(m.hgq.quantizer.i == 0.0)
-            assert ops.all(m.hgq.quantizer.f == 8.0)
+            assert ops.all(m.quantizer.quantizer.i == 0.0)
+            assert ops.all(m.quantizer.quantizer.f == 8.0)
         elif isinstance(m, (QuantizedPooling)):
             assert m.i == 0.0
             assert m.f == 7.0
@@ -1391,9 +1387,9 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
         },
-        're_lu_7': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        're_lu_6': {'integer_bits': 1.0, 'fractional_bits': 3.0},
         'average_pooling2d_2': {'integer_bits': 1.0, 'fractional_bits': 3.0},
-        'activation_7': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+        'activation_6': {'integer_bits': 0.0, 'fractional_bits': 3.0},
     }
 
     inputs = keras.Input(shape=conv2d_input.shape[1:])
@@ -1403,28 +1399,27 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     out = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=out)
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
-
     for m in model.layers:
         if isinstance(m, (CompressedLayerConv2dKeras)):
             assert m.i_weight == 1.0
             assert m.i_bias == 2.0
-            assert ops.all(m.hgq_weight.quantizer.i == 1.0)
-            assert ops.all(m.hgq_bias.quantizer.i == 2.0)
+            assert ops.all(m.weight_quantizer.quantizer.i == 1.0)
+            assert ops.all(m.bias_quantizer.quantizer.i == 2.0)
 
             assert m.f_weight == 3.0
             assert m.f_bias == 4.0
-            assert ops.all(m.hgq_weight.quantizer.f == 3.0)
-            assert ops.all(m.hgq_bias.quantizer.f == 4.0)
+            assert ops.all(m.weight_quantizer.quantizer.f == 3.0)
+            assert ops.all(m.bias_quantizer.quantizer.f == 4.0)
         elif isinstance(m, (QuantizedTanh)):
             assert m.i == 0.0
             assert m.f == 3.0
-            assert ops.all(m.hgq.quantizer.i == 0.0)
-            assert ops.all(m.hgq.quantizer.f == 3.0)
+            assert ops.all(m.quantizer.quantizer.i == 0.0)
+            assert ops.all(m.quantizer.quantizer.f == 3.0)
         elif isinstance(m, (QuantizedReLU)):
             assert m.i == 1.0
             assert m.f == 3.0
-            assert ops.all(m.hgq.quantizer.i == 1.0)
-            assert ops.all(m.hgq.quantizer.f == 3.0)
+            assert ops.all(m.quantizer.quantizer.i == 1.0)
+            assert ops.all(m.quantizer.quantizer.f == 3.0)
         elif isinstance(m, (QuantizedPooling)):
             assert m.i == 1.0
             assert m.f == 3.0
@@ -1465,9 +1460,9 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
         },
-        're_lu_9': {'integer_bits': 1.0, 'fractional_bits': 3.0},
+        're_lu_8': {'integer_bits': 1.0, 'fractional_bits': 3.0},
         'average_pooling2d_4': {'integer_bits': 1.0, 'fractional_bits': 3.0},
-        'activation_9': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+        'activation_8': {'integer_bits': 0.0, 'fractional_bits': 3.0},
     }
 
     inputs = keras.Input(shape=conv2d_input.shape[1:])
@@ -1477,7 +1472,6 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     out = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=out)
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
-
     for m in model.layers:
         if isinstance(m, (CompressedLayerConv2dKeras)):
             assert m.i_weight == 1.0

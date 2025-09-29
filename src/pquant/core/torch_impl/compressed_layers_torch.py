@@ -1,89 +1,97 @@
+import typing
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from hgq.quantizer import Quantizer
-from keras import ops
-from quantizers import get_fixed_quantizer
+
 from torch.fx import symbolic_trace
 
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.utils import get_pruning_layer
 
-import typing 
 if typing.TYPE_CHECKING:
-    from pquant.core.torch_impl.fit_compress import call_fitcompress 
-
+    from pquant.core.torch_impl.fit_compress import call_fitcompress  # noqa: 401
 
 from keras import ops
+
+from pquant.core.quantizer_functions import create_quantizer
+
 
 class CompressedLayerBase(nn.Module):
     def __init__(self, config, layer, layer_type):
         super().__init__()
-        self.f_weight = torch.tensor(config.quantization_parameters.default_fractional_bits)
-        self.i_weight = torch.tensor(config.quantization_parameters.default_integer_bits)
-        self.f_bias = torch.tensor(config.quantization_parameters.default_fractional_bits)
-        self.i_bias = torch.tensor(config.quantization_parameters.default_integer_bits)
+        self.i_weight = self.i_bias = self.i_input = self.i_output = torch.tensor(
+            config.quantization_parameters.default_integer_bits
+        )
+        self.f_weight = self.f_bias = self.f_input = self.f_output = torch.tensor(
+            config.quantization_parameters.default_fractional_bits
+        )
+
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
         self.pruning_method = config.pruning_parameters.pruning_method
-        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
-        self.quantizer = get_fixed_quantizer(overflow_mode=self.overflow)
+        
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
+        self.use_input_quantizer = False
+        self.use_output_quantizer = False
 
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.init_weight = self.weight.clone()
         self.pruning_first = config.training_parameters.pruning_first
         self.enable_quantization = config.quantization_parameters.enable_quantization
-        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+        self.round_mode = config.quantization_parameters.round_mode
+        self.overflow = config.quantization_parameters.overflow
+        self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.enable_pruning = config.pruning_parameters.enable_pruning
+        self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
-    def build(self, input_shape):
-        if self.use_high_granularity_quantization:
-            if self.hgq_heterogeneous:
-                self.hgq_weight = Quantizer(
-                    k0=1.0,
-                    i0=self.i_weight,
-                    f0=self.f_weight,
-                    round_mode="RND",
-                    overflow_mode=self.overflow,
-                    q_type="kif",
-                    homogeneous_axis=(),
-                )
-                self.hgq_weight.build(self.weight.shape)
-                if self.bias is not None:
-                    self.hgq_bias = Quantizer(
-                        k0=1.0,
-                        i0=self.i_bias,
-                        f0=self.f_bias,
-                        round_mode="RND",
-                        overflow_mode=self.overflow,
-                        q_type="kif",
-                        homogeneous_axis=(),
-                    )
-                    self.hgq_bias.build(self.bias.shape)
-            else:
-                self.hgq_weight = Quantizer(
-                    k0=1.0,
-                    i0=self.i_weight,
-                    f0=self.f_weight,
-                    round_mode="RND",
-                    overflow_mode=self.overflow,
-                    q_type="kif",
-                    heterogeneous_axis=(),
-                )
-                self.hgq_weight.build(self.weight.shape)
-                if self.bias is not None:
-                    self.hgq_bias = Quantizer(
-                        k0=1.0,
-                        i0=self.i_bias,
-                        f0=self.f_bias,
-                        round_mode="RND",
-                        overflow_mode=self.overflow,
-                        q_type="kif",
-                        heterogeneous_axis=(),
-                    )
-                    self.hgq_bias.build(self.bias.shape)
+    def build(self):
+        # Build function to delay quantizer creation until after custom i,f bits have been set
+        self.weight_quantizer = PyTorchQuantizer(
+            torch.tensor(1.0),
+            self.i_weight,
+            self.f_weight,
+            self.overflow,
+            self.round_mode,
+            self.use_hgq,
+            False,
+            self.hgq_gamma,
+        )
+
+        if self.bias is not None:
+            self.bias_quantizer = PyTorchQuantizer(
+                torch.tensor(1.0),
+                self.i_bias,
+                self.f_bias,
+                self.overflow,
+                self.round_mode,
+                self.use_hgq,
+                False,
+                self.hgq_gamma,
+            )
+        if self.use_input_quantizer:
+            self.input_quantizer = PyTorchQuantizer(
+                torch.tensor(1.0),
+                self.i_input,
+                self.f_input,
+                self.overflow,
+                self.round_mode,
+                self.use_hgq,
+                True,
+                self.hgq_gamma,
+            )
+        if self.use_output_quantizer:
+            self.output_quantizer = PyTorchQuantizer(
+                torch.tensor(1.0),
+                self.i_output,
+                self.f_output,
+                self.overflow,
+                self.round_mode,
+                self.use_hgq,
+                True,
+                self.hgq_gamma,
+            )
 
     def save_weights(self):
         self.init_weight = self.weight.clone()
@@ -92,25 +100,30 @@ class CompressedLayerBase(nn.Module):
         self.weight.data = self.init_weight.clone()
 
     def hgq_loss(self):
-        if self.pruning_layer.is_pretraining:
+        if self.pruning_layer.is_pretraining or not self.use_hgq:
             return 0.0
-        loss = (torch.sum(self.hgq_weight.quantizer.i) + torch.sum(self.hgq_weight.quantizer.f)) * self.hgq_gamma
+        loss = (
+            torch.sum(self.weight_quantizer.quantizer.quantizer.i) + torch.sum(self.weight_quantizer.quantizer.quantizer.f)
+        ) * self.hgq_gamma
         if self.bias is not None:
-            loss += (torch.sum(self.hgq_bias.quantizer.i) + torch.sum(self.hgq_bias.quantizer.f)) * self.hgq_gamma
+            loss += (
+                torch.sum(self.bias_quantizer.quantizer.quantizer.i) + torch.sum(self.bias_quantizer.quantizer.quantizer.f)
+            ) * self.hgq_gamma
+        if self.use_input_quantizer:
+            loss += (
+                torch.sum(self.input_quantizer.quantizer.quantizer.i) + torch.sum(self.input_quantizer.quantizer.quantizer.f)
+            ) * self.hgq_gamma
+        if self.use_output_quantizer:
+            loss += (
+                torch.sum(self.output_quantizer.quantizer.quantizer.i)
+                + torch.sum(self.output_quantizer.quantizer.quantizer.f)
+            ) * self.hgq_gamma
         return loss
 
     def quantize(self, weight, bias):
         if self.enable_quantization:
-            if self.use_high_granularity_quantization:
-                weight = self.hgq_weight(weight)
-                bias = None if bias is None else self.hgq_bias(bias)
-            else:
-                weight = self.quantizer(weight, k=torch.tensor(1.0), i=self.i_weight, f=self.f_weight, training=False)
-                bias = (
-                    None
-                    if bias is None
-                    else self.quantizer(bias, k=torch.tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
-                )
+            weight = self.weight_quantizer(weight)
+            bias = None if bias is None else self.bias_quantizer(bias)
         return weight, bias
 
     def prune(self, weight):
@@ -127,13 +140,25 @@ class CompressedLayerBase(nn.Module):
             weight = self.prune(weight)
         return weight, bias
 
-    def forward(self, x):
-        weight, bias = self.prune_and_quantize(self.weight, self.bias)
+    def pre_forward(self, weight, bias, x):
+        if self.use_input_quantizer and not self.use_fitcompress and not self.pruning_layer.is_pretraining:
+            x = self.input_quantizer(x)
         if self.pruning_method == "wanda":
             self.pruning_layer.collect_input(x, self.weight, self.training)
-        x = F.linear(x, weight, bias)
+        weight, bias = self.prune_and_quantize(weight, bias)
+        return weight, bias, x
+
+    def post_forward(self, x):
+        if self.use_output_quantizer and not self.use_fitcompress and not self.pruning_layer.is_pretraining:
+            x = self.output_quantizer(x)
         if self.pruning_method == "activation_pruning":
             self.pruning_layer.collect_output(x, self.training)
+        return x
+
+    def forward(self, x):
+        weight, bias, x = self.pre_forward(self.weight, self.bias, x)
+        x = F.linear(x, weight, bias)
+        x = self.post_forward(x)
         return x
 
 
@@ -259,7 +284,10 @@ class QuantizedPooling(nn.Module):
         self.config = config
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.is_pretraining = True
-        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+
+        self.overflow = config.quantization_parameters.overflow
+        self.round_mode = config.quantization_parameters.round_mode
+        self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.pooling = layer
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.post_fitcompress_calibration = False
@@ -267,33 +295,20 @@ class QuantizedPooling(nn.Module):
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
     def build(self, input_shape):
-        if self.use_high_granularity_quantization:
-            if self.hgq_heterogeneous:
-                self.hgq = Quantizer(
-                    k0=1.0,
-                    i0=self.i,
-                    f0=self.f,
-                    round_mode="RND",
-                    overflow_mode=self.overflow,
-                    q_type="kif",
-                    homogeneous_axis=(0,),
-                )
+        self.quantizer = PyTorchQuantizer(
+            k=torch.tensor(1.0),
+            i=self.i,
+            f=self.f,
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=True,
+            hgq_gamma=self.hgq_gamma,
+        )
+        if self.use_hgq:
+            self.quantizer.quantizer.build(input_shape)
 
-            else:
-                self.hgq = Quantizer(
-                    k0=1.0,
-                    i0=self.i,
-                    f0=self.f,
-                    round_mode="RND",
-                    overflow_mode=self.overflow,
-                    q_type="kif",
-                    heterogeneous_axis=(),
-                )
-            self.hgq.build(input_shape)
-        else:
-            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
-
-    def set_activation_bits(self, i, f):
+    def set_bits(self, i, f):
         self.i = torch.tensor(i)
         self.f = torch.tensor(f)
 
@@ -303,28 +318,108 @@ class QuantizedPooling(nn.Module):
     def hgq_loss(self):
         if self.is_pretraining:
             return 0.0
-        return (
-            torch.sum(self.hgq.quantizer.i) + torch.sum(self.hgq.quantizer.f)
-        ) * self.config.quantization_parameters.hgq_gamma
+
+        return (torch.sum(self.quantizer.quantizer.i) + torch.sum(self.quantizer.quantizer.f)) * self.config.quantization_parameters.hgq_gamma
 
     def quantize(self, x):
-        if not hasattr(self, "hgq") or not hasattr(self, "quantizer"):
+        if not hasattr(self, "quantizer"):
             self.build(x.shape)
-        if self.use_high_granularity_quantization:
-            x = self.hgq(x)
-        else:
-            if self.use_fitcompress and self.is_pretraining:
-                if self.post_fitcompress_calibration:
-                    # Save inputs
-                    self.saved_inputs.append(x)
-                # During FITcompress, we do not use any quantized pooling
-                return ops.average_pool(x, pool_size=1)
-            x = self.quantizer(x, k=torch.tensor(1.0), i=self.i, f=self.f, training=True)
+        if self.use_fitcompress and self.is_pretraining:
+            if self.post_fitcompress_calibration:
+                # Save inputs
+                self.saved_inputs.append(x)
+            # During FITcompress, we do not use any quantized pooling
+            return ops.average_pool(x, pool_size=1)
+        x = self.quantizer(x)
         return x
 
     def forward(self, x):
         x = self.pooling(x)
         return self.quantize(x)
+
+
+class PQBatchNorm2d(nn.BatchNorm2d):
+
+    def __init__(
+        self,
+        config,
+        num_features: int,
+        eps: float = 1e-5,
+        momentum: typing.Optional[float] = 0.1,
+        affine: bool = True,
+        track_running_stats: bool = True,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__(num_features, eps, momentum, affine, track_running_stats, device=device, dtype=dtype)
+        self.f = torch.tensor(config["quantization_parameters"]["default_fractional_bits"])
+        self.i = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
+        self.overflow = config["quantization_parameters"]["overflow"]
+        self.round_mode = config["quantization_parameters"]["round_mode"]
+        self.config = config
+        self.parameter_quantizer = PyTorchQuantizer(
+            k=torch.tensor(1.0),
+            i=self.i,
+            f=self.f,
+            round_mode=self.round_mode,
+            overflow=self.overflow,
+            is_data=False,
+            is_heterogeneous=False,
+        )
+        self._weight = nn.Parameter(self.weight.clone())
+        self._bias = nn.Parameter(self.bias.clone())
+        del self._parameters["weight"]
+        del self._parameters["bias"]
+
+    def set_bits(self, i, f):
+        self.i = torch.tensor(i)
+        self.f = torch.tensor(f)
+
+    @property
+    def weight(self):
+        return self.parameter_quantizer(self._weight)
+
+    @property
+    def bias(self):
+        return self.parameter_quantizer(self._bias)
+
+    def set_quantization_bits(self, i, f):
+        self.i = torch.tensor(i)
+        self.f = torch.tensor(f)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return super().forward(input)
+
+
+class PyTorchQuantizer(nn.Module):
+    # HGQ quantizer wrapper
+    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, hgq_gamma=0):
+        super().__init__()
+        self.k = 1.0
+        self.i = i
+        self.f = f
+        self.overflow = overflow
+        self.round_mode = round_mode
+        self.use_hgq = is_heterogeneous
+        self.quantizer = create_quantizer(self.k, self.i, self.f, overflow, round_mode, is_heterogeneous, is_data)
+        self.is_pretraining = False
+        self.hgq_gamma = hgq_gamma
+
+    def post_pretrain(self):
+        self.is_pretraining = True
+
+    def forward(self, x):
+        if self.use_hgq:
+            x = self.quantizer(x)
+        else:
+            x = self.quantizer(x, k=self.k, i=self.i, f=self.f)
+        return x
+
+    def hgq_loss(self):
+        if self.is_pretraining or not self.use_hgq:
+            return 0.0
+        loss = (torch.sum(self.quantizer.quantizer.i) + torch.sum(self.quantizer.quantizer.f)) * self.hgq_gamma
+        return loss
 
 
 def add_layer_specific_quantization_to_model(module, config):
@@ -342,11 +437,11 @@ def add_layer_specific_quantization_to_model(module, config):
                     layer.i_bias = torch.tensor(bias_int_bits)
                     layer.f_bias = torch.tensor(bias_fractional_bits)
             layer.build(None)
-        elif layer.__class__ in [QuantizedPooling, QuantizedReLU, QuantizedTanh]:
+        elif layer.__class__ in [PQBatchNorm2d, QuantizedPooling, QuantizedReLU, QuantizedTanh]:
             if name in config.quantization_parameters.layer_specific:
                 i = config.quantization_parameters.layer_specific[name]["integer_bits"]
                 f = config.quantization_parameters.layer_specific[name]["fractional_bits"]
-                layer.set_activation_bits(i, f)
+                layer.set_bits(i, f)
     return module
 
 
@@ -368,6 +463,16 @@ def add_quantized_activations_to_model_layer(module, config):
             setattr(module, name, tanh)
         elif layer.__class__ in [nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             new_layer = QuantizedPooling(config, layer)
+            setattr(module, name, new_layer)
+        elif layer.__class__ == nn.BatchNorm2d:
+            new_layer = PQBatchNorm2d(
+                config,
+                num_features=layer.num_features,
+                eps=layer.eps,
+                momentum=layer.momentum,
+                affine=layer.affine,
+                track_running_stats=layer.track_running_stats,
+            )
             setattr(module, name, new_layer)
         else:
             layer = add_quantized_activations_to_model_layer(layer, config)
@@ -589,9 +694,9 @@ def pdp_setup(model, config):
             weight_size = layer.weight.numel()
             w = torch.sum(global_weights_below_threshold[idx : idx + weight_size])
             layer.pruning_layer.init_r = w / weight_size
-            print(f"PDP Layer {layer} target: {layer.pruning_layer.init_r}")
             layer.pruning_layer.sparsity = w / weight_size  # Wanda
             idx += weight_size
+
 
 @torch.no_grad
 def get_layer_keep_ratio_torch(model):
@@ -626,11 +731,11 @@ def get_model_losses_torch(model, losses):
     for layer in model.modules():
         if isinstance(layer, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
             loss = layer.pruning_layer.calculate_additional_loss()
-            if layer.use_high_granularity_quantization:
+            if layer.use_hgq:
                 loss += layer.hgq_loss()
             losses += loss
         elif isinstance(layer, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
-            if layer.use_high_granularity_quantization:
+            if layer.use_hgq:
                 losses += layer.hgq_loss()
     return losses
 

@@ -27,6 +27,8 @@ quantization_parameters:
   use_real_tanh: false
   use_relu_multiplier: true
   use_symmetric_quantization: false
+  overflow: SAT
+  round_mode: RND
 training_parameters:
   epochs: 200
   fine_tuning_epochs: 30

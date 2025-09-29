@@ -63,6 +63,8 @@ def config_pdp():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -93,6 +95,8 @@ def config_ap():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -126,6 +130,8 @@ def config_wanda():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -155,6 +161,8 @@ def config_cs():
             "use_real_tanh": False,
             "use_relu_multiplier": True,
             "use_symmetric_quantization": False,
+            "round_mode": "RND",
+            "overflow": "SAT",
         },
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
@@ -371,10 +379,9 @@ def test_check_activation(config_pdp, dense_input):
 
 
 def check_keras_layer_is_built(module, is_built):
-    for m in module.children():
+    for m in module.modules():
         if hasattr(m, "built"):
             is_built.append(m.built)
-        is_built = check_keras_layer_is_built(m, is_built)
     return is_built
 
 
@@ -521,19 +528,8 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
 
-    assert model.submodule.hgq_weight.quantizer._i.shape == model.submodule.weight.shape
-    assert model.activation.hgq.quantizer._i.shape == (1, OUT_FEATURES)
-
-    config_pdp.quantization_parameters.hgq_heterogeneous = False
-    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
-    layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
-    model = TestModel2(layer, layer2, "relu", "tanh")
-
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    post_pretrain_functions(model, config_pdp)
-
-    assert model.submodule.hgq_weight.quantizer._i.shape == (1, 1)
-    assert model.activation.hgq.quantizer._i.shape == (1, 1)
+    assert model.submodule.weight_quantizer.quantizer.quantizer._i.shape == model.submodule.weight.shape
+    assert model.activation.quantizer.quantizer._i.shape == (1, OUT_FEATURES)
 
 
 def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
@@ -548,29 +544,29 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
         if isinstance(m, (CompressedLayerBase)):
             assert m.i_weight == 0.0
             assert m.i_bias == 0.0
-            assert torch.all(m.hgq_weight.quantizer.i == 0.0)
-            assert torch.all(m.hgq_bias.quantizer.i == 0.0)
+            assert torch.all(m.weight_quantizer.quantizer.quantizer.i == 0.0)
+            assert torch.all(m.weight_quantizer.quantizer.quantizer.i == 0.0)
 
             assert m.f_weight == 7.0
             assert m.f_bias == 7.0
-            assert torch.all(m.hgq_weight.quantizer.f == 7.0)
-            assert torch.all(m.hgq_bias.quantizer.f == 7.0)
+            assert torch.all(m.weight_quantizer.quantizer.quantizer.f == 7.0)
+            assert torch.all(m.weight_quantizer.quantizer.quantizer.f == 7.0)
         elif isinstance(m, (QuantizedTanh)):
             assert m.i == 0.0
             assert m.f == 7.0
-            assert torch.all(m.hgq.quantizer.i == 0.0)
-            assert torch.all(m.hgq.quantizer.f == 7.0)
+            assert torch.all(m.quantizer.quantizer.i == 0.0)
+            assert torch.all(m.quantizer.quantizer.f == 7.0)
         elif isinstance(m, (QuantizedReLU)):
             assert m.i == 0.0
             assert m.f == 8.0
-            assert torch.all(m.hgq.quantizer.i == 0.0)
-            assert torch.all(m.hgq.quantizer.f == 8.0)
+            assert torch.all(m.quantizer.quantizer.i == 0.0)
+            assert torch.all(m.quantizer.quantizer.f == 8.0)
 
         elif isinstance(m, QuantizedPooling):
             assert m.i == 0.0
             assert m.f == 7.0
-            assert torch.all(m.hgq.quantizer.i == 0.0)
-            assert torch.all(m.hgq.quantizer.f == 7.0)
+            assert torch.all(m.quantizer.quantizer.quantizer.i == 0.0)
+            assert torch.all(m.quantizer.quantizer.quantizer.f == 7.0)
 
     config_pdp.quantization_parameters.layer_specific = {
         'submodule': {
@@ -589,28 +585,28 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
         if isinstance(m, (CompressedLayerBase)):
             assert m.i_weight == 1.0
             assert m.i_bias == 2.0
-            assert torch.all(m.hgq_weight.quantizer.i == 1.0)
-            assert torch.all(m.hgq_bias.quantizer.i == 2.0)
+            assert torch.all(m.weight_quantizer.quantizer.quantizer.i == 1.0)
+            assert torch.all(m.bias_quantizer.quantizer.quantizer.i == 2.0)
 
             assert m.f_weight == 3.0
             assert m.f_bias == 4.0
-            assert torch.all(m.hgq_weight.quantizer.f == 3.0)
-            assert torch.all(m.hgq_bias.quantizer.f == 4.0)
+            assert torch.all(m.weight_quantizer.quantizer.quantizer.f == 3.0)
+            assert torch.all(m.bias_quantizer.quantizer.quantizer.f == 4.0)
         elif isinstance(m, (QuantizedTanh)):
             assert m.i == 0.0
             assert m.f == 3.0
-            assert torch.all(m.hgq.quantizer.i == 0.0)
-            assert torch.all(m.hgq.quantizer.f == 3.0)
+            assert torch.all(m.quantizer.quantizer.i == 0.0)
+            assert torch.all(m.quantizer.quantizer.f == 3.0)
         elif isinstance(m, (QuantizedReLU)):
             assert m.i == 0.0
             assert m.f == 4.0
-            assert torch.all(m.hgq.quantizer.i == 0.0)
-            assert torch.all(m.hgq.quantizer.f == 4.0)
+            assert torch.all(m.quantizer.quantizer.i == 0.0)
+            assert torch.all(m.quantizer.quantizer.f == 4.0)
         elif isinstance(m, QuantizedPooling):
             assert m.i == 1.0
             assert m.f == 3.0
-            assert torch.all(m.hgq.quantizer.i == 1.0)
-            assert torch.all(m.hgq.quantizer.f == 3.0)
+            assert torch.all(m.quantizer.quantizer.quantizer.i == 1.0)
+            assert torch.all(m.quantizer.quantizer.quantizer.f == 3.0)
 
 
 def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
