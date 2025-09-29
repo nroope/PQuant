@@ -7,7 +7,7 @@ pruning_parameters:
   pruning_method: dst
   threshold_decay: 0.0
   threshold_init: 0.0
-  threshold_type: channelwise
+  threshold_type: weightwise
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
@@ -19,6 +19,8 @@ quantization_parameters:
   use_real_tanh: false
   use_relu_multiplier: true
   use_symmetric_quantization: false
+  overflow: SAT
+  round_mode: RND
 fitcompress_parameters:
   enable_fitcompress : false
   optimize_quantization : true

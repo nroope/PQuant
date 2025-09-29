@@ -6,6 +6,7 @@ from keras.layers import (
     AveragePooling1D,
     AveragePooling2D,
     AveragePooling3D,
+    BatchNormalization,
     Conv1D,
     Conv2D,
     Dense,
@@ -17,11 +18,12 @@ from keras.layers import (
 from quantizers import get_fixed_quantizer
 
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
+from pquant.core.quantizer_functions import create_quantizer
 from pquant.core.utils import get_pruning_layer
 
 
 class CompressedLayerBase(keras.layers.Layer):
-    def __init__(self, config, layer, layer_type):
+    def __init__(self, config, layer_type, use_input_quantizer=False, use_output_quantizer=False):
         super().__init__()
         i_bits = config.quantization_parameters.default_integer_bits
         f_bits = config.quantization_parameters.default_fractional_bits
@@ -29,19 +31,27 @@ class CompressedLayerBase(keras.layers.Layer):
         self.f_weight = ops.convert_to_tensor(f_bits)
         self.i_bias = ops.convert_to_tensor(i_bits)
         self.f_bias = ops.convert_to_tensor(f_bits)
+
+        self.i_input = self.i_output = ops.convert_to_tensor(i_bits)
+        self.f_input = self.f_output = ops.convert_to_tensor(f_bits)
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
+
         self.pruning_method = config.pruning_parameters.pruning_method
-        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
+        self.round_mode = config.quantization_parameters.round_mode
+        self.overflow = config.quantization_parameters.overflow
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
 
         self.pruning_first = config.training_parameters.pruning_first
         self.enable_quantization = config.quantization_parameters.enable_quantization
-        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
+        self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.enable_pruning = config.pruning_parameters.enable_pruning
+
         self.do_transpose_data = None
         self.weight_transpose = None
         self.data_transpose = None
+        self.use_input_quantizer = use_input_quantizer
+        self.use_output_quantizer = use_output_quantizer
 
     def set_quantization_bits(self, i_bits_w, f_bits_w, i_bits_b, f_bits_b):
         self.i_weight = ops.convert_to_tensor(i_bits_w)
@@ -49,58 +59,40 @@ class CompressedLayerBase(keras.layers.Layer):
         self.i_bias = ops.convert_to_tensor(i_bits_b)
         self.f_bias = ops.convert_to_tensor(f_bits_b)
 
+    def set_input_output_quantization(self, input_quantization, output_quantization):
+        self.use_input_quantizer = input_quantization
+        self.use_output_quantizer = output_quantization
+
+    def set_input_output_quantization_bits(self, i_input, f_input, i_output, f_output):
+        self.i_input = i_input
+        self.f_input = f_input
+        self.i_output = i_output
+        self.f_output = f_output
+
     def set_enable_pruning(self, enable_pruning):
         self.enable_pruning = enable_pruning
 
     def build(self, input_shape):
         super().build(input_shape)
-        if self.use_high_granularity_quantization:
-            if self.hgq_heterogeneous:
-                self.hgq_weight = Quantizer(
-                    k0=1.0,
-                    i0=self.i_weight,
-                    f0=self.f_weight,
-                    round_mode="RND",
-                    overflow_mode=self.overflow,
-                    q_type="kif",
-                    homogeneous_axis=(),
-                )
-                self.hgq_weight.build(self.weight.shape)
-                if self.use_bias:
-                    self.hgq_bias = Quantizer(
-                        k0=1.0,
-                        i0=self.i_bias,
-                        f0=self.f_bias,
-                        round_mode="RND",
-                        overflow_mode=self.overflow,
-                        q_type="kif",
-                        homogeneous_axis=(),
-                    )
-                    self.hgq_bias.build(self.bias.shape)
-            else:
-                self.hgq_weight = Quantizer(
-                    k0=1.0,
-                    i0=self.i_weight,
-                    f0=self.f_weight,
-                    round_mode="RND",
-                    overflow_mode=self.overflow,
-                    q_type="kif",
-                    heterogeneous_axis=(),
-                )
-                self.hgq_weight.build(self.weight.shape)
-                if self.use_bias:
-                    self.hgq_bias = Quantizer(
-                        k0=1.0,
-                        i0=self.i_bias,
-                        f0=self.f_bias,
-                        round_mode="RND",
-                        overflow_mode=self.overflow,
-                        q_type="kif",
-                        heterogeneous_axis=(),
-                    )
-                    self.hgq_bias.build(self.bias.shape)
-        else:
-            self.quantizer = get_fixed_quantizer(round_mode="RND", overflow_mode=self.overflow)
+        self.weight_quantizer = create_quantizer(
+            k=ops.convert_to_tensor(1.0),
+            i=self.i_weight,
+            f=self.f_weight,
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=False,
+        )
+        if self.use_bias:
+            self.bias_quantizer = create_quantizer(
+                k=ops.convert_to_tensor(1.0),
+                i=self.i_bias,
+                f=self.f_bias,
+                overflow=self.overflow,
+                round_mode=self.round_mode,
+                is_heterogeneous=self.use_hgq,
+                is_data=False,
+            )
 
     def save_weights(self):
         self.init_weight = self.weight.value
@@ -123,17 +115,17 @@ class CompressedLayerBase(keras.layers.Layer):
 
     def quantize_i(self, weight, bias):
         if self.enable_quantization:
-            if self.use_high_granularity_quantization:
-                weight = self.hgq_weight(weight)
-                bias = None if bias is None else self.hgq_bias(bias)
+            if self.use_hgq:
+                weight = self.weight_quantizer(weight)
+                bias = None if bias is None else self.bias_quantizer(bias)
             else:
-                weight = self.quantizer(
+                weight = self.weight_quantizer(
                     weight, k=ops.convert_to_tensor(1.0), i=self.i_weight, f=self.f_weight, training=True
                 )
                 bias = (
                     None
                     if bias is None
-                    else self.quantizer(bias, k=ops.convert_to_tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
+                    else self.bias_quantizer(bias, k=ops.convert_to_tensor(1.0), i=self.i_bias, f=self.f_bias, training=True)
                 )
         return weight, bias
 
@@ -170,7 +162,7 @@ class CompressedLayerBase(keras.layers.Layer):
 
 class CompressedLayerDepthwiseConv2dKeras(CompressedLayerBase):
     def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+        super().__init__(config, layer_type)
         self.depthwise_regularizer = layer.depthwise_regularizer
         self.use_bias = layer.use_bias
         self.strides = layer.strides
@@ -211,7 +203,7 @@ class CompressedLayerDepthwiseConv2dKeras(CompressedLayerBase):
 
 class CompressedLayerConv2dKeras(CompressedLayerBase):
     def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+        super().__init__(config, layer_type)
         self.kernel_regularizer = layer.kernel_regularizer
         self.filters = layer.filters
         self.use_bias = layer.use_bias
@@ -283,7 +275,7 @@ class CompressedLayerSeparableConv2dKeras(Layer):
 
 class CompressedLayerConv1dKeras(CompressedLayerBase):
     def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+        super().__init__(config, layer_type)
         self.kernel_regularizer = layer.kernel_regularizer
         self.filters = layer.filters
         self.use_bias = layer.use_bias
@@ -328,7 +320,7 @@ class CompressedLayerConv1dKeras(CompressedLayerBase):
 
 class CompressedLayerDenseKeras(CompressedLayerBase):
     def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+        super().__init__(config, layer_type)
         self.kernel_regularizer = layer.kernel_regularizer
         self.use_bias = layer.use_bias
         self.units = layer.units
@@ -361,6 +353,118 @@ class CompressedLayerDenseKeras(CompressedLayerBase):
         if self.pruning_method == "activation_pruning":
             self.collect_output(x, training)
         return x
+
+
+class PQBatchNormalization(keras.layers.BatchNormalization):
+
+    def __init__(
+        self,
+        config,
+        axis=-1,
+        momentum=0.99,
+        epsilon=1e-3,
+        center=True,
+        scale=True,
+        beta_initializer="zeros",
+        gamma_initializer="ones",
+        moving_mean_initializer="zeros",
+        moving_variance_initializer="ones",
+        beta_regularizer=None,
+        gamma_regularizer=None,
+        beta_constraint=None,
+        gamma_constraint=None,
+        synchronized=False,
+        **kwargs,
+    ):
+        super().__init__(
+            axis,
+            momentum,
+            epsilon,
+            center,
+            scale,
+            beta_initializer,
+            gamma_initializer,
+            moving_mean_initializer,
+            moving_variance_initializer,
+            beta_regularizer,
+            gamma_regularizer,
+            beta_constraint,
+            gamma_constraint,
+            synchronized,
+            **kwargs,
+        )
+        self.overflow = config["quantization_parameters"]["overflow"]
+        self.round_mode = config["quantization_parameters"]["round_mode"]
+        self.config = config
+        self.f = ops.convert_to_tensor(config["quantization_parameters"]["default_fractional_bits"])
+        self.i = ops.convert_to_tensor(config["quantization_parameters"]["default_integer_bits"])
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        self.parameter_quantizer = create_quantizer(
+            k=1.0,
+            i=self.i,
+            f=self.f,
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=False,
+            is_data=True,
+        )
+
+    def set_bits(self, i, f):
+        self.i = ops.convert_to_tensor(i)
+        self.f = ops.convert_to_tensor(f)
+
+    def call(self, inputs, training=None, mask=None):
+        # Check if the mask has one less dimension than the inputs.
+        if mask is not None:
+            if len(mask.shape) != len(inputs.shape) - 1:
+                # Raise a value error
+                raise ValueError(
+                    "The mask provided should be one dimension less "
+                    "than the inputs. Received: "
+                    f"mask.shape={mask.shape}, inputs.shape={inputs.shape}"
+                )
+
+        compute_dtype = keras.backend.result_type(inputs.dtype, "float32")
+        # BN is prone to overflow with float16/bfloat16 inputs, so we upcast to
+        # float32 for the subsequent computations.
+        inputs = ops.cast(inputs, compute_dtype)
+
+        moving_mean = ops.cast(self.moving_mean, inputs.dtype)
+        moving_variance = ops.cast(self.moving_variance, inputs.dtype)
+
+        if training and self.trainable:
+            mean, variance = self._moments(inputs, mask)
+
+            self.moving_mean.assign(moving_mean * self.momentum + mean * (1.0 - self.momentum))
+            self.moving_variance.assign(moving_variance * self.momentum + variance * (1.0 - self.momentum))
+        else:
+            mean = moving_mean
+            variance = moving_variance
+
+        if self.scale:
+            gamma = self.parameter_quantizer(self.gamma, k=1.0, i=self.i, f=self.f)
+            gamma = ops.cast(gamma, inputs.dtype)
+        else:
+            gamma = None
+
+        if self.center:
+            beta = self.parameter_quantizer(self.beta, k=1.0, i=self.i, f=self.f)
+            beta = ops.cast(beta, inputs.dtype)
+        else:
+            beta = None
+
+        outputs = ops.batch_normalization(
+            x=inputs,
+            mean=mean,
+            variance=variance,
+            axis=self.axis,
+            offset=beta,
+            scale=gamma,
+            epsilon=self.epsilon,
+        )
+        return ops.cast(outputs, self.compute_dtype)
 
 
 class QuantizedPooling(keras.layers.Layer):
@@ -834,7 +938,7 @@ def get_model_losses_tf(model, losses):
             ),
         ):
             loss = layer.pruning_layer.calculate_additional_loss()
-            if layer.enable_quantization and layer.use_high_granularity_quantization:
+            if layer.enable_quantization and layer.use_hgq:
                 loss += layer.hgq_loss()
             losses += loss
         elif isinstance(layer, CompressedLayerSeparableConv2dKeras):
@@ -880,6 +984,11 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer = CompressedLayerDepthwiseConv2dKeras(config, layer, layer_type="conv")
             i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
+            i_input, f_input, i_output, f_output, quantize_input, quantize_output = get_quantization_bits_inputs_outputs(
+                config, layer
+            )
+            new_layer.set_input_output_quantization(quantize_input, quantize_output)
+            new_layer.set_input_output_quantization_bits(i_input, f_input, i_output, f_output)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
             pruning_layer_input = layer.kernel
@@ -893,6 +1002,11 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer = CompressedLayerConv2dKeras(config, layer, layer_type="conv")
             i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
+            i_input, f_input, i_output, f_output, quantize_input, quantize_output = get_quantization_bits_inputs_outputs(
+                config, layer
+            )
+            new_layer.set_input_output_quantization(quantize_input, quantize_output)
+            new_layer.set_input_output_quantization_bits(i_input, f_input, i_output, f_output)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
             pruning_layer_input = layer.kernel
@@ -908,6 +1022,13 @@ def add_compression_layers_tf(model, config, input_shape=None):
             )
             new_layer.depthwise_conv.set_quantization_bits(dw_i_bits_w, dw_f_bits_w, pw_i_bits_b, pw_f_bits_b)
             new_layer.pointwise_conv.set_quantization_bits(pw_i_bits_w, pw_f_bits_w, pw_i_bits_b, pw_f_bits_b)
+            i_input, f_input, i_output, f_output, quantize_input, quantize_output = get_quantization_bits_inputs_outputs(
+                config, layer
+            )
+            new_layer.depthwise_conv.set_input_output_quantization(quantize_input, False)
+            new_layer.pointwise_conv.set_input_output_quantization(False, quantize_output)
+            new_layer.depthwise_conv.set_input_output_quantization_bits(i_input, f_input, i_output, f_output)
+            new_layer.pointwise_conv.set_input_output_quantization_bits(i_input, f_input, i_output, f_output)
             enable_pruning_depthwise, enable_pruning_pointwise = get_enable_pruning(layer, config)
             new_layer.depthwise_conv.set_enable_pruning(enable_pruning_depthwise)
             new_layer.pointwise_conv.set_enable_pruning(enable_pruning_pointwise)
@@ -930,6 +1051,11 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer = CompressedLayerConv1dKeras(config, layer, layer_type="conv")
             i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
+            i_input, f_input, i_output, f_output, quantize_input, quantize_output = get_quantization_bits_inputs_outputs(
+                config, layer
+            )
+            new_layer.set_input_output_quantization(quantize_input, quantize_output)
+            new_layer.set_input_output_quantization_bits(i_input, f_input, i_output, f_output)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
             pruning_layer_input = layer.kernel
@@ -943,6 +1069,11 @@ def add_compression_layers_tf(model, config, input_shape=None):
             new_layer = CompressedLayerDenseKeras(config, layer, layer_type="linear")
             i_bits_w, f_bits_w, i_bits_b, f_bits_b = get_quantization_bits_weights_biases(config, layer)
             new_layer.set_quantization_bits(i_bits_w, f_bits_w, i_bits_b, f_bits_b)
+            i_input, f_input, i_output, f_output, quantize_input, quantize_output = get_quantization_bits_inputs_outputs(
+                config, layer
+            )
+            new_layer.set_input_output_quantization(quantize_input, quantize_output)
+            new_layer.set_input_output_quantization_bits(i_input, f_input, i_output, f_output)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
             pruning_layer_input = layer.kernel
@@ -957,13 +1088,16 @@ def add_compression_layers_tf(model, config, input_shape=None):
                 i_bits = config.quantization_parameters.default_integer_bits
                 f_bits = config.quantization_parameters.default_fractional_bits
                 i_bits, f_bits = get_quantization_bits_activations(config, layer)
+
                 new_layer = QuantizedReLU(config, i_bits, f_bits)
                 new_layer.build(layer.input.shape)
                 x = new_layer(x)
+
             else:
                 x = layer(x)
         elif isinstance(layer, Activation):
             new_layer = check_activation(layer, config)
+
             if new_layer is not None:
                 x = new_layer(x)
         elif isinstance(layer, (AveragePooling1D, AveragePooling2D, AveragePooling3D)):
@@ -971,6 +1105,30 @@ def add_compression_layers_tf(model, config, input_shape=None):
                 i_bits, f_bits = get_quantization_bits_activations(config, layer)
                 new_layer = QuantizedPooling(config, layer)
                 new_layer.set_quantization_bits(i_bits, f_bits)
+                new_layer.build(layer.output.shape)
+                x = new_layer(x)
+
+        elif isinstance(layer, (BatchNormalization)):
+            if config["quantization_parameters"]["enable_quantization"]:
+                i_bits, f_bits = get_quantization_bits_activations(config, layer)
+                new_layer = PQBatchNormalization(
+                    config,
+                    layer.axis,
+                    layer.momentum,
+                    layer.epsilon,
+                    layer.center,
+                    layer.scale,
+                    layer.beta_initializer,
+                    layer.gamma_initializer,
+                    layer.moving_mean_initializer,
+                    layer.moving_variance_initializer,
+                    layer.beta_regularizer,
+                    layer.gamma_regularizer,
+                    layer.beta_constraint,
+                    layer.gamma_constraint,
+                    layer.synchronized,
+                )
+                new_layer.set_bits(i_bits, f_bits)
                 new_layer.build(layer.output.shape)
                 x = new_layer(x)
             else:
@@ -1028,6 +1186,25 @@ def get_quantization_bits_weights_biases(config, layer):
                 i_bits_b = layer_specific[layer.name]["bias"]["integer_bits"]
                 f_bits_b = layer_specific[layer.name]["bias"]["fractional_bits"]
         return i_bits_w, f_bits_w, i_bits_b, f_bits_b
+
+
+def get_quantization_bits_inputs_outputs(config, layer):
+    layer_specific = config["quantization_parameters"]["layer_specific"]
+    i_input = i_output = config["quantization_parameters"]["default_integer_bits"]
+    f_input = f_output = config["quantization_parameters"]["default_fractional_bits"]
+    quantize_input = quantize_output = False
+    if layer.name in layer_specific:
+        if "input" in layer_specific[layer.name]:
+            i_input = layer_specific[layer.name]["input"]["integer_bits"]
+            f_input = layer_specific[layer.name]["input"]["fractional_bits"]
+            if "quantize_input" in layer_specific[layer.name]["input"]:
+                quantize_input = layer_specific[layer.name]["input"]["quantize_input"]
+        if "output" in layer_specific[layer.name]:
+            i_output = layer_specific[layer.name]["output"]["integer_bits"]
+            f_output = layer_specific[layer.name]["output"]["fractional_bits"]
+            if "quantize_output" in layer_specific[layer.name]["output"]:
+                quantize_output = layer_specific[layer.name]["output"]["quantize_output"]
+    return i_input, f_input, i_output, f_output, quantize_input, quantize_output
 
 
 def get_enable_pruning(layer, config):
