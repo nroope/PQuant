@@ -753,7 +753,7 @@ def create_default_layer_quantization_pruning_config(model):
                     "bias": {"integer_bits": 0, "fractional_bits": 7},
                 }
             config["disable_pruning_for_layers"].append(name)
-        elif layer.__class__ in [nn.Tanh, nn.ReLU, nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
+        elif layer.__class__ in [nn.BatchNorm2d, nn.Tanh, nn.ReLU, nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
             config["layer_specific"][name] = {"integer_bits": 0, "fractional_bits": 7}
     return config
 
