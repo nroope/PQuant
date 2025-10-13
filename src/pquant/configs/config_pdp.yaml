@@ -4,13 +4,15 @@ pruning_parameters:
   enable_pruning: true
   epsilon: 0.015
   pruning_method: pdp
-  sparsity: 0.4
+  sparsity: 0.8
   temperature: 1.0e-05
   threshold_decay: 0.
-  structured_pruning: true
+  structured_pruning: false
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_weight_keep_negatives: 1.
   enable_quantization: true
   hgq_gamma: 0.0003
   hgq_heterogeneous: True

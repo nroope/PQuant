@@ -11,6 +11,8 @@ pruning_parameters:
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_weight_keep_negatives: 1.
   enable_quantization: true
   hgq_gamma: 0.0003
   hgq_heterogeneous: True

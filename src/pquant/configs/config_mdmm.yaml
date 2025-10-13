@@ -20,6 +20,8 @@ quantization_parameters:
   enable_quantization: true
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_weight_keep_negatives: 1.
   hgq_gamma: 0.0003
   hgq_heterogeneous: True
   layer_specific: []

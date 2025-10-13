@@ -55,27 +55,27 @@ def get_model_losses(model, losses):
         return get_model_losses_tf(model, losses)
 
 
-def remove_pruning_from_model(model, config):
+def apply_final_compression_model(model):
     if keras.backend.backend() == "torch":
         from pquant.core.torch_impl.compressed_layers_torch import (
-            remove_pruning_from_model_torch,
+            apply_final_compression_torch,
         )
 
-        return remove_pruning_from_model_torch(model, config)
+        return apply_final_compression_torch(model)
     else:
         from pquant.core.tf_impl.compressed_layers_tf import (
-            remove_pruning_from_model_tf,
+            apply_final_compression_tf,
         )
 
-        return remove_pruning_from_model_tf(model, config)
+        return apply_final_compression_tf(model)
 
 
 def post_training_prune(model, calibration_data, config):
     if keras.backend.backend() == "torch":
         from pquant.core.torch_impl.compressed_layers_torch import (
             add_compression_layers_torch,
+            apply_final_compression_torch,
             post_pretrain_functions,
-            remove_pruning_from_model_torch,
         )
 
         t_delta = config.pruning_parameters.t_delta
@@ -86,12 +86,12 @@ def post_training_prune(model, calibration_data, config):
                 model = add_compression_layers_torch(model, config, inputs.shape)
                 post_pretrain_functions(model, config)
             model(inputs)
-        return remove_pruning_from_model_torch(model, config)
+        return apply_final_compression_torch(model)
     else:
         from pquant.core.tf_impl.compressed_layers_tf import (
             add_compression_layers_tf,
+            apply_final_compression_tf,
             post_pretrain_functions,
-            remove_pruning_from_model_tf,
         )
 
         t_delta = config.pruning_parameters.t_delta
@@ -103,4 +103,4 @@ def post_training_prune(model, calibration_data, config):
                 model = add_compression_layers_tf(model, config, inputs.shape)
                 post_pretrain_functions(model, config)
             model(inputs, training=True)  # True so pruning works
-        return remove_pruning_from_model_tf(model, config)
+        return apply_final_compression_tf(model, config)
