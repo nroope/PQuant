@@ -5,11 +5,9 @@ from typing import Annotated, Callable, Dict, Optional, Union
 
 import keras
 import os
-import mlflow
 import optuna
 import torch
 import yaml
-from mlflow.models import infer_signature
 from pydantic import BaseModel, Field, field_validator
 
 from pquant.core import constants
@@ -284,6 +282,8 @@ class TuningTask:
         ]
 
         if self.enable_mlflow:
+            import mlflow
+            from mlflow.models import infer_signature
             with mlflow.start_run(nested=True):
                 mlflow.log_params({param_name: getattr(self.config, param_name) for param_name in self.config.model_fields})
                 mlflow.log_metrics({key: val for key, val in zip(self.objectives.keys(), objectives)})
@@ -301,6 +301,7 @@ class TuningTask:
 
     def run_optimization(self, model, **kwargs):
         if self.enable_mlflow:
+            import mlflow
             if not self.tracking_uri:
                 raise ValueError("Tracking URI must be set when MLflow logging is enabled.")
             mlflow.set_tracking_uri(self.tracking_uri)

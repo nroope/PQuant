@@ -1,4 +1,3 @@
-import mlflow
 import optuna
 
 from pquant.data_models.pruning_model import (
@@ -19,6 +18,7 @@ from pquant.pruning_methods.metric_functions import (
     StructuredSparsityMetric,
     UnstructuredSparsityMetric,
 )
+
 
 PRUNING_MODEL_REGISTRY = {
     "cs": CSPruningModel,
@@ -43,10 +43,14 @@ SAMPLER_REGISTRY = {
     "BruteForceSampler": optuna.samplers.BruteForceSampler,
 }
 
-LOG_FUNCTIONS_REGISTRY = {
-    "torch": mlflow.pytorch.log_model,
-    "tensorflow": mlflow.tensorflow.log_model,
-}
+try:
+    import mlflow
+    LOG_FUNCTIONS_REGISTRY = {
+        "torch": mlflow.pytorch.log_model,
+        "tensorflow": mlflow.tensorflow.log_model,
+    }
+except ModuleNotFoundError:
+    LOG_FUNCTIONS_REGISTRY = {}
 
 JAX_BACKEND = "jax"
 
