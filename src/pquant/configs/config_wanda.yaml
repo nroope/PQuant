@@ -36,7 +36,7 @@ fitcompress_parameters:
 training_parameters:
   epochs: 200
   fine_tuning_epochs: 0
-  pretraining_epochs: 0
+  pretraining_epochs: 50
   pruning_first: false
   rewind: never
   rounds: 1

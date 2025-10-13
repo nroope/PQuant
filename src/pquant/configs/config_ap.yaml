@@ -5,11 +5,13 @@ pruning_parameters:
   pruning_method: activation_pruning
   threshold: 0.15
   threshold_decay: 0.
-  t_delta: 50
-  t_start_collecting_batch: 50
+  t_delta: 100
+  t_start_collecting_batch: 100
 quantization_parameters:
   default_integer_bits: 0.
   default_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_weight_keep_negatives: 1.
   enable_quantization: true
   hgq_gamma: 0.0003
   hgq_heterogeneous: True
@@ -31,7 +33,7 @@ fitcompress_parameters:
   approximate : true
   f_lambda : 1
 training_parameters:
-  epochs: 100
+  epochs: 200
   fine_tuning_epochs: 0
   pretraining_epochs: 0
   pruning_first: false

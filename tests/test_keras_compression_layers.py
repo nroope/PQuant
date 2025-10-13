@@ -18,15 +18,15 @@ from keras.layers import (
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.tf_impl.compressed_layers_tf import (
     CompressedLayerConv1dKeras,
-    CompressedLayerConv2dKeras,
     CompressedLayerDenseKeras,
-    CompressedLayerSeparableConv2dKeras,
+    PQConv2d,
+    PQSeparableConv2d,
     QuantizedPooling,
     add_compression_layers_tf,
+    apply_final_compression_tf,
     get_layer_keep_ratio_tf,
     post_pretrain_functions,
     pre_finetune_functions,
-    remove_pruning_from_model_tf,
 )
 
 
@@ -45,6 +45,11 @@ KERNEL_SIZE = 3
 STEPS = 16
 
 
+@pytest.fixture(autouse=True)
+def run_around_tests():
+    keras.backend.clear_session()
+
+
 @pytest.fixture
 def config_pdp():
     cfg = {
@@ -61,6 +66,8 @@ def config_pdp():
         "quantization_parameters": {
             "default_integer_bits": 0.0,
             "default_fractional_bits": 7.0,
+            "default_data_keep_negatives": 0.0,
+            "default_weight_keep_negatives": 1.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
             "hgq_heterogeneous": True,
@@ -93,6 +100,8 @@ def config_ap():
         "quantization_parameters": {
             "default_integer_bits": 0.0,
             "default_fractional_bits": 7.0,
+            "default_data_keep_negatives": 0.0,
+            "default_weight_keep_negatives": 1.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
             "hgq_heterogeneous": True,
@@ -128,6 +137,8 @@ def config_wanda():
         "quantization_parameters": {
             "default_integer_bits": 0.0,
             "default_fractional_bits": 7.0,
+            "default_data_keep_negatives": 0.0,
+            "default_weight_keep_negatives": 1.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
             "hgq_heterogeneous": True,
@@ -159,6 +170,8 @@ def config_cs():
         "quantization_parameters": {
             "default_integer_bits": 0.0,
             "default_fractional_bits": 7.0,
+            "default_data_keep_negatives": 0.0,
+            "default_weight_keep_negatives": 1.0,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
             "hgq_heterogeneous": True,
@@ -214,7 +227,7 @@ def test_conv2d_call(config_pdp, conv2d_input):
     layer_to_replace = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")
     layer_to_replace.build(conv2d_input.shape)
     out = layer_to_replace(conv2d_input)
-    layer = CompressedLayerConv2dKeras(config_pdp, layer_to_replace, "conv")
+    layer = PQConv2d(config_pdp, layer_to_replace, "conv")
     layer.build(conv2d_input.shape)
     layer.weight.assign(layer_to_replace.kernel)
     out2 = layer(conv2d_input)
@@ -225,7 +238,7 @@ def test_separable_conv2d_call(config_pdp, conv2d_input):
     layer_to_replace = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")
     layer_to_replace.build(conv2d_input.shape)
     out = layer_to_replace(conv2d_input)
-    layer = CompressedLayerSeparableConv2dKeras(config_pdp, layer_to_replace)
+    layer = PQSeparableConv2d(config_pdp, layer_to_replace)
     layer.depthwise_conv.build(conv2d_input.shape)
     layer.pointwise_conv.build(conv2d_input.shape)
     layer.depthwise_conv.weight.assign(layer_to_replace.depthwise_kernel)
@@ -258,16 +271,16 @@ def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
 
     output1 = model(conv2d_input)
 
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
 
     expected_nonzero_count_depthwise = ops.count_nonzero(mask_50pct_dw)
-    nonzero_count_depthwise = ops.count_nonzero(model.layers[1].depthwise_kernel)
+    nonzero_count_depthwise = ops.count_nonzero(model.layers[1].depthwise_conv.weight)
     assert ops.equal(expected_nonzero_count_depthwise, nonzero_count_depthwise)
 
     expected_nonzero_count_pointwise = ops.count_nonzero(mask_50pct_pw)
-    nonzero_count_pointwise = ops.count_nonzero(model.layers[1].pointwise_kernel)
+    nonzero_count_pointwise = ops.count_nonzero(model.layers[1].pointwise_conv.weight)
     assert ops.equal(expected_nonzero_count_pointwise, nonzero_count_pointwise)
 
 
@@ -291,7 +304,7 @@ def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     model.layers[1].pointwise_conv.pruning_layer.mask = mask_50pct_pw
 
     ratio1 = get_layer_keep_ratio_tf(model)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     ratio2 = get_layer_keep_ratio_tf(model)
 
     assert ops.equal(ratio1, ratio2)
@@ -349,11 +362,11 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(dense_input)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     output2 = model(dense_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
-    nonzero_count = ops.count_nonzero(model.layers[1].kernel)
+    nonzero_count = ops.count_nonzero(model.layers[1].weight)
     assert ops.equal(expected_nonzero_count, nonzero_count)
 
 
@@ -371,11 +384,11 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(conv2d_input)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
-    nonzero_count = ops.count_nonzero(model.layers[1].kernel)
+    nonzero_count = ops.count_nonzero(model.layers[1].weight)
     assert ops.equal(expected_nonzero_count, nonzero_count)
 
 
@@ -393,11 +406,11 @@ def test_depthwise_conv2d_add_remove_layers(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(conv2d_input)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
-    nonzero_count = ops.count_nonzero(model.layers[1].kernel)
+    nonzero_count = ops.count_nonzero(model.layers[1].weight)
     assert ops.equal(expected_nonzero_count, nonzero_count)
 
 
@@ -415,11 +428,11 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(conv1d_input)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     output2 = model(conv1d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
-    nonzero_count = ops.count_nonzero(model.layers[1].kernel)
+    nonzero_count = ops.count_nonzero(model.layers[1].weight)
     assert ops.equal(expected_nonzero_count, nonzero_count)
 
 
@@ -437,7 +450,7 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     ratio1 = get_layer_keep_ratio_tf(model)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     ratio2 = get_layer_keep_ratio_tf(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
@@ -457,7 +470,7 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     ratio1 = get_layer_keep_ratio_tf(model)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     ratio2 = get_layer_keep_ratio_tf(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
@@ -477,7 +490,7 @@ def test_depthwise_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     ratio1 = get_layer_keep_ratio_tf(model)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     ratio2 = get_layer_keep_ratio_tf(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
@@ -497,7 +510,7 @@ def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     ratio1 = get_layer_keep_ratio_tf(model)
-    model = remove_pruning_from_model_tf(model, config_pdp)
+    model = apply_final_compression_tf(model)
     ratio2 = get_layer_keep_ratio_tf(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
@@ -1308,7 +1321,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
     assert model.layers[1].weight_quantizer.quantizer._i.shape == model.layers[1].weight.shape
     layer_2_input_shape = [1] + list(model.layers[2].input.shape[1:])
-    assert model.layers[2].quantizer.quantizer._i.shape == layer_2_input_shape
+    assert model.layers[2].input_quantizer.quantizer._i.shape == layer_2_input_shape
 
 
 def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_input, dense_input):
@@ -1356,7 +1369,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
 
     for m in model.layers:
-        if isinstance(m, (CompressedLayerConv2dKeras)):
+        if isinstance(m, (PQConv2d)):
             assert m.i_weight == 0.0
             assert m.i_bias == 0.0
             assert ops.all(m.weight_quantizer.quantizer.i == 0.0)
@@ -1367,31 +1380,31 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert ops.all(m.weight_quantizer.quantizer.f == 7.0)
             assert ops.all(m.bias_quantizer.quantizer.f == 7.0)
         elif isinstance(m, (QuantizedTanh)):
-            assert m.i == 0.0
-            assert m.f == 7.0
-            assert ops.all(m.quantizer.quantizer.i == 0.0)
-            assert ops.all(m.quantizer.quantizer.f == 7.0)
+            assert m.i_input == 0.0
+            assert m.f_input == 7.0
+            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
+            assert ops.all(m.input_quantizer.quantizer.f == 7.0)
         elif isinstance(m, (QuantizedReLU)):
-            assert m.i == 0.0
-            assert m.f == 8.0
-            assert ops.all(m.quantizer.quantizer.i == 0.0)
-            assert ops.all(m.quantizer.quantizer.f == 8.0)
+            assert m.i_input == 0.0
+            assert m.f_input == 8.0
+            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
+            assert ops.all(m.input_quantizer.quantizer.f == 8.0)
         elif isinstance(m, (QuantizedPooling)):
-            assert m.i == 0.0
-            assert m.f == 7.0
-            assert ops.all(m.hgq.quantizer.i == 0.0)
-            assert ops.all(m.hgq.quantizer.f == 7.0)
+            assert m.i_input == 0.0
+            assert m.f_input == 7.0
+            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
+            assert ops.all(m.input_quantizer.quantizer.f == 7.0)
 
     config_pdp.quantization_parameters.layer_specific = {
-        'conv2d_17': {
+        'conv2d': {
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
         },
-        're_lu_6': {'integer_bits': 1.0, 'fractional_bits': 3.0},
-        'average_pooling2d_2': {'integer_bits': 1.0, 'fractional_bits': 3.0},
-        'activation_6': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+        're_lu': {"input": {'integer_bits': 1.0, 'fractional_bits': 3.0}},
+        'average_pooling2d': {"input": {'integer_bits': 1.0, 'fractional_bits': 3.0}},
+        'activation': {"input": {'integer_bits': 0.0, 'fractional_bits': 3.0}},
     }
-
+    keras.backend.clear_session()
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
     out = ReLU()(out)
@@ -1400,7 +1413,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     model = keras.Model(inputs=inputs, outputs=out)
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
     for m in model.layers:
-        if isinstance(m, (CompressedLayerConv2dKeras)):
+        if isinstance(m, (PQConv2d)):
             assert m.i_weight == 1.0
             assert m.i_bias == 2.0
             assert ops.all(m.weight_quantizer.quantizer.i == 1.0)
@@ -1411,20 +1424,20 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert ops.all(m.weight_quantizer.quantizer.f == 3.0)
             assert ops.all(m.bias_quantizer.quantizer.f == 4.0)
         elif isinstance(m, (QuantizedTanh)):
-            assert m.i == 0.0
-            assert m.f == 3.0
-            assert ops.all(m.quantizer.quantizer.i == 0.0)
-            assert ops.all(m.quantizer.quantizer.f == 3.0)
+            assert m.i_input == 0.0
+            assert m.f_input == 3.0
+            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
+            assert ops.all(m.input_quantizer.quantizer.f == 3.0)
         elif isinstance(m, (QuantizedReLU)):
-            assert m.i == 1.0
-            assert m.f == 3.0
-            assert ops.all(m.quantizer.quantizer.i == 1.0)
-            assert ops.all(m.quantizer.quantizer.f == 3.0)
+            assert m.i_input == 1.0
+            assert m.f_input == 3.0
+            assert ops.all(m.input_quantizer.quantizer.i == 1.0)
+            assert ops.all(m.input_quantizer.quantizer.f == 3.0)
         elif isinstance(m, (QuantizedPooling)):
-            assert m.i == 1.0
-            assert m.f == 3.0
-            assert ops.all(m.hgq.quantizer.i == 1.0)
-            assert ops.all(m.hgq.quantizer.f == 3.0)
+            assert m.i_input == 1.0
+            assert m.f_input == 3.0
+            assert ops.all(m.input_quantizer.quantizer.i == 1.0)
+            assert ops.all(m.input_quantizer.quantizer.f == 3.0)
 
 
 def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
@@ -1439,32 +1452,32 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
 
     for m in model.layers:
-        if isinstance(m, (CompressedLayerConv2dKeras)):
+        if isinstance(m, (PQConv2d)):
             assert m.i_weight == 0.0
             assert m.i_bias == 0.0
 
             assert m.f_weight == 7.0
             assert m.f_bias == 7.0
         elif isinstance(m, (QuantizedTanh)):
-            assert m.i == 0.0
-            assert m.f == 7.0
+            assert m.i_input == 0.0
+            assert m.f_input == 7.0
         elif isinstance(m, (QuantizedReLU)):
-            assert m.i == 0.0
-            assert m.f == 8.0
+            assert m.i_input == 0.0
+            assert m.f_input == 8.0
         elif isinstance(m, (QuantizedPooling)):
-            assert m.i == 0.0
-            assert m.f == 7.0
+            assert m.i_input == 0.0
+            assert m.f_input == 7.0
 
     config_pdp.quantization_parameters.layer_specific = {
-        'conv2d_19': {
+        'conv2d': {
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
         },
-        're_lu_8': {'integer_bits': 1.0, 'fractional_bits': 3.0},
-        'average_pooling2d_4': {'integer_bits': 1.0, 'fractional_bits': 3.0},
-        'activation_8': {'integer_bits': 0.0, 'fractional_bits': 3.0},
+        're_lu': {"input": {'integer_bits': 1.0, 'fractional_bits': 3.0}},
+        'average_pooling2d': {"input": {'integer_bits': 1.0, 'fractional_bits': 3.0}},
+        'activation': {"input": {'integer_bits': 0.0, 'fractional_bits': 3.0}},
     }
-
+    keras.backend.clear_session()
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
     out = ReLU()(out)
@@ -1473,18 +1486,18 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     model = keras.Model(inputs=inputs, outputs=out)
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
     for m in model.layers:
-        if isinstance(m, (CompressedLayerConv2dKeras)):
+        if isinstance(m, (PQConv2d)):
             assert m.i_weight == 1.0
             assert m.i_bias == 2.0
 
             assert m.f_weight == 3.0
             assert m.f_bias == 4.0
         elif isinstance(m, (QuantizedTanh)):
-            assert m.i == 0.0
-            assert m.f == 3.0
+            assert m.i_input == 0.0
+            assert m.f_input == 3.0
         elif isinstance(m, (QuantizedReLU)):
-            assert m.i == 1.0
-            assert m.f == 3.0
+            assert m.i_input == 1.0
+            assert m.f_input == 3.0
         elif isinstance(m, (QuantizedPooling)):
-            assert m.i == 1.0
-            assert m.f == 3.0
+            assert m.i_input == 1.0
+            assert m.f_input == 3.0
