@@ -121,12 +121,28 @@ class PQWeightBiasBase(keras.layers.Layer):
     def rewind_weights(self):
         self.weight.assign(self.init_weight)
 
+    def ebops(self):
+        return 0.0
+
     def hgq_loss(self):
-        if self.pruning_layer.is_pretraining:
+        if self.pruning_layer.is_pretraining or not self.use_hgq:
             return 0.0
-        loss = (ops.sum(self.hgq_weight.quantizer.i) + ops.sum(self.hgq_weight.quantizer.f)) * self.hgq_gamma
+        loss = self.ebops()
+        loss += (
+            ops.sum(self.weight_quantizer.quantizer.quantizer.i) + ops.sum(self.weight_quantizer.quantizer.quantizer.f)
+        ) * self.hgq_gamma
         if self.bias is not None:
-            loss += (ops.sum(self.hgq_bias.quantizer.i) + ops.sum(self.hgq_bias.quantizer.f)) * self.hgq_gamma
+            loss += (
+                ops.sum(self.bias_quantizer.quantizer.quantizer.i) + ops.sum(self.bias_quantizer.quantizer.quantizer.f)
+            ) * self.hgq_gamma
+        if self.quantize_input:
+            loss += (
+                ops.sum(self.input_quantizer.quantizer.quantizer.i) + ops.sum(self.input_quantizer.quantizer.quantizer.f)
+            ) * self.hgq_gamma
+        if self.quantize_output:
+            loss += (
+                ops.sum(self.output_quantizer.quantizer.quantizer.i) + ops.sum(self.output_quantizer.quantizer.quantizer.f)
+            ) * self.hgq_gamma
         return loss
 
     def handle_transpose(self, x, transpose, do_transpose=False):
@@ -321,7 +337,7 @@ class PQSeparableConv2d(Layer):
         return x
 
 
-class CompressedLayerConv1dKeras(PQWeightBiasBase):
+class PQConv1d(PQWeightBiasBase):
     def __init__(self, config, layer, layer_type, quantize_input=True, quantize_output=False):
         super().__init__(config, layer_type, quantize_input, quantize_output)
         self.kernel_regularizer = layer.kernel_regularizer
@@ -363,7 +379,7 @@ class CompressedLayerConv1dKeras(PQWeightBiasBase):
         return x
 
 
-class CompressedLayerDenseKeras(PQWeightBiasBase):
+class PQDense(PQWeightBiasBase):
     def __init__(self, config, layer, layer_type):
         super().__init__(config, layer_type)
         self.kernel_regularizer = layer.kernel_regularizer
@@ -376,6 +392,7 @@ class CompressedLayerDenseKeras(PQWeightBiasBase):
         self.weight_transpose = (1, 0)
         self.weight_transpose_back = (1, 0)
         self.data_transpose = (0, 1)  # Always (BATCH_SIZE, OUT_FEATURES)
+        self.parallelization_factor = -1
 
     def build(self, input_shape):
         self.weight = self.add_weight(
@@ -387,6 +404,20 @@ class CompressedLayerDenseKeras(PQWeightBiasBase):
             else None
         )
         super().build(input_shape)
+        self.input_shape = input_shape
+        self.n_parallel = ops.prod(input_shape[1:-1])
+        self.parallelization_factor = self.parallelization_factor if self.parallelization_factor > 0 else self.n_parallel
+
+    def ebops(self, shape):
+        bw_inp = self.input_quantizer.bits_(shape)
+        bw_ker = self.weight_quantizer.bits_(ops.shape(self.weight))
+        ebops = ops.sum(ops.matmul(bw_inp, bw_ker))
+        ebops = ebops * self.n_parallel / self.parallelization_factor
+        if self.use_bias:
+            bw_bias = self.bias_quantizer.bits_(ops.shape(self.bias))
+            size = ops.cast(ops.prod(self.input_shape), self.dtype)
+            ebops += ops.mean(bw_bias) * size
+        return ebops
 
     def call(self, x, training=None):
         weight, bias, x = self.pre_forward(self.weight, self.bias, x, training)
@@ -518,14 +549,20 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
 
         if self.scale:
             if self.enable_quantization and not self.final_compression_done:
-                gamma = self.parameter_quantizer(self.gamma, k=1.0, i=self.i, f=self.f)
+                if self.use_hgq:
+                    gamma = self.parameter_quantizer(self.gamma)
+                else:
+                    gamma = self.parameter_quantizer(self.gamma, k=self.weight_k, i=self.i_weight, f=self.f_weight)
             gamma = ops.cast(gamma, inputs.dtype)
         else:
             gamma = None
 
         if self.center:
             if self.enable_quantization and not self.final_compression_done:
-                beta = self.parameter_quantizer(self.beta, k=self.weight_k, i=self.i, f=self.f)
+                if self.use_hgq:
+                    beta = self.parameter_quantizer(self.beta)
+                else:
+                    beta = self.parameter_quantizer(self.beta, k=self.weight_k, i=self.i_weight, f=self.f_weight)
             beta = ops.cast(beta, inputs.dtype)
         else:
             beta = None
@@ -644,8 +681,8 @@ def post_epoch_functions(model, epoch, total_epochs, **kwargs):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.pruning_layer.post_epoch_function(epoch, total_epochs, **kwargs)
@@ -661,8 +698,8 @@ def pre_epoch_functions(model, epoch, total_epochs):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.pruning_layer.pre_epoch_function(epoch, total_epochs)
@@ -678,8 +715,8 @@ def post_round_functions(model):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.pruning_layer.post_round_function()
@@ -695,8 +732,8 @@ def save_weights_functions(model):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.save_weights()
@@ -712,8 +749,8 @@ def rewind_weights_functions(model):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.rewind_weights()
@@ -729,8 +766,8 @@ def pre_finetune_functions(model):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.pruning_layer.pre_finetune_function()
@@ -746,8 +783,8 @@ def post_pretrain_functions(model, config):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             layer.pruning_layer.post_pre_train_function()
@@ -774,8 +811,8 @@ def pdp_setup(model, config):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             if global_weights is None:
@@ -801,8 +838,8 @@ def pdp_setup(model, config):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             weight_size = ops.size(layer.weight)
@@ -841,8 +878,8 @@ def get_layer_keep_ratio_tf(model):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             # weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
@@ -909,8 +946,8 @@ def get_model_losses_tf(model, losses):
             (
                 PQDepthwiseConv2d,
                 PQConv2d,
-                CompressedLayerConv1dKeras,
-                CompressedLayerDenseKeras,
+                PQConv1d,
+                PQDense,
             ),
         ):
             loss = layer.pruning_layer.calculate_additional_loss()
@@ -1007,7 +1044,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
             x = new_layer(x)
             act = check_activation(layer, config)
         elif isinstance(layer, Conv1D):
-            new_layer = CompressedLayerConv1dKeras(config, layer, layer_type="conv")
+            new_layer = PQConv1d(config, layer, layer_type="conv")
             set_quantization_bits_weight_layers(config, layer, new_layer)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
@@ -1019,7 +1056,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
             x = new_layer(x)
             act = check_activation(layer, config)
         elif isinstance(layer, Dense):
-            new_layer = CompressedLayerDenseKeras(config, layer, layer_type="linear")
+            new_layer = PQDense(config, layer, layer_type="linear")
             set_quantization_bits_weight_layers(config, layer, new_layer)
             enable_pruning = get_enable_pruning(layer, config)
             new_layer.set_enable_pruning(enable_pruning)
