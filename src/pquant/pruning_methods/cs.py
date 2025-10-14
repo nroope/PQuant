@@ -26,6 +26,8 @@ class ContinuousSparsification(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, weight):
+        if self.is_pretraining and self.config["fitcompress_parameters"]["enable_fitcompress"]:
+            return weight
         self.mask = self.get_mask()
         return self.mask * weight
 

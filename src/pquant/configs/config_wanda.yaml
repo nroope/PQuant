@@ -19,12 +19,22 @@ quantization_parameters:
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
-  use_relu_multiplier: true
+  use_relu_multiplier: false
   use_symmetric_quantization: false
+fitcompress_parameters:
+  enable_fitcompress : true
+  optimize_quantization : true
+  quantization_schedule : [7.,4.,3.,2.,1.]
+  pruning_schedule : {start : 0, end : -3, steps : 40}
+  compression_goal : 0.04
+  optimize_pruning : true
+  greedy_astar : true
+  approximate : true 
+  lambda : 0.5
 training_parameters:
   epochs: 200
   fine_tuning_epochs: 0
-  pretraining_epochs: 50
+  pretraining_epochs: 0
   pruning_first: false
   rewind: never
   rounds: 1
