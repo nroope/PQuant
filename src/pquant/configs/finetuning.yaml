@@ -48,18 +48,15 @@ fitcompress_parameters:
 finetuning_parameters:
     experiment_name: resnet_18_experiment_2
     num_trials: 10
-<<<<<<< HEAD
     sampler:
       type: TPESampler
     hyperparameter_search:
       numerical:
         lr: [1e-5, 1e-3, 0.2]
-=======
     sampler: TPESampler
     hyperparameter_search:
       numerical:
         learning_rate: [1e-5, 1e-3, 0.2]
->>>>>>> d8cc713 (Add fine-tuning feature v1)
         batch_size: [16, 128, 32]
         default_integer_bits: [0, 8, 1]
       categorical:
