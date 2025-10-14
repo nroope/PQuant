@@ -53,7 +53,7 @@ class DST(keras.layers.Layer):
             0.4           if 0.4 < |W| <= 1
             0             if |W| > 1
         """
-        if self.is_pretraining and self.config["fitcompress_parameters"]["enable_fitcompress"]:
+        if self.is_pretraining and self.config.fitcompress_parameters.enable_fitcompress:
             return weight
         mask = self.get_mask(weight)
         ratio = 1.0 - ops.sum(mask) / ops.cast(ops.size(mask), mask.dtype)

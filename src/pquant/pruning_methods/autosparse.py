@@ -83,7 +83,7 @@ class AutoSparse(keras.layers.Layer):
         sign(W) * ReLu(X), where X = |W| - sigmoid(threshold), with gradient:
             1 if W > 0 else alpha. Alpha is decayed after each epoch.
         """
-        if self.is_pretraining and self.config["fitcompress_parameters"]["enable_fitcompress"]:
+        if self.is_pretraining and self.config.fitcompress_parameters.enable_fitcompress:
             return weight
         else:
             mask = self.get_mask(weight)

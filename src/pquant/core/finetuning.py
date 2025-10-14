@@ -1,10 +1,10 @@
 import copy
 import json
 import logging
+import os
 from typing import Annotated, Callable, Dict, Optional, Union
 
 import keras
-import os
 import optuna
 import torch
 import yaml
@@ -14,6 +14,7 @@ from pquant.core import constants
 from pquant.core.compressed_layers import add_compression_layers
 from pquant.core.train import iterative_train
 from pquant.data_models.finetuning_model import BaseFinetuningModel
+from pquant.data_models.fitcompress_model import BaseFitCompressModel
 from pquant.data_models.pruning_model import (
     ActivationPruningModel,
     AutoSparsePruningModel,
@@ -80,6 +81,7 @@ class TuningConfig(BaseModel):
     ]
     quantization_parameters: BaseQuantizationModel
     training_parameters: BaseTrainingModel
+    fitcompress_parameters: BaseFitCompressModel
 
     @classmethod
     def load_from_file(cls, path_to_config_file):
@@ -105,6 +107,7 @@ class TuningConfig(BaseModel):
             pruning_parameters=pruning_model_cls(**config.get("pruning_parameters", {})),
             quantization_parameters=BaseQuantizationModel(**config.get("quantization_parameters", {})),
             training_parameters=BaseTrainingModel(**config.get("training_parameters", {})),
+            fitcompress_parameters=BaseFitCompressModel(**config.get("fitcompress_parameters", {})),
         )
 
     def get_dict(self):
@@ -124,20 +127,20 @@ class TuningTask:
         self.enable_mlflow = False
         self.tracking_uri = None
         self.storage_db = None
-    
+
     def set_tracking_uri(self, tracking_uri: str):
         self.tracking_uri = tracking_uri
         os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
-    
+
     def set_user(self, user_email: str, access_token: str):
         os.environ.pop("MLFLOW_TRACKING_TOKEN", None)
         os.environ["MLFLOW_TRACKING_USERNAME"] = user_email
         os.environ["MLFLOW_TRACKING_PASSWORD"] = access_token
         os.environ["NO_PROXY"] = "ngt.cern.ch"
-    
+
     def set_storage_db(self, storage_db: str):
         self.storage_db = storage_db
-    
+
     def set_enable_mlflow(self):
         self.enable_mlflow = True
 
@@ -284,6 +287,7 @@ class TuningTask:
         if self.enable_mlflow:
             import mlflow
             from mlflow.models import infer_signature
+
             with mlflow.start_run(nested=True):
                 mlflow.log_params({param_name: getattr(self.config, param_name) for param_name in self.config.model_fields})
                 mlflow.log_metrics({key: val for key, val in zip(self.objectives.keys(), objectives)})
@@ -302,12 +306,13 @@ class TuningTask:
     def run_optimization(self, model, **kwargs):
         if self.enable_mlflow:
             import mlflow
+
             if not self.tracking_uri:
                 raise ValueError("Tracking URI must be set when MLflow logging is enabled.")
             mlflow.set_tracking_uri(self.tracking_uri)
             finetuning_parameters = self.config.finetuning_parameters
             mlflow.set_experiment(finetuning_parameters.experiment_name)
-          
+
         sampler = get_sampler(finetuning_parameters.sampler.type, **finetuning_parameters.sampler.params)
         study = optuna.create_study(
             study_name=finetuning_parameters.experiment_name,
@@ -320,7 +325,11 @@ class TuningTask:
         num_trials = finetuning_parameters.num_trials
         study.optimize(
             lambda trial: self.objective(
-                trial, copy.deepcopy(model.cpu()).to(self.device), self.get_training_function(), self.get_validation_function(), **kwargs
+                trial,
+                copy.deepcopy(model.cpu()).to(self.device),
+                self.get_training_function(),
+                self.get_validation_function(),
+                **kwargs,
             ),
             n_trials=num_trials,
             n_jobs=1,
