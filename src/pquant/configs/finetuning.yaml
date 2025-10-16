@@ -25,7 +25,7 @@ training_parameters:
    milestones: [30, 80]
    gamma: 0.1
    cosine_tmax: 200
-   lr: 0.001
+   learning_rate: 0.001
    prune_ratio: 10
    default_integer_bits: 0
    epochs: 2
@@ -50,10 +50,6 @@ finetuning_parameters:
     num_trials: 10
     sampler:
       type: TPESampler
-    hyperparameter_search:
-      numerical:
-        lr: [1e-5, 1e-3, 0.2]
-    sampler: TPESampler
     hyperparameter_search:
       numerical:
         learning_rate: [1e-5, 1e-3, 0.2]
