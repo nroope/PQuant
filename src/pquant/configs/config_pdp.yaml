@@ -14,6 +14,7 @@ quantization_parameters:
   default_data_keep_negatives: 0.
   default_weight_keep_negatives: 1.
   enable_quantization: true
+  hgq_beta: 1e-5
   hgq_gamma: 0.0003
   hgq_heterogeneous: True
   layer_specific: []

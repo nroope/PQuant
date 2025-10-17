@@ -7,7 +7,8 @@ from pquant.core.quantizer_functions import create_quantizer
 
 @keras.saving.register_keras_serializable(package="PQuant")
 class QuantizedTanh(keras.layers.Layer):
-    def __init__(self, config, i_input=0.0, f_input=7.0, i_output=0.0, f_output=7.0, quantize_input=True, quantize_output=True
+    def __init__(
+        self, config, i_input=0.0, f_input=7.0, i_output=0.0, f_output=7.0, quantize_input=True, quantize_output=False
     ):
         super().__init__()
         if isinstance(config, dict):
@@ -28,6 +29,8 @@ class QuantizedTanh(keras.layers.Layer):
         self.is_pretraining = True
         self.round_mode = config.quantization_parameters.round_mode
         self.overflow = config.quantization_parameters.overflow
+        self.hgq_beta = config.quantization_parameters.hgq_beta
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.use_real_tanh = config.quantization_parameters.use_real_tanh
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.quantize_input = quantize_input
@@ -35,6 +38,7 @@ class QuantizedTanh(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
+        self.input_shape = input_shape
         self.output_quantizer = create_quantizer(
             k=self.k,
             i=self.i_output,
@@ -57,12 +61,46 @@ class QuantizedTanh(keras.layers.Layer):
             self.input_quantizer.build(input_shape)
             self.output_quantizer.build(input_shape)
 
+    def get_input_quantization_bits(self):
+        if self.use_hgq:
+            return self.input_quantizer.quantizer.i, self.input_quantizer.quantizer.f
+        else:
+            return self.i_input, self.f_input
+
+    def set_input_quantization_bits(self, i, f):
+        if self.use_hgq:
+            self.input_quantizer.quantizer._i.assign(self.input_quantizer.quantizer._i * 0.0 + i)
+            self.input_quantizer.quantizer._f.assign(self.input_quantizer.quantizer._f * 0.0 + f)
+        else:
+            self.i_input = i
+            self.f_input = f
+
+    def get_output_quantization_bits(self):
+        if self.use_hgq:
+            return self.output_quantizer.quantizer.i, self.output_quantizer.quantizer.f
+        else:
+            return self.i_output, self.f_output
+
+    def set_output_quantization_bits(self, i, f):
+        if self.use_hgq:
+            self.output_quantizer.quantizer._i.assign(self.output_quantizer.quantizer._i * 0.0 + i)
+            self.output_quantizer.quantizer._f.assign(self.output_quantizer.quantizer._f * 0.0 + f)
+        else:
+            self.i_output = i
+            self.f_output = f
+
+    def ebops(self):
+        bw_inp = self.input_quantizer.bits_(self.input_shape)
+        bw_out = self.output_quantizer.bits_(self.input_shape)
+        return ops.sum((2.0**bw_inp) * bw_out) * 1e-4  # type: ignore
+
     def hgq_loss(self):
-        if self.is_pretraining:
-            return 0.0
-        return (
-            ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)
-        ) * self.config.quantization_parameters.hgq_gamma
+        if self.is_pretraining or not self.use_hgq:
+            return ops.convert_to_tensor(0.0)
+        loss = self.beta * self.ebops()
+        loss += (ops.sum(self.input_quantizer.quantizer.i) + ops.sum(self.input_quantizer.quantizer.f)) * self.hgq_gamma
+        loss += (ops.sum(self.output_quantizer.quantizer.i) + ops.sum(self.output_quantizer.quantizer.f)) * self.hgq_gamma
+        return loss
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -87,6 +125,7 @@ class QuantizedTanh(keras.layers.Layer):
         x = self.pre_activation(x)
         x = tanh(x) if self.use_real_tanh else hard_tanh(x)
         x = self.post_activation(x)
+        self.add_loss(self.hgq_loss())
         return x
 
     def get_config(self):
@@ -98,7 +137,7 @@ class QuantizedTanh(keras.layers.Layer):
 @keras.saving.register_keras_serializable(package="PQuant")
 class QuantizedReLU(keras.layers.Layer):
     def __init__(
-        self, config, i_input=0.0, f_input=8.0, i_output=0.0, f_output=8.0, quantize_input=True, quantize_output=True
+        self, config, i_input=0.0, f_input=8.0, i_output=0.0, f_output=8.0, quantize_input=True, quantize_output=False
     ):
         super().__init__()
         if isinstance(config, dict):
@@ -119,8 +158,11 @@ class QuantizedReLU(keras.layers.Layer):
         self.round_mode = config.quantization_parameters.round_mode
         self.overflow = config.quantization_parameters.overflow
         self.use_multiplier = config.quantization_parameters.use_relu_multiplier
+        self.hgq_beta = config.quantization_parameters.hgq_beta
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
+        
 
 
         self.post_fitcompress_calibration = False
@@ -130,6 +172,7 @@ class QuantizedReLU(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
+        self.input_shape = input_shape
         self.output_quantizer = create_quantizer(
             k=self.k,
             i=self.i_output,
@@ -155,15 +198,50 @@ class QuantizedReLU(keras.layers.Layer):
         if self.use_multiplier:
             self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
 
+    def get_input_quantization_bits(self):
+        if self.use_hgq:
+            return self.input_quantizer.quantizer.i, self.input_quantizer.quantizer.f
+        else:
+            return self.i_input, self.f_input
+
+    def set_input_quantization_bits(self, i, f):
+        if self.use_hgq:
+            self.input_quantizer.quantizer._i.assign(self.input_quantizer.quantizer._i * 0.0 + i)
+            self.input_quantizer.quantizer._f.assign(self.input_quantizer.quantizer._f * 0.0 + f)
+        else:
+            self.i_input = i
+            self.f_input = f
+
+    def get_output_quantization_bits(self):
+        if self.use_hgq:
+            return self.output_quantizer.quantizer.i, self.output_quantizer.quantizer.f
+        else:
+            return self.i_output, self.f_output
+
+    def set_output_quantization_bits(self, i, f):
+        if self.use_hgq:
+            self.output_quantizer.quantizer._i.assign(self.output_quantizer.quantizer._i * 0.0 + i)
+            self.output_quantizer.quantizer._f.assign(self.output_quantizer.quantizer._f * 0.0 + f)
+        else:
+            self.i_output = i
+            self.f_output = f
+
     def post_pre_train_function(self):
         self.is_pretraining = False
 
+    def ebops(self):
+        bw_inp = self.input_quantizer.bits_(self.input_shape)
+        bw_out = self.output_quantizer.bits_(self.input_shape)
+        return ops.sum((2.0**bw_inp) * bw_out) * 1e-4  # type: ignore
+
     def hgq_loss(self):
-        if self.is_pretraining:
-            return 0.0
-        return (
-            ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)
-        ) * self.config.quantization_parameters.hgq_gamma
+        if self.is_pretraining or not self.use_hgq:
+            return ops.convert_to_tensor(0.0)
+        loss = self.beta * self.ebops()
+        loss = self.beta * self.ebops()
+        loss += (ops.sum(self.input_quantizer.quantizer.i) + ops.sum(self.input_quantizer.quantizer.f)) * self.hgq_gamma
+        loss += (ops.sum(self.output_quantizer.quantizer.i) + ops.sum(self.output_quantizer.quantizer.f)) * self.hgq_gamma
+        return loss
 
     def pre_activation(self, x):
         if self.quantize_input:
@@ -194,6 +272,7 @@ class QuantizedReLU(keras.layers.Layer):
         x = self.pre_activation(x)
         x = ops.relu(x)
         x = self.post_activation(x)
+        self.add_loss(self.hgq_loss())
         return x
 
     def get_config(self):
