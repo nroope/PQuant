@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import keras
 import numpy as np
 import pytest
@@ -27,6 +29,15 @@ from pquant.core.tf_impl.compressed_layers_tf import (
     remove_pruning_from_model_tf,
 )
 
+
+def _to_obj(x):
+    if isinstance(x, dict):
+        return SimpleNamespace(**{k: _to_obj(v) for k, v in x.items()})
+    if isinstance(x, list):
+        return [_to_obj(v) for v in x]
+    return x
+
+
 BATCH_SIZE = 4
 OUT_FEATURES = 32
 IN_FEATURES = 16
@@ -36,7 +47,7 @@ STEPS = 16
 
 @pytest.fixture
 def config_pdp():
-    return {
+    cfg = {
         "pruning_parameters": {
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
@@ -62,11 +73,12 @@ def config_pdp():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
 def config_ap():
-    return {
+    cfg = {
         "pruning_parameters": {
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
@@ -91,11 +103,12 @@ def config_ap():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
 def config_wanda():
-    return {
+    cfg = {
         "pruning_parameters": {
             "calculate_pruning_budget": False,
             "disable_pruning_for_layers": [],
@@ -123,11 +136,12 @@ def config_wanda():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
 def config_cs():
-    return {
+    cfg = {
         "pruning_parameters": {
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
@@ -151,6 +165,7 @@ def config_cs():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
@@ -214,7 +229,7 @@ def test_separable_conv2d_call(config_pdp, conv2d_input):
 
 def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
     # Case pruning not quantizing
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
@@ -249,7 +264,7 @@ def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
 
 
 def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
@@ -276,7 +291,7 @@ def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
 
 
 def test_separable_conv2d_trigger_post_pretraining(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     act1 = Activation("tanh")(out)
@@ -313,7 +328,7 @@ def test_conv1d_call(config_pdp, conv1d_input):
 
 
 def test_dense_add_remove_layers(config_pdp, dense_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=(dense_input.shape[1:]))
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
@@ -335,7 +350,7 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
 
 
 def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
@@ -357,7 +372,7 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
 
 
 def test_depthwise_conv2d_add_remove_layers(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
@@ -379,7 +394,7 @@ def test_depthwise_conv2d_add_remove_layers(config_pdp, conv2d_input):
 
 
 def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv1d_input.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
@@ -401,7 +416,7 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
 
 
 def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=(dense_input.shape[1:]))
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
@@ -421,7 +436,7 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
 
 
 def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
@@ -441,7 +456,7 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
 
 
 def test_depthwise_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
@@ -461,7 +476,7 @@ def test_depthwise_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
 
 
 def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     inputs = keras.Input(shape=conv1d_input.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
@@ -489,7 +504,7 @@ def test_check_activation(config_pdp, dense_input):
 
     assert isinstance(model.layers[2], ReLU)
 
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="relu")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
@@ -497,7 +512,7 @@ def test_check_activation(config_pdp, dense_input):
     assert isinstance(model.layers[2], QuantizedReLU)
 
     # Tanh
-    config_pdp["quantization_parameters"]["enable_quantization"] = False
+    config_pdp.quantization_parameters.enable_quantization = False
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="tanh")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
@@ -506,7 +521,7 @@ def test_check_activation(config_pdp, dense_input):
     assert isinstance(model.layers[2], Activation)
     assert model.layers[2].activation.__name__ == "tanh"
 
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="tanh")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
@@ -515,8 +530,8 @@ def test_check_activation(config_pdp, dense_input):
 
 
 def test_hgq_activation_built(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=True, padding="same")(inputs)
     act = ReLU()(out)
@@ -1218,8 +1233,8 @@ def test_cs_dense_channels_last_transpose(config_cs, dense_input):
 
 def test_calculate_pruning_budget(config_wanda, dense_input):
     sparsity = 0.75
-    config_wanda["pruning_parameters"]["calculate_pruning_budget"] = True
-    config_wanda["pruning_parameters"]["sparsity"] = sparsity
+    config_wanda.pruning_parameters.calculate_pruning_budget = True
+    config_wanda.pruning_parameters.sparsity = sparsity
 
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
@@ -1249,7 +1264,7 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
 
 
 def test_trigger_post_pretraining(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     act1 = Activation("tanh")(out)
@@ -1273,8 +1288,8 @@ def test_trigger_post_pretraining(config_pdp, conv2d_input):
 
 
 def test_hgq_weight_shape(config_pdp, dense_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     act1 = Activation("tanh")(out)
@@ -1287,7 +1302,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     layer_2_input_shape = [1] + list(model.layers[2].input.shape[1:])
     assert model.layers[2].hgq.quantizer._i.shape == layer_2_input_shape
 
-    config_pdp["quantization_parameters"]["hgq_heterogeneous"] = False
+    config_pdp.quantization_parameters.hgq_heterogeneous = False
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     act1 = Activation("tanh")(out)
@@ -1301,8 +1316,8 @@ def test_hgq_weight_shape(config_pdp, dense_input):
 
 
 def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_input, dense_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = False
-    config_pdp["pruning_parameters"]["enable_pruning"] = False
+    config_pdp.quantization_parameters.enable_quantization = False
+    config_pdp.pruning_parameters.enable_pruning = False
     # Case Dense
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=True)(inputs)
@@ -1334,8 +1349,8 @@ def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_inp
 
 
 def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
     out = ReLU()(out)
@@ -1371,7 +1386,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert ops.all(m.hgq.quantizer.i == 0.0)
             assert ops.all(m.hgq.quantizer.f == 7.0)
 
-    config_pdp["quantization_parameters"]["layer_specific"] = {
+    config_pdp.quantization_parameters.layer_specific = {
         'conv2d_17': {
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},
@@ -1418,8 +1433,8 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
 
 
 def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = False
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = False
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
     out = ReLU()(out)
@@ -1445,7 +1460,7 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
             assert m.i == 0.0
             assert m.f == 7.0
 
-    config_pdp["quantization_parameters"]["layer_specific"] = {
+    config_pdp.quantization_parameters.layer_specific = {
         'conv2d_19': {
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 2.0, 'fractional_bits': 4.0},

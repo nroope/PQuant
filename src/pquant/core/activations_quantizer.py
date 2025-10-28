@@ -5,18 +5,23 @@ from keras.ops import convert_to_tensor, maximum, minimum, tanh
 from quantizers import get_fixed_quantizer
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class QuantizedTanh(keras.layers.Layer):
-    def __init__(self, config, i, f):
+    def __init__(self, config, i, f, **kwargs):
         super().__init__()
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         self.i = convert_to_tensor(i)
         self.f = convert_to_tensor(f)
         self.k = convert_to_tensor(1.0)
         self.config = config
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
         self.is_pretraining = True
-        self.overflow = "SAT_SYM" if config["quantization_parameters"]["use_symmetric_quantization"] else "SAT"
-        self.use_real_tanh = config["quantization_parameters"]["use_real_tanh"]
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
+        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
+        self.use_real_tanh = config.quantization_parameters.use_real_tanh
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -53,9 +58,9 @@ class QuantizedTanh(keras.layers.Layer):
     def hgq_loss(self):
         if self.is_pretraining:
             return 0.0
-        return (ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)) * self.config["quantization_parameters"][
-            "hgq_gamma"
-        ]
+        return (
+            ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)
+        ) * self.config.quantization_parameters.hgq_gamma
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -69,22 +74,33 @@ class QuantizedTanh(keras.layers.Layer):
             x = self.quantizer(x, k=1.0, i=convert_to_tensor(0.0), f=self.f, training=True)
             return x
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"config": self.config.get_dict(), "i": float(self.i), "f": float(self.f)})
+        return config
 
+
+@keras.saving.register_keras_serializable(package="PQuant")
 class QuantizedReLU(keras.layers.Layer):
-    def __init__(self, config, i, f):
+    def __init__(self, config, i, f, **kwargs):
         super().__init__()
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         self.config = config
         self.i = convert_to_tensor(i)
         self.f = convert_to_tensor(f)
         self.k = convert_to_tensor(0.0)
-        self.use_high_granularity_quantization = config["quantization_parameters"]["use_high_granularity_quantization"]
+        self.use_high_granularity_quantization = config.quantization_parameters.use_high_granularity_quantization
         self.is_pretraining = True
         self.overflow = "SAT"
-        self.use_multiplier = config["quantization_parameters"]["use_relu_multiplier"]
-        self.hgq_heterogeneous = config["quantization_parameters"]["hgq_heterogeneous"]
-        self.use_fitcompress = config["fitcompress_parameters"]["enable_fitcompress"]
+        self.use_multiplier = config.quantization_parameters.use_relu_multiplier
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
+        self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.post_fitcompress_calibration = False
         self.saved_inputs = []
+    
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -125,9 +141,9 @@ class QuantizedReLU(keras.layers.Layer):
     def hgq_loss(self):
         if self.is_pretraining:
             return 0.0
-        return (ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)) * self.config["quantization_parameters"][
-            "hgq_gamma"
-        ]
+        return (
+            ops.sum(self.hgq.quantizer.i) + ops.sum(self.hgq.quantizer.f)
+        ) * self.config.quantization_parameters.hgq_gamma
 
     def call(self, x):
         if self.use_high_granularity_quantization:
@@ -144,6 +160,17 @@ class QuantizedReLU(keras.layers.Layer):
                 x = x * 2 ** (ops.stop_gradient(ops.round(self.multiplier) - self.multiplier) + self.multiplier)
             x = self.quantizer(x, k=convert_to_tensor(0.0), i=convert_to_tensor(self.i), f=convert_to_tensor(self.f), training=True)
             return x
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "config": self.config.get_dict(),
+                "i": float(self.i),
+                "f": float(self.f),
+            }
+        )
+        return config
 
 
 def hard_sigmoid(x):

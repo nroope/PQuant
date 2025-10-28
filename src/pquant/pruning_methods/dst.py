@@ -4,11 +4,11 @@ from keras import ops
 
 
 def get_threshold_size(config, weight_shape):
-    if config["pruning_parameters"]["threshold_type"] == "layerwise":
+    if config.pruning_parameters.threshold_type == "layerwise":
         return (1, 1)
-    elif config["pruning_parameters"]["threshold_type"] == "channelwise":
+    elif config.pruning_parameters.threshold_type == "channelwise":
         return (weight_shape[0], 1)
-    elif config["pruning_parameters"]["threshold_type"] == "weightwise":
+    elif config.pruning_parameters.threshold_type == "weightwise":
         return (weight_shape[0], np.prod(weight_shape[1:]))
 
 
@@ -29,11 +29,17 @@ def binary_step(weight):
     return output, grad
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class DST(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         self.config = config
         self.is_pretraining = True
+        self.layer_type = layer_type
 
     def build(self, input_shape):
         self.threshold_size = get_threshold_size(self.config, input_shape)
@@ -47,11 +53,11 @@ class DST(keras.layers.Layer):
             0.4           if 0.4 < |W| <= 1
             0             if |W| > 1
         """
-        if self.is_pretraining and self.config["fitcompress_parameters"]["enable_fitcompress"]:
+        if self.is_pretraining and self.config.fitcompress_parameters.enable_fitcompress:
             return weight
         mask = self.get_mask(weight)
         ratio = 1.0 - ops.sum(mask) / ops.cast(ops.size(mask), mask.dtype)
-        flag = ratio >= self.config["pruning_parameters"]["max_pruning_pct"]
+        flag = ratio >= self.config.pruning_parameters.max_pruning_pct
         self.threshold.assign(ops.where(flag, ops.ones(self.threshold.shape), self.threshold))
         mask = self.get_mask(weight)
         masked_weight = weight * mask
@@ -76,7 +82,7 @@ class DST(keras.layers.Layer):
         return ops.sum(self.get_mask(weight)) / ops.size(weight)
 
     def calculate_additional_loss(self):
-        return self.config["pruning_parameters"]["alpha"] * ops.sum(ops.exp(-self.threshold))
+        return self.config.pruning_parameters.alpha * ops.sum(ops.exp(-self.threshold))
 
     def pre_finetune_function(self):
         pass
@@ -89,3 +95,14 @@ class DST(keras.layers.Layer):
 
     def post_round_function(self):
         pass
+
+    def get_config(self):
+        config = super().get_config()
+
+        config.update(
+            {
+                "config": self.config.get_dict(),
+                "layer_type": self.layer_type,
+            }
+        )
+        return config

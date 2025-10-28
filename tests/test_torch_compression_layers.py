@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import keras
 import numpy as np
 import pytest
@@ -21,6 +23,15 @@ from pquant.core.torch_impl.compressed_layers_torch import (
     remove_pruning_from_model_torch,
 )
 
+
+def _to_obj(x):
+    if isinstance(x, dict):
+        return SimpleNamespace(**{k: _to_obj(v) for k, v in x.items()})
+    if isinstance(x, list):
+        return [_to_obj(v) for v in x]
+    return x
+
+
 BATCH_SIZE = 4
 OUT_FEATURES = 32
 IN_FEATURES = 16
@@ -30,7 +41,7 @@ STEPS = 16
 
 @pytest.fixture
 def config_pdp():
-    return {
+    cfg = {
         "pruning_parameters": {
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
@@ -56,11 +67,12 @@ def config_pdp():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
 def config_ap():
-    return {
+    cfg = {
         "pruning_parameters": {
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
@@ -85,11 +97,12 @@ def config_ap():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
 def config_wanda():
-    return {
+    cfg = {
         "pruning_parameters": {
             "calculate_pruning_budget": True,
             "disable_pruning_for_layers": [],
@@ -117,11 +130,12 @@ def config_wanda():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
 def config_cs():
-    return {
+    cfg = {
         "pruning_parameters": {
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
@@ -145,6 +159,7 @@ def config_cs():
         "training_parameters": {"pruning_first": False},
         "fitcompress_parameters": {"enable_fitcompress": False},
     }
+    return _to_obj(cfg)
 
 
 @pytest.fixture
@@ -210,7 +225,7 @@ def test_conv1d_call(config_pdp, conv1d_input):
 
 
 def test_dense_add_remove_layers(config_pdp, dense_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
@@ -230,7 +245,7 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
 
 
 def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
@@ -251,7 +266,7 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
 
 
 def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
@@ -272,7 +287,7 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
 
 
 def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
@@ -291,7 +306,7 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
 
 
 def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
@@ -310,7 +325,7 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
 
 
 def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
-    config_pdp["pruning_parameters"]["enable_pruning"] = True
+    config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
@@ -335,20 +350,20 @@ def test_check_activation(config_pdp, dense_input):
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, ReLU)
 
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, QuantizedReLU)
 
     # Tanh
-    config_pdp["quantization_parameters"]["enable_quantization"] = False
+    config_pdp.quantization_parameters.enable_quantization = False
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, Tanh)
 
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
@@ -386,8 +401,8 @@ class TestModelWithAvgPool(nn.Module):
 
 
 def test_hgq_activation_built(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModelWithAvgPool(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
@@ -404,12 +419,12 @@ def test_hgq_activation_built(config_pdp, conv2d_input):
 
 
 def test_post_training_wanda(config_wanda, conv2d_input):
-    config_wanda["pruning_parameters"]["calculate_pruning_budget"] = False
+    config_wanda.pruning_parameters.calculate_pruning_budget = False
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModel(layer, "relu")
     calibration_dataset = [conv2d_input, conv2d_input]
     model = post_training_prune(model, calibration_dataset, config_wanda)
-    assert get_layer_keep_ratio_torch(model) == 1 - config_wanda["pruning_parameters"]["sparsity"]
+    assert get_layer_keep_ratio_torch(model) == 1 - config_wanda.pruning_parameters.sparsity
 
 
 class TestModel2(nn.Module):
@@ -445,8 +460,8 @@ class TestModel2(nn.Module):
 
 def test_calculate_pruning_budget(config_wanda, dense_input):
     sparsity = 0.75
-    config_wanda["pruning_parameters"]["calculate_pruning_budget"] = True
-    config_wanda["pruning_parameters"]["sparsity"] = sparsity
+    config_wanda.pruning_parameters.calculate_pruning_budget = True
+    config_wanda.pruning_parameters.sparsity = sparsity
 
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
@@ -476,7 +491,7 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
 
 
 def test_trigger_post_pretraining(config_pdp, dense_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel2(layer, layer2, "relu", "tanh")
@@ -497,8 +512,8 @@ def test_trigger_post_pretraining(config_pdp, dense_input):
 
 
 def test_hgq_weight_shape(config_pdp, dense_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel2(layer, layer2, "relu", "tanh")
@@ -509,7 +524,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     assert model.submodule.hgq_weight.quantizer._i.shape == model.submodule.weight.shape
     assert model.activation.hgq.quantizer._i.shape == (1, OUT_FEATURES)
 
-    config_pdp["quantization_parameters"]["hgq_heterogeneous"] = False
+    config_pdp.quantization_parameters.hgq_heterogeneous = False
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel2(layer, layer2, "relu", "tanh")
@@ -522,8 +537,8 @@ def test_hgq_weight_shape(config_pdp, dense_input):
 
 
 def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     layer2 = AvgPool2d(2)
     model = TestModel2(layer, layer2, "relu", "tanh")
@@ -557,7 +572,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert torch.all(m.hgq.quantizer.i == 0.0)
             assert torch.all(m.hgq.quantizer.f == 7.0)
 
-    config_pdp["quantization_parameters"]["layer_specific"] = {
+    config_pdp.quantization_parameters.layer_specific = {
         'submodule': {
             'weight': {'integer_bits': 1, 'fractional_bits': 3},
             'bias': {'integer_bits': 2, 'fractional_bits': 4},
@@ -599,8 +614,8 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
 
 
 def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = False
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = False
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     layer2 = AvgPool2d(2)
     model = TestModel2(layer, layer2, "relu", "tanh")
@@ -617,7 +632,7 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
             assert m.i == 0.0
             assert m.f == 8.0
 
-    config_pdp["quantization_parameters"]["layer_specific"] = {
+    config_pdp.quantization_parameters.layer_specific = {
         'submodule': {
             'weight': {'integer_bits': 1.0, 'fractional_bits': 3.0},
             'bias': {'integer_bits': 1.0, 'fractional_bits': 3.0},

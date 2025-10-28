@@ -44,7 +44,7 @@ fitcompress_parameters:
   optimize_pruning : false
   greedy_astar : true
   approximate : true
-  lambda : 1
+  f_lambda : 1
 batch_size: 64
 cosine_tmax: 200
 gamma: 0.1

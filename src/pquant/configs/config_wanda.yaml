@@ -30,7 +30,7 @@ fitcompress_parameters:
   optimize_pruning : true
   greedy_astar : true
   approximate : true
-  lambda : 0.5
+  f_lambda : 0.5
 training_parameters:
   epochs: 200
   fine_tuning_epochs: 0
