@@ -29,7 +29,6 @@ fitcompress_parameters:
   greedy_astar : true
   approximate : true
   f_lambda : 1
-
 training_parameters:
   epochs: 160
   fine_tuning_epochs: 0

@@ -9,6 +9,12 @@ from torch.fx import symbolic_trace
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.utils import get_pruning_layer
 
+import typing 
+if typing.TYPE_CHECKING:
+    from pquant.core.torch_impl.fit_compress import call_fitcompress 
+
+
+from keras import ops
 
 class CompressedLayerBase(nn.Module):
     def __init__(self, config, layer, layer_type):
@@ -583,9 +589,9 @@ def pdp_setup(model, config):
             weight_size = layer.weight.numel()
             w = torch.sum(global_weights_below_threshold[idx : idx + weight_size])
             layer.pruning_layer.init_r = w / weight_size
+            print(f"PDP Layer {layer} target: {layer.pruning_layer.init_r}")
             layer.pruning_layer.sparsity = w / weight_size  # Wanda
             idx += weight_size
-
 
 @torch.no_grad
 def get_layer_keep_ratio_torch(model):
