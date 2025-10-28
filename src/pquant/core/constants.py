@@ -35,7 +35,6 @@ SAMPLER_REGISTRY = {
     "TPESampler": optuna.samplers.TPESampler,
     "CmaEsSampler": optuna.samplers.CmaEsSampler,
     "GPSampler": optuna.samplers.GPSampler,
-    "PartialFixedSampler": optuna.samplers.PartialFixedSampler,
     "NSGAIISampler": optuna.samplers.NSGAIISampler,
     "NSGAIIISampler": optuna.samplers.NSGAIIISampler,
     "QMCSampler": optuna.samplers.QMCSampler,
