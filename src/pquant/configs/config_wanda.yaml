@@ -11,8 +11,14 @@ pruning_parameters:
   t_delta: 100
   t_start_collecting_batch: 100
 quantization_parameters:
-  default_integer_bits: 0.
-  default_fractional_bits: 7.
+  default_weight_keep_negatives: 1.
+  default_weight_integer_bits: 0.
+  default_weight_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_data_integer_bits: 0.
+  default_data_fractional_bits: 7.
+  quantize_input: true
+  quantize_output: false
   enable_quantization: true
   hgq_beta: 1e-5
   hgq_gamma: 0.0003
