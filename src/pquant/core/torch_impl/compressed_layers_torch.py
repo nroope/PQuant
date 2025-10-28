@@ -20,12 +20,8 @@ from pquant.core.quantizer_functions import create_quantizer
 class PQWeightBiasBase(nn.Module):
     def __init__(self, config, layer, layer_type, quantize_input=True, quantize_output=False):
         super().__init__()
-        self.i_weight = self.i_bias = self.i_input = self.i_output = torch.tensor(
-            config.quantization_parameters.default_integer_bits
-        )
-        self.f_weight = self.f_bias = self.f_input = self.f_output = torch.tensor(
-            config.quantization_parameters.default_fractional_bits
-        )
+        self.i_weight = self.i_bias = torch.tensor(config.quantization_parameters.default_weight_integer_bits)
+        self.f_weight = self.f_bias = torch.tensor(config.quantization_parameters.default_weight_fractional_bits)
 
         self.weight = nn.Parameter(layer.weight.clone())
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
@@ -35,6 +31,8 @@ class PQWeightBiasBase(nn.Module):
         self.quantize_output = quantize_output
         self.data_k = config.quantization_parameters.default_data_keep_negatives
         self.weight_k = config.quantization_parameters.default_weight_keep_negatives
+        self.i_input = self.i_output = config.quantization_parameters.default_data_integer_bits
+        self.f_input = self.f_output = config.quantization_parameters.default_data_fractional_bits
         self.bias = nn.Parameter(layer.bias.clone()) if layer.bias is not None else None
         self.init_weight = self.weight.clone()
         self.pruning_first = config.training_parameters.pruning_first
@@ -197,8 +195,8 @@ class PQWeightBiasBase(nn.Module):
 
 
 class PQDense(PQWeightBiasBase):
-    def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+    def __init__(self, config, layer, quantize_input=True, quantize_output=False):
+        super().__init__(config, layer, "linear", quantize_input, quantize_output)
         self.in_features = layer.in_features
         self.out_features = layer.out_features
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -226,8 +224,8 @@ class PQDense(PQWeightBiasBase):
 
 
 class PQConv2d(PQWeightBiasBase):
-    def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+    def __init__(self, config, layer, quantize_input=True, quantize_output=False):
+        super().__init__(config, layer, "conv", quantize_input, quantize_output)
         self.stride = layer.stride
         self.dilation = layer.dilation
         self.padding = layer.padding
@@ -277,8 +275,8 @@ class PQConv2d(PQWeightBiasBase):
 
 
 class PQConv1d(PQWeightBiasBase):
-    def __init__(self, config, layer, layer_type):
-        super().__init__(config, layer, layer_type)
+    def __init__(self, config, layer, quantize_input=True, quantize_output=False):
+        super().__init__(config, layer, "conv", quantize_input, quantize_output)
 
         self.stride = layer.stride
         self.dilation = layer.dilation
@@ -342,8 +340,8 @@ class QuantizedPooling(nn.Module):
 
     def __init__(self, config, layer, quantize_input=True, quantize_output=False):
         super().__init__()
-        self.f_output = self.f_input = torch.tensor(config.quantization_parameters.default_fractional_bits)
-        self.i_output = self.i_input = torch.tensor(config.quantization_parameters.default_integer_bits)
+        self.f_output = self.f_input = torch.tensor(config.quantization_parameters.default_data_fractional_bits)
+        self.i_output = self.i_input = torch.tensor(config.quantization_parameters.default_data_integer_bits)
         self.overflow = config.quantization_parameters.overflow
         self.config = config
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
@@ -396,7 +394,7 @@ class QuantizedPooling(nn.Module):
     def get_output_quantization_bits(self):
         return self.output_quantizer.get_quantization_bits()
 
-    def post_pre_train_function(self):
+    def post_pretrain_function(self):
         self.is_pretraining = False
 
     def ebops(self):
@@ -450,13 +448,13 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         track_running_stats: bool = True,
         device=None,
         dtype=None,
-        quantize_input=True,
+        quantize_input=False,
     ):
         super().__init__(num_features, eps, momentum, affine, track_running_stats, device=device, dtype=dtype)
-        self.f_weight = self.f_bias = self.f_input = torch.tensor(
-            config["quantization_parameters"]["default_fractional_bits"]
-        )
-        self.i_weight = self.i_bias = self.i_input = torch.tensor(config["quantization_parameters"]["default_integer_bits"])
+        self.f_weight = self.f_bias = torch.tensor(config["quantization_parameters"]["default_weight_fractional_bits"])
+        self.i_weight = self.i_bias = torch.tensor(config["quantization_parameters"]["default_weight_integer_bits"])
+        self.i_input = config["quantization_parameters"]["default_data_integer_bits"]
+        self.f_input = config["quantization_parameters"]["default_data_fractional_bits"]
         self.overflow = config["quantization_parameters"]["overflow"]
         self.round_mode = config["quantization_parameters"]["round_mode"]
         self.use_hgq = config["quantization_parameters"]["use_high_granularity_quantization"]
@@ -733,21 +731,23 @@ def add_layer_specific_quantization_to_model(module, config):
 def add_quantized_activations_to_model_layer(module, config):
     if not config.quantization_parameters.enable_quantization:
         return module
+    quantize_input = config["quantization_parameters"]["quantize_input"]
+    quantize_output = config["quantization_parameters"]["quantize_output"]
     # Replaces ReLU and Tanh layers with quantized versions
     for name, layer in module.named_children():
-        i = config.quantization_parameters.default_integer_bits
-        f = config.quantization_parameters.default_fractional_bits
+        i = config.quantization_parameters.default_data_integer_bits
+        f = config.quantization_parameters.default_data_fractional_bits
         if layer.__class__ in [nn.ReLU]:
             # For ReLU, if using default values, add 1 bit since values are unsigned.
             # Otherwise user provides bits. TODO: Find better way to do this
-            f = config.quantization_parameters.default_fractional_bits + 1
+            f = config.quantization_parameters.default_data_fractional_bits + 1
             relu = QuantizedActivation(QuantizedReLU(config, i_input=i, f_input=f, i_output=i, f_output=f))
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
             tanh = QuantizedActivation(QuantizedTanh(config, i_input=i, f_input=f, i_output=i, f_output=f))
             setattr(module, name, tanh)
         elif layer.__class__ in [nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
-            new_layer = QuantizedPooling(config, layer)
+            new_layer = QuantizedPooling(config, layer, quantize_input, quantize_output)
             setattr(module, name, new_layer)
         elif layer.__class__ == nn.BatchNorm2d:
             new_layer = PQBatchNorm2d(
@@ -757,7 +757,7 @@ def add_quantized_activations_to_model_layer(module, config):
                 momentum=layer.momentum,
                 affine=layer.affine,
                 track_running_stats=layer.track_running_stats,
-                quantize_input=True,
+                quantize_input=quantize_input,
             )
             setattr(module, name, new_layer)
         else:
@@ -807,17 +807,19 @@ def disable_pruning_from_layers(module, config):
 
 
 def add_pruning_to_model(module, config):
+    quantize_input = config["quantization_parameters"]["quantize_input"]
+    quantize_output = config["quantization_parameters"]["quantize_output"]
     for name, layer in module.named_children():
         if layer.__class__ is nn.Linear:
-            sparse_layer = PQDense(config, layer, "linear")
+            sparse_layer = PQDense(config, layer, quantize_input, quantize_output)
             sparse_layer.pruning_layer.build(layer.weight.shape)
             setattr(module, name, sparse_layer)
         elif layer.__class__ is nn.Conv2d:
-            sparse_layer = PQConv2d(config, layer, "conv")
+            sparse_layer = PQConv2d(config, layer, quantize_input, quantize_output)
             sparse_layer.pruning_layer.build(layer.weight.shape)
             setattr(module, name, sparse_layer)
         elif layer.__class__ is nn.Conv1d:
-            sparse_layer = PQConv1d(config, layer, "conv")
+            sparse_layer = PQConv1d(config, layer, quantize_input, quantize_output)
             sparse_layer.pruning_layer.build(layer.weight.shape)
             setattr(module, name, sparse_layer)
         else:
@@ -893,9 +895,9 @@ def post_pretrain_functions(model, config, train_loader=None, loss_func=None):
             # layer.pruning_layer.mask = pruning_mask_importance_scores[idx]
             # idx += 1
 
-        elif isinstance(layer, (QuantizedActivation, QuantizedPooling)):
+        elif isinstance(layer, QuantizedActivation):
             layer.activation.post_pre_train_function()
-        elif isinstance(layer, PQBatchNorm2d):
+        elif isinstance(layer, (PQBatchNorm2d, QuantizedPooling)):
             layer.post_pretrain_function()
     if config.pruning_parameters.pruning_method == "pdp" or (
         config.pruning_parameters.pruning_method == "wanda" and config.pruning_parameters.calculate_pruning_budget
