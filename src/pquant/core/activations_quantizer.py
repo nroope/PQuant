@@ -63,9 +63,9 @@ class QuantizedTanh(keras.layers.Layer):
 
     def get_input_quantization_bits(self):
         if self.use_hgq:
-            return self.input_quantizer.quantizer.i, self.input_quantizer.quantizer.f
+            return self.input_quantizer.quantizer.k, self.input_quantizer.quantizer.i, self.input_quantizer.quantizer.f
         else:
-            return self.i_input, self.f_input
+            return self.k, self.i_input, self.f_input
 
     def set_input_quantization_bits(self, i, f):
         if self.use_hgq:
@@ -77,9 +77,9 @@ class QuantizedTanh(keras.layers.Layer):
 
     def get_output_quantization_bits(self):
         if self.use_hgq:
-            return self.output_quantizer.quantizer.i, self.output_quantizer.quantizer.f
+            return self.output_quantizer.quantizer.k, self.output_quantizer.quantizer.i, self.output_quantizer.quantizer.f
         else:
-            return self.i_output, self.f_output
+            return self.k, self.i_output, self.f_output
 
     def set_output_quantization_bits(self, i, f):
         if self.use_hgq:
@@ -200,9 +200,9 @@ class QuantizedReLU(keras.layers.Layer):
 
     def get_input_quantization_bits(self):
         if self.use_hgq:
-            return self.input_quantizer.quantizer.i, self.input_quantizer.quantizer.f
+            return self.input_quantizer.quantizer.k, self.input_quantizer.quantizer.i, self.input_quantizer.quantizer.f
         else:
-            return self.i_input, self.f_input
+            return self.k, self.i_input, self.f_input
 
     def set_input_quantization_bits(self, i, f):
         if self.use_hgq:
@@ -214,9 +214,9 @@ class QuantizedReLU(keras.layers.Layer):
 
     def get_output_quantization_bits(self):
         if self.use_hgq:
-            return self.output_quantizer.quantizer.i, self.output_quantizer.quantizer.f
+            return self.output_quantizer.quantizer.k, self.output_quantizer.quantizer.i, self.output_quantizer.quantizer.f
         else:
-            return self.i_output, self.f_output
+            return self.k, self.i_output, self.f_output
 
     def set_output_quantization_bits(self, i, f):
         if self.use_hgq:
