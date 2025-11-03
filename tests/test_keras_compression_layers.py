@@ -7,6 +7,7 @@ from keras import ops
 from keras.layers import (
     Activation,
     AveragePooling2D,
+    BatchNormalization,
     Conv1D,
     Conv2D,
     Dense,
@@ -17,9 +18,9 @@ from keras.layers import (
 
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.tf_impl.compressed_layers_tf import (
-    CompressedLayerConv1dKeras,
-    CompressedLayerDenseKeras,
+    PQConv1d,
     PQConv2d,
+    PQDense,
     PQSeparableConv2d,
     QuantizedPooling,
     add_compression_layers_tf,
@@ -64,12 +65,17 @@ def config_pdp():
             "structured_pruning": False,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -98,12 +104,17 @@ def config_ap():
             "t_delta": 1,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -135,12 +146,17 @@ def config_wanda():
             "M": None,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -168,12 +184,17 @@ def config_cs():
             "threshold_init": 0.1,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -216,7 +237,7 @@ def test_dense_call(config_pdp, dense_input):
     layer_to_replace = Dense(OUT_FEATURES, use_bias=False)
     layer_to_replace.build((BATCH_SIZE, IN_FEATURES))
     out = layer_to_replace(dense_input)
-    layer = CompressedLayerDenseKeras(config_pdp, layer_to_replace, "linear")
+    layer = PQDense(config_pdp, layer_to_replace, "linear")
     layer.build(dense_input.shape)
     layer.weight.assign(layer_to_replace.kernel)
     out2 = layer(dense_input)
@@ -341,7 +362,7 @@ def test_conv1d_call(config_pdp, conv1d_input):
     layer_to_replace = Conv1D(OUT_FEATURES, KERNEL_SIZE, strides=2, use_bias=False)
     layer_to_replace.build(conv1d_input.shape)
     out = layer_to_replace(conv1d_input)
-    layer = CompressedLayerConv1dKeras(config_pdp, layer_to_replace, "conv")
+    layer = PQConv1d(config_pdp, layer_to_replace, "conv")
     layer.build(conv1d_input.shape)
     layer.weight.assign(layer_to_replace.kernel)
     out2 = layer(conv1d_input)
@@ -1319,7 +1340,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
 
     model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
-    assert model.layers[1].weight_quantizer.quantizer._i.shape == model.layers[1].weight.shape
+    assert model.layers[1].weight_quantizer.quantizer.quantizer._i.shape == model.layers[1].weight.shape
     layer_2_input_shape = [1] + list(model.layers[2].input.shape[1:])
     assert model.layers[2].input_quantizer.quantizer._i.shape == layer_2_input_shape
 
@@ -1370,30 +1391,24 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
 
     for m in model.layers:
         if isinstance(m, (PQConv2d)):
-            assert m.i_weight == 0.0
-            assert m.i_bias == 0.0
-            assert ops.all(m.weight_quantizer.quantizer.i == 0.0)
-            assert ops.all(m.bias_quantizer.quantizer.i == 0.0)
-
-            assert m.f_weight == 7.0
-            assert m.f_bias == 7.0
-            assert ops.all(m.weight_quantizer.quantizer.f == 7.0)
-            assert ops.all(m.bias_quantizer.quantizer.f == 7.0)
+            iw, fw = m.get_weight_quantization_bits()
+            ib, fb = m.get_bias_quantization_bits()
+            assert ops.all(iw == 0.0)
+            assert ops.all(ib == 0.0)
+            assert ops.all(fw == 7.0)
+            assert ops.all(fb == 7.0)
         elif isinstance(m, (QuantizedTanh)):
-            assert m.i_input == 0.0
-            assert m.f_input == 7.0
-            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
-            assert ops.all(m.input_quantizer.quantizer.f == 7.0)
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+            assert ops.all(i_input == 0.0)
+            assert ops.all(f_input == 7.0)
         elif isinstance(m, (QuantizedReLU)):
-            assert m.i_input == 0.0
-            assert m.f_input == 8.0
-            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
-            assert ops.all(m.input_quantizer.quantizer.f == 8.0)
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+            assert ops.all(i_input == 0.0)
+            assert ops.all(f_input == 8.0)
         elif isinstance(m, (QuantizedPooling)):
-            assert m.i_input == 0.0
-            assert m.f_input == 7.0
-            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
-            assert ops.all(m.input_quantizer.quantizer.f == 7.0)
+            i_input, f_input = m.get_input_quantization_bits()
+            assert ops.all(i_input == 0.0)
+            assert ops.all(f_input == 7.0)
 
     config_pdp.quantization_parameters.layer_specific = {
         'conv2d': {
@@ -1414,30 +1429,24 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
     for m in model.layers:
         if isinstance(m, (PQConv2d)):
-            assert m.i_weight == 1.0
-            assert m.i_bias == 2.0
-            assert ops.all(m.weight_quantizer.quantizer.i == 1.0)
-            assert ops.all(m.bias_quantizer.quantizer.i == 2.0)
-
-            assert m.f_weight == 3.0
-            assert m.f_bias == 4.0
-            assert ops.all(m.weight_quantizer.quantizer.f == 3.0)
-            assert ops.all(m.bias_quantizer.quantizer.f == 4.0)
+            iw, fw = m.get_weight_quantization_bits()
+            ib, fb = m.get_bias_quantization_bits()
+            assert ops.all(iw == 1.0)
+            assert ops.all(ib == 2.0)
+            assert ops.all(fw == 3.0)
+            assert ops.all(fb == 4.0)
         elif isinstance(m, (QuantizedTanh)):
-            assert m.i_input == 0.0
-            assert m.f_input == 3.0
-            assert ops.all(m.input_quantizer.quantizer.i == 0.0)
-            assert ops.all(m.input_quantizer.quantizer.f == 3.0)
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+            assert ops.all(i_input == 0.0)
+            assert ops.all(f_input == 3.0)
         elif isinstance(m, (QuantizedReLU)):
-            assert m.i_input == 1.0
-            assert m.f_input == 3.0
-            assert ops.all(m.input_quantizer.quantizer.i == 1.0)
-            assert ops.all(m.input_quantizer.quantizer.f == 3.0)
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+            assert ops.all(i_input == 1.0)
+            assert ops.all(f_input == 3.0)
         elif isinstance(m, (QuantizedPooling)):
-            assert m.i_input == 1.0
-            assert m.f_input == 3.0
-            assert ops.all(m.input_quantizer.quantizer.i == 1.0)
-            assert ops.all(m.input_quantizer.quantizer.f == 3.0)
+            i_input, f_input = m.get_input_quantization_bits()
+            assert ops.all(i_input == 1.0)
+            assert ops.all(f_input == 3.0)
 
 
 def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
@@ -1501,3 +1510,95 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
         elif isinstance(m, (QuantizedPooling)):
             assert m.i_input == 1.0
             assert m.f_input == 3.0
+
+
+def test_ebops_dense(config_pdp, dense_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=False)(inputs)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
+    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.layers[1].hgq_loss(dense_input.shape)
+
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    out = Dense(OUT_FEATURES, use_bias=True)(inputs)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
+    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.layers[1].hgq_loss(dense_input.shape)
+
+
+def test_ebops_conv2d(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=False)(inputs)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d")
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.layers[1].hgq_loss(conv2d_input.shape)
+
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d")
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.layers[1].hgq_loss(conv2d_input.shape)
+
+
+def test_ebops_conv1d(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=conv1d_input.shape[1:])
+    out = Conv1D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=False)(inputs)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
+    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.layers[1].hgq_loss(conv1d_input.shape)
+
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=conv1d_input.shape[1:])
+    out = Conv1D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
+    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.layers[1].hgq_loss(conv1d_input.shape)
+
+
+def test_ebops_bn(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=conv2d_input.shape[1:])
+    out = Conv2D(OUT_FEATURES, KERNEL_SIZE)(inputs)
+    axis = 1 if keras.backend.image_data_format() == "channels_first" else -1
+
+    out = BatchNormalization(axis=axis)(out)
+    act = ReLU()(out)
+    model = keras.Model(inputs=inputs, outputs=act, name="test_bn")
+    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    if keras.backend.image_data_format == "channels_first":
+        model.layers[2].hgq_loss((1, 32, 30, 30))  # Does not work, TODO: Fix
+    else:
+        model.layers[2].hgq_loss((1, 30, 30, 32))
+
+
+def test_ebops_activations(config_pdp, dense_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    inputs = keras.Input(shape=dense_input.shape[1:])
+    act = ReLU()(inputs)
+    act2 = Activation("tanh")(act)
+    model = keras.Model(inputs=inputs, outputs=act2, name="test_activations")
+    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)

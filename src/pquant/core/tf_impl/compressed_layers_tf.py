@@ -34,16 +34,15 @@ class PQWeightBiasBase(keras.layers.Layer):
         self.i_bias = ops.convert_to_tensor(i_bits)
         self.f_bias = ops.convert_to_tensor(f_bits)
 
-        self.i_input = self.i_output = ops.convert_to_tensor(config["quantization_parameters"]["default_data_integer_bits"])
-        self.f_input = self.f_output = ops.convert_to_tensor(
-            config["quantization_parameters"]["default_data_fractional_bits"]
-        )
+        self.i_input = self.i_output = ops.convert_to_tensor(config.quantization_parameters.default_data_integer_bits)
+        self.f_input = self.f_output = ops.convert_to_tensor(config.quantization_parameters.default_data_fractional_bits)
         self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
 
         self.pruning_method = config.pruning_parameters.pruning_method
         self.round_mode = config.quantization_parameters.round_mode
         self.overflow = config.quantization_parameters.overflow
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
+        self.hgq_beta = config.quantization_parameters.hgq_beta
         self.pruning_first = config.training_parameters.pruning_first
         self.enable_quantization = config.quantization_parameters.enable_quantization
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
@@ -553,22 +552,20 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             synchronized,
             **kwargs,
         )
-        self.overflow = config["quantization_parameters"]["overflow"]
-        self.round_mode = config["quantization_parameters"]["round_mode"]
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
-        self.data_k = config["quantization_parameters"]["default_data_keep_negatives"]
-        self.weight_k = config["quantization_parameters"]["default_weight_keep_negatives"]
-        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
-        self.use_hgq = config["quantization_parameters"]["use_high_granularity_quantization"]
-        self.hgq_beta = config["quantization_parameters"]["hgq_beta"]
+        self.overflow = config.quantization_parameters.overflow
+        self.round_mode = config.quantization_parameters.round_mode
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
+        self.data_k = config.quantization_parameters.default_data_keep_negatives
+        self.weight_k = config.quantization_parameters.default_weight_keep_negatives
+        self.enable_quantization = config.quantization_parameters.enable_quantization
+        self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
+        self.hgq_beta = config.quantization_parameters.hgq_beta
         self.quantize_input = quantize_input
         self.config = config
-        self.f_weight = self.f_bias = ops.convert_to_tensor(
-            config["quantization_parameters"]["default_weight_fractional_bits"]
-        )
-        self.i_weight = self.i_bias = ops.convert_to_tensor(config["quantization_parameters"]["default_weight_integer_bits"])
-        self.i_input = ops.convert_to_tensor(config["quantization_parameters"]["default_data_integer_bits"])
-        self.f_input = ops.convert_to_tensor(config["quantization_parameters"]["default_data_fractional_bits"])
+        self.f_weight = self.f_bias = ops.convert_to_tensor(config.quantization_parameters.default_weight_fractional_bits)
+        self.i_weight = self.i_bias = ops.convert_to_tensor(config.quantization_parameters.default_weight_integer_bits)
+        self.i_input = ops.convert_to_tensor(config.quantization_parameters.default_data_integer_bits)
+        self.f_input = ops.convert_to_tensor(config.quantization_parameters.default_data_fractional_bits)
         self.final_compression_done = False
         self.is_pretraining = True
 
@@ -712,12 +709,11 @@ class QuantizedPooling(keras.layers.Layer):
 
         self.is_pretraining = True
 
-        self.overflow = "SAT_SYM" if config.quantization_parameters.use_symmetric_quantization else "SAT"
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.hgq_beta = config.quantization_parameters.hgq_beta
         self.data_k = config.quantization_parameters.default_data_keep_negatives
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
-        self.hgq_heterogeneous = config.hgq_heterogeneous
+        self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.enable_quantization = config.quantization_parameters.enable_quantization
         self.round_mode = config.quantization_parameters.round_mode
         self.overflow = config.quantization_parameters.overflow
@@ -1286,7 +1282,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
             act = check_activation(layer, config)
         # Activation layers
         elif isinstance(layer, ReLU):
-            if config["quantization_parameters"]["enable_quantization"]:
+            if config.quantization_parameters.enable_quantization:
                 new_layer = QuantizedReLU(config)
                 set_quantization_bits_activations(config, layer, new_layer)
                 new_layer.build(layer.input.shape)
@@ -1307,7 +1303,7 @@ def add_compression_layers_tf(model, config, input_shape=None):
                 x = new_layer(x)
 
         elif isinstance(layer, (BatchNormalization)):
-            if config["quantization_parameters"]["enable_quantization"]:
+            if config.quantization_parameters.enable_quantization:
                 new_layer = PQBatchNormalization(
                     config,
                     layer.axis,
