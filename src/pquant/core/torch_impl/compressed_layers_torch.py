@@ -4,7 +4,6 @@ from typing import Optional, Tuple, TypeVar, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from torch.fx import symbolic_trace
 from torch.nn.common_types import _size_1_t, _size_2_t
 
@@ -582,7 +581,6 @@ class PQAvgPoolBase(nn.Module):
         self.overflow = config.quantization_parameters.overflow
         self.config = config
         self.is_pretraining = True
-        self.overflow = config.quantization_parameters.overflow
         self.round_mode = config.quantization_parameters.round_mode
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.enable_quantization = config.quantization_parameters.enable_quantization
@@ -591,7 +589,6 @@ class PQAvgPoolBase(nn.Module):
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.post_fitcompress_calibration = False
         self.saved_inputs = []
-        self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.quantize_input = quantize_input
         self.quantize_output = quantize_output
 
@@ -760,28 +757,28 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         if input_quantization_bits is not None:
             self.k_input, self.i_input, self.f_input = input_quantization_bits
         else:
-            self.k_input = config["quantization_parameters"]["default_data_keep_negatives"]
-            self.i_input = config["quantization_parameters"]["default_data_integer_bits"]
-            self.f_input = config["quantization_parameters"]["default_data_fractional_bits"]
+            self.k_input = config.quantization_parameters.default_data_keep_negatives
+            self.i_input = config.quantization_parameters.default_data_integer_bits
+            self.f_input = config.quantization_parameters.default_data_fractional_bits
 
         if weight_quantization_bits is not None:
             self.k_weight, self.i_weight, self.f_weight = weight_quantization_bits
         else:
-            self.k_weight = config["quantization_parameters"]["default_weight_keep_negatives"]
-            self.i_weight = config["quantization_parameters"]["default_weight_integer_bits"]
-            self.f_weight = config["quantization_parameters"]["default_weight_fractional_bits"]
+            self.k_weight = config.quantization_parameters.default_weight_keep_negatives
+            self.i_weight = config.quantization_parameters.default_weight_integer_bits
+            self.f_weight = config.quantization_parameters.default_weight_fractional_bits
         if bias_quantization_bits is not None:
             self.k_bias, self.i_bias, self.f_bias = bias_quantization_bits
         else:
-            self.k_bias = config["quantization_parameters"]["default_weight_keep_negatives"]
-            self.i_bias = config["quantization_parameters"]["default_weight_integer_bits"]
-            self.f_bias = config["quantization_parameters"]["default_weight_fractional_bits"]
-        self.overflow = config["quantization_parameters"]["overflow"]
-        self.round_mode = config["quantization_parameters"]["round_mode"]
-        self.use_hgq = config["quantization_parameters"]["use_high_granularity_quantization"]
-        self.hgq_gamma = config["quantization_parameters"]["hgq_gamma"]
-        self.hgq_beta = config["quantization_parameters"]["hgq_beta"]
-        self.enable_quantization = config["quantization_parameters"]["enable_quantization"]
+            self.k_bias = config.quantization_parameters.default_weight_keep_negatives
+            self.i_bias = config.quantization_parameters.default_weight_integer_bits
+            self.f_bias = config.quantization_parameters.default_weight_fractional_bits
+        self.overflow = config.quantization_parameters.overflow
+        self.round_mode = config.quantization_parameters.round_mode
+        self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
+        self.hgq_gamma = config.quantization_parameters.hgq_gamma
+        self.hgq_beta = config.quantization_parameters.hgq_beta
+        self.enable_quantization = config.quantization_parameters.enable_quantization
         self.config = config
         self.quantize_input = quantize_input
         self._weight = nn.Parameter(self.weight.clone())
@@ -997,7 +994,7 @@ def add_layer_specific_quantization_to_model(module, config):
                     if "quantize" in layer_config["input"]:
                         quantize = layer_config["input"]["quantize"]
                         layer.quantize_input = quantize
-        elif layer.__class__ == PQAvgPool1d:
+        elif layer.__class__ in [PQAvgPool1d, PQAvgPool2d]:
             if name in config.quantization_parameters.layer_specific:
                 layer_config = config.quantization_parameters.layer_specific[name]
                 if "input" in layer_config:
@@ -1050,8 +1047,8 @@ def add_layer_specific_quantization_to_model(module, config):
 def add_quantized_activations_to_model_layer(module, config):
     if not config.quantization_parameters.enable_quantization:
         return module
-    quantize_input = config["quantization_parameters"]["quantize_input"]
-    quantize_output = config["quantization_parameters"]["quantize_output"]
+    quantize_input = config.quantization_parameters.quantize_input
+    quantize_output = config.quantization_parameters.quantize_output
     # Replaces ReLU and Tanh layers with quantized versions
     for name, layer in module.named_children():
         i = config.quantization_parameters.default_data_integer_bits
@@ -1148,8 +1145,8 @@ def disable_pruning_from_layers(module, config):
 
 
 def add_pruning_to_model(module, config):
-    quantize_input = config["quantization_parameters"]["quantize_input"]
-    quantize_output = config["quantization_parameters"]["quantize_output"]
+    quantize_input = config.quantization_parameters.quantize_input
+    quantize_output = config.quantization_parameters.quantize_output
     for name, layer in module.named_children():
         if layer.__class__ is nn.Linear:
             sparse_layer = PQDense(
@@ -1265,7 +1262,7 @@ def pre_finetune_functions(model):
 def post_pretrain_functions(model, config, train_loader=None, loss_func=None):
 
     if config.fitcompress_parameters.enable_fitcompress:
-        from pquant.core.torch_impl.fit_compress import call_fitcompress
+        from pquant.core.torch_impl.fit_compress import call_fitcompress  # noqa: 811
 
         config, pruning_mask_importance_scores = call_fitcompress(config, model, train_loader, loss_func)
 
@@ -1357,26 +1354,26 @@ def create_default_layer_quantization_pruning_config(model):
     for name, layer in model.named_modules():
         if layer.__class__ in [nn.Linear, nn.Conv1d, nn.Conv2d]:
             if layer.bias is None:
-                config["layer_specific"][name] = {
+                config.layer_specific[name] = {
                     "input": {"integer_bits": 0, "fractional_bits": 7, "quantize": True},
                     "weight": {"integer_bits": 0, "fractional_bits": 7},
                     "output": {"integer_bits": 0, "fractional_bits": 7, "quantize": True},
                 }
             else:
-                config["layer_specific"][name] = {
+                config.layer_specific[name] = {
                     "input": {"integer_bits": 0, "fractional_bits": 7, "quantize": True},
                     "weight": {"integer_bits": 0, "fractional_bits": 7},
                     "bias": {"integer_bits": 0, "fractional_bits": 7},
                     "output": {"integer_bits": 0, "fractional_bits": 7, "quantize": True},
                 }
-            config["disable_pruning_for_layers"].append(name)
+            config.disable_pruning_for_layers.append(name)
         elif layer.__class__ in [nn.Tanh, nn.ReLU, nn.AvgPool1d, nn.AvgPool2d, nn.AvgPool3d]:
-            config["layer_specific"][name] = {
+            config.layer_specific[name] = {
                 "input": {"quantize": True, "integer_bits": 0.0, "fractional_bits": 7.0},
                 "output": {"quantize": True, "integer_bits": 0.0, "fractional_bits": 7.0},
             }
         elif layer.__class__ in [nn.BatchNorm2d]:
-            config["layer_specific"][name] = {
+            config.layer_specific[name] = {
                 "input": {"quantize": True, "integer_bits": 0.0, "fractional_bits": 7.0},
                 "weight": {"integer_bits": 0, "fractional_bits": 7.0},
                 "bias": {"integer_bits": 0, "fractional_bits": 7.0},

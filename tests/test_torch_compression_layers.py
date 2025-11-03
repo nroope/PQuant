@@ -6,17 +6,27 @@ import pytest
 import torch
 from keras import ops
 from torch import nn
-from torch.nn import AvgPool2d, BatchNorm2d, Conv1d, Conv2d, Linear, ReLU, Tanh
+from torch.nn import (
+    AvgPool2d,
+    BatchNorm2d,
+    Conv1d,
+    Conv2d,
+    Linear,
+    ReLU,
+    Tanh,
+)
 
 from pquant import post_training_prune
 from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
 from pquant.core.torch_impl.compressed_layers_torch import (
+    PQAvgPool1d,
+    PQAvgPool2d,
+    PQBatchNorm2d,
     PQConv1d,
     PQConv2d,
     PQDense,
     PQWeightBiasBase,
-    QuantizedActivationTorchWrapper,
-    QuantizedPooling,
+    QuantizedActivation,
     add_compression_layers_torch,
     apply_final_compression_torch,
     get_layer_keep_ratio_torch,
@@ -54,12 +64,17 @@ def config_pdp():
             "structured_pruning": False,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -88,12 +103,17 @@ def config_ap():
             "t_delta": 1,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -113,24 +133,29 @@ def config_ap():
 def config_wanda():
     cfg = {
         "pruning_parameters": {
-            "calculate_pruning_budget": True,
+            "calculate_pruning_budget": False,
             "disable_pruning_for_layers": [],
             "enable_pruning": True,
             "pruning_method": "wanda",
             "sparsity": 0.75,
             "t_start_collecting_batch": 0,
             "threshold_decay": 0.0,
-            "t_delta": 2,
+            "t_delta": 1,
             "N": None,
             "M": None,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
             "default_data_keep_negatives": 0.0,
             "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -158,10 +183,17 @@ def config_cs():
             "threshold_init": 0.1,
         },
         "quantization_parameters": {
-            "default_integer_bits": 0.0,
-            "default_fractional_bits": 7.0,
+            "default_weight_integer_bits": 0.0,
+            "default_weight_fractional_bits": 7.0,
+            "default_data_integer_bits": 0.0,
+            "default_data_fractional_bits": 7.0,
+            "default_data_keep_negatives": 0.0,
+            "default_weight_keep_negatives": 1.0,
+            "quantize_input": True,
+            "quantize_output": False,
             "enable_quantization": False,
             "hgq_gamma": 0.0003,
+            "hgq_beta": 1e-5,
             "hgq_heterogeneous": True,
             "layer_specific": [],
             "use_high_granularity_quantization": False,
@@ -215,8 +247,10 @@ class TestModel(nn.Module):
 def test_dense_call(config_pdp, dense_input):
     layer_to_replace = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     out = layer_to_replace(dense_input)
-    layer = PQDense(config_pdp, layer_to_replace, "linear")
-    layer.weight.data = layer_to_replace.weight.data
+    layer = PQDense(
+        config_pdp, layer_to_replace.in_features, layer_to_replace.out_features, layer_to_replace.bias is not None
+    )
+    layer._weight.data = layer_to_replace.weight.data
     out2 = layer(dense_input)
     assert ops.all(ops.equal(out, out2))
 
@@ -224,8 +258,21 @@ def test_dense_call(config_pdp, dense_input):
 def test_conv2d_call(config_pdp, conv2d_input):
     layer_to_replace = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False, padding="same")
     out = layer_to_replace(conv2d_input)
-    layer = PQConv2d(config_pdp, layer_to_replace, "conv")
-    layer.weight.data = layer_to_replace.weight.data
+    layer = PQConv2d(
+        config_pdp,
+        layer_to_replace.in_channels,
+        layer_to_replace.out_channels,
+        layer_to_replace.kernel_size,
+        layer_to_replace.stride,
+        layer_to_replace.padding,
+        layer_to_replace.dilation,
+        layer_to_replace.groups,
+        layer_to_replace.bias is not None,
+        layer_to_replace.padding_mode,
+        layer_to_replace.weight.device,
+        layer_to_replace.weight.dtype,
+    )
+    layer._weight.data = layer_to_replace.weight.data
     out2 = layer(conv2d_input)
     assert ops.all(ops.equal(out, out2))
 
@@ -233,8 +280,21 @@ def test_conv2d_call(config_pdp, conv2d_input):
 def test_conv1d_call(config_pdp, conv1d_input):
     layer_to_replace = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, stride=2, bias=False)
     out = layer_to_replace(conv1d_input)
-    layer = PQConv1d(config_pdp, layer_to_replace, "conv")
-    layer.weight.data = layer_to_replace.weight.data
+    layer = PQConv1d(
+        config_pdp,
+        layer_to_replace.in_channels,
+        layer_to_replace.out_channels,
+        layer_to_replace.kernel_size,
+        layer_to_replace.stride,
+        layer_to_replace.padding,
+        layer_to_replace.dilation,
+        layer_to_replace.groups,
+        layer_to_replace.bias is not None,
+        layer_to_replace.padding_mode,
+        layer_to_replace.weight.device,
+        layer_to_replace.weight.dtype,
+    )
+    layer._weight.data = layer_to_replace.weight.data
     out2 = layer(conv1d_input)
     assert ops.all(ops.equal(out, out2))
 
@@ -242,11 +302,13 @@ def test_conv1d_call(config_pdp, conv1d_input):
 def test_dense_add_remove_layers(config_pdp, dense_input):
     config_pdp.pruning_parameters.enable_pruning = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    orig_weight = layer.weight.data
+
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
-
+    assert torch.all(orig_weight == model.submodule._weight.data)
     mask_50pct = ops.cast(ops.linspace(0, 1, num=OUT_FEATURES * IN_FEATURES) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
@@ -262,12 +324,13 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
 def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
     config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
+    orig_weight = layer.weight.data
     model = TestModel(layer)
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
-
+    assert torch.all(orig_weight == model.submodule._weight.data)
     mask_50pct = ops.cast(ops.linspace(0, 1, num=OUT_FEATURES * IN_FEATURES * KERNEL_SIZE * KERNEL_SIZE) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
@@ -369,7 +432,7 @@ def test_check_activation(config_pdp, dense_input):
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    assert isinstance(model.activation, QuantizedActivationTorchWrapper)
+    assert isinstance(model.activation, QuantizedActivation)
 
     # Tanh
     config_pdp.quantization_parameters.enable_quantization = False
@@ -382,7 +445,7 @@ def test_check_activation(config_pdp, dense_input):
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    assert isinstance(model.activation, QuantizedActivationTorchWrapper)
+    assert isinstance(model.activation, QuantizedActivation)
 
 
 def check_keras_layer_is_built(module, is_built):
@@ -417,6 +480,7 @@ class TestModelWithAvgPool(nn.Module):
 def test_hgq_activation_built(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.enable_quantization = True
     config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.quantize_output = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModelWithAvgPool(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
@@ -488,8 +552,8 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
     weight2 = ops.linspace(0.01, 0.99, OUT_FEATURES * OUT_FEATURES)
 
     model = add_compression_layers_torch(model, config_wanda, dense_input.shape)
-    model.submodule.weight.data = ops.reshape(weight, model.submodule.weight.shape)
-    model.submodule2.weight.data = ops.reshape(weight2, model.submodule2.weight.shape)
+    model.submodule._weight.data = ops.reshape(weight, model.submodule.weight.shape)
+    model.submodule2._weight.data = ops.reshape(weight2, model.submodule2.weight.shape)
 
     # Triggers calculation of pruning budget for PDP and Wanda
     post_pretrain_functions(model, config_wanda)
@@ -540,8 +604,8 @@ def test_hgq_weight_shape(config_pdp, dense_input):
 
 
 def test_qbn_build(config_pdp, conv2d_input):
-    config_pdp["quantization_parameters"]["enable_quantization"] = True
-    config_pdp["quantization_parameters"]["use_high_granularity_quantization"] = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     layer2 = BatchNorm2d(OUT_FEATURES)
     model = TestModel2(layer, layer2, None, "tanh")
@@ -581,7 +645,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert torch.all(m.input_quantizer.quantizer.i == 0.0)
             assert torch.all(m.input_quantizer.quantizer.f == 8.0)
 
-        elif isinstance(m, QuantizedPooling):
+        elif isinstance(m, PQAvgPool2d):
             assert m.i_input == 0.0
             assert m.f_input == 7.0
             assert torch.all(m.input_quantizer.quantizer.quantizer.i == 0.0)
@@ -621,7 +685,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert m.f_input == 4.0
             assert torch.all(m.input_quantizer.quantizer.i == 1.0)
             assert torch.all(m.input_quantizer.quantizer.f == 4.0)
-        elif isinstance(m, QuantizedPooling):
+        elif isinstance(m, PQAvgPool2d):
             assert m.i_input == 1.0
             assert m.f_input == 3.0
             assert torch.all(m.input_quantizer.quantizer.quantizer.i == 1.0)
@@ -670,6 +734,413 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
         elif isinstance(m, (QuantizedReLU)):
             assert m.i_input == 0.0
             assert m.f_input == 4.0
-        elif isinstance(m, QuantizedPooling):
+        elif isinstance(m, PQAvgPool2d):
             assert m.i_input == 1.0
             assert m.f_input == 3.0
+
+
+def test_ebops_dense(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.hgq_loss()
+
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=True)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.hgq_loss()
+
+
+def test_ebops_conv2d(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.hgq_loss()
+
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.hgq_loss()
+
+
+def test_ebops_conv1d(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.hgq_loss()
+
+    layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.hgq_loss()
+
+
+def test_ebops_bn(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
+    layer2 = BatchNorm2d(OUT_FEATURES)
+    model = TestModel2(layer, layer2, None, "relu")
+    shape = [1] + list(conv2d_input.shape[1:])
+    model = add_compression_layers_torch(model, config_pdp, shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule2.hgq_loss()
+
+
+def test_linear_direct(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, quantize_output=True)
+    layer(dense_input)
+    assert layer.get_input_quantization_bits() == (0, 0, 7)
+    assert layer.get_weight_quantization_bits() == (1, 0, 7)
+    assert layer.get_bias_quantization_bits() == (1, 0, 7)
+    assert layer.get_output_quantization_bits() == (0, 0, 7)
+
+    layer = PQDense(
+        config_pdp,
+        IN_FEATURES,
+        OUT_FEATURES,
+        quantize_output=True,
+        input_quantization_bits=(1, 2, 5),
+        weight_quantization_bits=(1, 0, 3),
+        bias_quantization_bits=(1, 0, 3),
+        output_quantization_bits=(1, 2, 5),
+    )
+    layer(dense_input)
+    assert layer.get_input_quantization_bits() == (1, 2, 5)
+    assert layer.get_weight_quantization_bits() == (1, 0, 3)
+    assert layer.get_bias_quantization_bits() == (1, 0, 3)
+    assert layer.get_output_quantization_bits() == (1, 2, 5)
+
+
+def test_linear_direct_hgq(config_pdp, dense_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, quantize_output=True)
+    layer(dense_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_weight_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_bias_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    layer = PQDense(
+        config_pdp,
+        IN_FEATURES,
+        OUT_FEATURES,
+        quantize_output=True,
+        input_quantization_bits=(1, 2, 5),
+        weight_quantization_bits=(1, 0, 3),
+        bias_quantization_bits=(1, 0, 3),
+        output_quantization_bits=(1, 2, 5),
+    )
+    layer(dense_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+    k, i, f = layer.get_weight_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 3)
+    k, i, f = layer.get_bias_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 3)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+
+def test_conv2d_direct(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv2d(config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, quantize_output=True)
+    layer(conv2d_input)
+    assert layer.get_input_quantization_bits() == (0, 0, 7)
+    assert layer.get_weight_quantization_bits() == (1, 0, 7)
+    assert layer.get_bias_quantization_bits() == (1, 0, 7)
+    assert layer.get_output_quantization_bits() == (0, 0, 7)
+    layer = PQConv2d(
+        config_pdp,
+        IN_FEATURES,
+        OUT_FEATURES,
+        KERNEL_SIZE,
+        quantize_output=True,
+        input_quantization_bits=(1, 2, 5),
+        weight_quantization_bits=(1, 0, 3),
+        bias_quantization_bits=(1, 0, 3),
+        output_quantization_bits=(1, 2, 5),
+    )
+    layer(conv2d_input)
+    assert layer.get_input_quantization_bits() == (1, 2, 5)
+    assert layer.get_weight_quantization_bits() == (1, 0, 3)
+    assert layer.get_bias_quantization_bits() == (1, 0, 3)
+    assert layer.get_output_quantization_bits() == (1, 2, 5)
+
+
+def test_conv2d_direct_hgq(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv2d(config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, quantize_output=True)
+    layer(conv2d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_weight_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_bias_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    layer = PQConv2d(
+        config_pdp,
+        IN_FEATURES,
+        OUT_FEATURES,
+        KERNEL_SIZE,
+        quantize_output=True,
+        input_quantization_bits=(1, 2, 5),
+        weight_quantization_bits=(1, 0, 3),
+        bias_quantization_bits=(1, 0, 3),
+        output_quantization_bits=(1, 2, 5),
+    )
+    layer(conv2d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+    k, i, f = layer.get_weight_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 3)
+    k, i, f = layer.get_bias_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 3)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+
+def test_conv1d_direct(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv1d(config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, quantize_output=True)
+    layer(conv1d_input)
+    assert layer.get_input_quantization_bits() == (0, 0, 7)
+    assert layer.get_weight_quantization_bits() == (1, 0, 7)
+    assert layer.get_bias_quantization_bits() == (1, 0, 7)
+    assert layer.get_output_quantization_bits() == (0, 0, 7)
+    layer = PQConv1d(
+        config_pdp,
+        IN_FEATURES,
+        OUT_FEATURES,
+        KERNEL_SIZE,
+        quantize_output=True,
+        input_quantization_bits=(1, 2, 5),
+        weight_quantization_bits=(1, 0, 3),
+        bias_quantization_bits=(1, 0, 3),
+        output_quantization_bits=(1, 2, 5),
+    )
+    layer(conv1d_input)
+    assert layer.get_input_quantization_bits() == (1, 2, 5)
+    assert layer.get_weight_quantization_bits() == (1, 0, 3)
+    assert layer.get_bias_quantization_bits() == (1, 0, 3)
+    assert layer.get_output_quantization_bits() == (1, 2, 5)
+
+
+def test_conv1d_direct_hgq(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv1d(config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, quantize_output=True)
+    layer(conv1d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_weight_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_bias_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    layer = PQConv1d(
+        config_pdp,
+        IN_FEATURES,
+        OUT_FEATURES,
+        KERNEL_SIZE,
+        quantize_output=True,
+        input_quantization_bits=(1, 2, 5),
+        weight_quantization_bits=(1, 0, 3),
+        bias_quantization_bits=(1, 0, 3),
+        output_quantization_bits=(1, 2, 5),
+    )
+    layer(conv1d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+    k, i, f = layer.get_weight_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 3)
+    k, i, f = layer.get_bias_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 0)
+    assert torch.all(f == 3)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+
+def test_avgpool_direct(config_pdp, conv1d_input, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQAvgPool1d(config_pdp, kernel_size=3)
+    layer(conv1d_input)
+    assert layer.get_input_quantization_bits() == (0, 0, 7)
+    assert layer.get_output_quantization_bits() == (0, 0, 7)
+    layer = PQAvgPool1d(
+        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
+    )
+    layer(conv1d_input)
+    assert layer.get_input_quantization_bits() == (1, 2, 5)
+    assert layer.get_output_quantization_bits() == (1, 2, 5)
+
+    layer = PQAvgPool2d(config_pdp, kernel_size=3)
+    layer(conv2d_input)
+    assert layer.get_input_quantization_bits() == (0, 0, 7)
+    assert layer.get_output_quantization_bits() == (0, 0, 7)
+
+    layer = PQAvgPool2d(
+        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
+    )
+    layer(conv2d_input)
+    assert layer.get_input_quantization_bits() == (1, 2, 5)
+    assert layer.get_output_quantization_bits() == (1, 2, 5)
+
+
+def test_avgpool_direct_hgq(config_pdp, conv1d_input, conv2d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQAvgPool1d(config_pdp, kernel_size=3, quantize_output=True)
+    layer(conv1d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    layer = PQAvgPool1d(
+        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
+    )
+    layer(conv1d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+    # 2D
+    layer = PQAvgPool2d(config_pdp, kernel_size=3, quantize_output=True)
+    layer(conv2d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+
+    layer = PQAvgPool2d(
+        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
+    )
+    layer(conv2d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+    k, i, f = layer.get_output_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)
+
+
+def test_batchnorm2d_direct(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES)
+    layer(conv2d_input)
+    assert layer.get_input_quantization_bits() == (0, 0, 7)
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, input_quantization_bits=(1, 2, 5))
+    layer(conv2d_input)
+    assert layer.get_input_quantization_bits() == (1, 2, 5)
+
+
+def test_batchnorm2d_direct_hgq(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES)
+    layer(conv2d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 0)
+    assert torch.all(i == 0)
+    assert torch.all(f == 7)
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, input_quantization_bits=(1, 2, 5))
+    layer(conv2d_input)
+    k, i, f = layer.get_input_quantization_bits()
+    assert torch.all(k == 1)
+    assert torch.all(i == 2)
+    assert torch.all(f == 5)

@@ -15,8 +15,8 @@ class QuantizedTanh(keras.layers.Layer):
             from pquant.core.finetuning import TuningConfig
 
             config = TuningConfig.load_from_config(config)
-        self.i = convert_to_tensor(i_input)
-        self.f = convert_to_tensor(f_input)
+        self.i_input = convert_to_tensor(i_input)
+        self.f_input = convert_to_tensor(f_input)
         self.k = convert_to_tensor(1.0)
 
         self.i_output = convert_to_tensor(i_output)
@@ -162,8 +162,6 @@ class QuantizedReLU(keras.layers.Layer):
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
-        
-
 
         self.post_fitcompress_calibration = False
         self.saved_inputs = []
