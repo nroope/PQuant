@@ -179,13 +179,16 @@ class PQWeightBiasBase(nn.Module):
             weight = self.pruning_layer(weight)
         return weight
 
+    def is_fitcompress_pretraining(self):
+        return self.pruning_layer.is_pretraining and self.use_fitcompress
+
     def pre_forward(self, x):
         if not self.built:
             self.build(x.shape)
         if self.quantize_input:
             if self.use_hgq and not self.input_quantizer.quantizer.built:
                 self.input_quantizer.quantizer.build(x.shape)
-            if not self.pruning_layer.is_pretraining and not self.use_fitcompress:
+            if not self.is_fitcompress_pretraining():
                 x = self.input_quantizer(x)
         if self.pruning_method == "wanda":
             self.pruning_layer.collect_input(x, self.weight, self.training)
@@ -195,7 +198,7 @@ class PQWeightBiasBase(nn.Module):
         if self.quantize_output:
             if self.use_hgq and not self.output_quantizer.quantizer.built:
                 self.output_quantizer.quantizer.build(x.shape)
-            if not self.pruning_layer.is_pretraining and not self.use_fitcompress:
+            if not self.is_fitcompress_pretraining():
                 x = self.output_quantizer(x)
         if self.pruning_method == "activation_pruning":
             self.pruning_layer.collect_output(x, self.training)
@@ -264,7 +267,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
 
     @property
     def weight(self):
-        if self.final_compression_done:
+        if self.final_compression_done or self.is_fitcompress_pretraining():
             return self._weight
         if self.pruning_first:
             weight = self.prune(self._weight)
@@ -275,7 +278,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
 
     @property
     def bias(self):
-        if self.final_compression_done:
+        if self.final_compression_done or self.is_fitcompress_pretraining():
             return self._bias
         bias = self.quantize(self._bias, self.bias_quantizer)
         return bias
@@ -638,10 +641,13 @@ class PQAvgPoolBase(nn.Module):
             loss += self.output_quantizer.hgq_loss()
         return loss
 
+    def is_fitcompress_pretraining(self):
+        return self.is_pretraining and self.use_fitcompress
+
     def pre_pooling(self, x):
         if not hasattr(self, "input_quantizer"):
             self.build(x.shape)
-        if self.use_fitcompress and self.is_pretraining:
+        if self.is_fitcompress_pretraining():
             if self.post_fitcompress_calibration:
                 # Save inputs
                 self.saved_inputs.append(x)
@@ -652,7 +658,7 @@ class PQAvgPoolBase(nn.Module):
         return x
 
     def post_pooling(self, x):
-        if self.quantize_output and self.enable_quantization:
+        if self.quantize_output and self.enable_quantization and not self.is_fitcompress_pretraining():
             x = self.output_quantizer(x)
         return x
 
@@ -779,6 +785,7 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.hgq_beta = config.quantization_parameters.hgq_beta
         self.enable_quantization = config.quantization_parameters.enable_quantization
+        self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.config = config
         self.quantize_input = quantize_input
         self._weight = nn.Parameter(self.weight.clone())
@@ -836,15 +843,18 @@ class PQBatchNorm2d(nn.BatchNorm2d):
     def get_bias_quantization_bits(self):
         return self.bias_quantizer.get_quantization_bits()
 
+    def is_fitcompress_pretraining(self):
+        return self.is_pretraining and self.use_fitcompress
+
     @property
     def weight(self):
-        if self.enable_quantization and not self.final_compression_done:
+        if self.enable_quantization and not self.final_compression_done and not self.is_fitcompress_pretraining():
             return self.weight_quantizer(self._weight)
         return self._weight
 
     @property
     def bias(self):
-        if self.enable_quantization and not self.final_compression_done:
+        if self.enable_quantization and not self.final_compression_done and not self.is_fitcompress_pretraining():
             return self.bias_quantizer(self._bias)
         return self._bias
 
@@ -875,7 +885,8 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         if self.quantize_input and self.enable_quantization:
             if self.use_hgq and not self.input_quantizer.quantizer.built:
                 self.input_quantizer.quantizer.build(input.shape)
-            input = self.input_quantizer(input)
+            if not self.is_fitcompress_pretraining():
+                input = self.input_quantizer(input)
         return super().forward(input)
 
 
