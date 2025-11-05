@@ -17,7 +17,7 @@ from torch.nn import (
 )
 
 from pquant import post_training_prune
-from pquant.core.activations_quantizer import QuantizedReLU, QuantizedTanh
+from pquant.core.torch_impl.activations import PQActivation
 from pquant.core.torch_impl.compressed_layers_torch import (
     PQAvgPool1d,
     PQAvgPool2d,
@@ -26,10 +26,10 @@ from pquant.core.torch_impl.compressed_layers_torch import (
     PQConv2d,
     PQDense,
     PQWeightBiasBase,
-    QuantizedActivation,
     add_compression_layers_torch,
     apply_final_compression_torch,
     get_layer_keep_ratio_torch,
+    get_model_losses_torch,
     post_pretrain_functions,
     pre_finetune_functions,
 )
@@ -248,7 +248,11 @@ def test_dense_call(config_pdp, dense_input):
     layer_to_replace = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     out = layer_to_replace(dense_input)
     layer = PQDense(
-        config_pdp, layer_to_replace.in_features, layer_to_replace.out_features, layer_to_replace.bias is not None
+        config_pdp,
+        layer_to_replace.in_features,
+        layer_to_replace.out_features,
+        layer_to_replace.bias is not None,
+        quantize_input=False,
     )
     layer._weight.data = layer_to_replace.weight.data
     out2 = layer(dense_input)
@@ -271,6 +275,7 @@ def test_conv2d_call(config_pdp, conv2d_input):
         layer_to_replace.padding_mode,
         layer_to_replace.weight.device,
         layer_to_replace.weight.dtype,
+        quantize_input=False,
     )
     layer._weight.data = layer_to_replace.weight.data
     out2 = layer(conv2d_input)
@@ -293,6 +298,7 @@ def test_conv1d_call(config_pdp, conv1d_input):
         layer_to_replace.padding_mode,
         layer_to_replace.weight.device,
         layer_to_replace.weight.dtype,
+        quantize_input=False,
     )
     layer._weight.data = layer_to_replace.weight.data
     out2 = layer(conv1d_input)
@@ -432,7 +438,7 @@ def test_check_activation(config_pdp, dense_input):
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    assert isinstance(model.activation, QuantizedActivation)
+    assert isinstance(model.activation, PQActivation)
 
     # Tanh
     config_pdp.quantization_parameters.enable_quantization = False
@@ -445,7 +451,7 @@ def test_check_activation(config_pdp, dense_input):
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
-    assert isinstance(model.activation, QuantizedActivation)
+    assert isinstance(model.activation, PQActivation)
 
 
 def check_keras_layer_is_built(module, is_built):
@@ -577,16 +583,16 @@ def test_trigger_post_pretraining(config_pdp, dense_input):
     model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
 
     assert model.submodule.pruning_layer.is_pretraining is True
-    assert model.activation.activation.is_pretraining is True
+    assert model.activation.is_pretraining is True
     assert model.submodule2.pruning_layer.is_pretraining is True
-    assert model.activation2.activation.is_pretraining is True
+    assert model.activation2.is_pretraining is True
 
     post_pretrain_functions(model, config_pdp)
 
     assert model.submodule.pruning_layer.is_pretraining is False
-    assert model.activation.activation.is_pretraining is False
+    assert model.activation.is_pretraining is False
     assert model.submodule2.pruning_layer.is_pretraining is False
-    assert model.activation2.activation.is_pretraining is False
+    assert model.activation2.is_pretraining is False
 
 
 def test_hgq_weight_shape(config_pdp, dense_input):
@@ -600,7 +606,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     post_pretrain_functions(model, config_pdp)
 
     assert model.submodule.weight_quantizer.quantizer.quantizer._i.shape == model.submodule.weight.shape
-    assert model.activation.activation.input_quantizer.quantizer._i.shape == (1, OUT_FEATURES)
+    assert model.activation.input_quantizer.quantizer.quantizer._i.shape == (1, OUT_FEATURES)
 
 
 def test_qbn_build(config_pdp, conv2d_input):
@@ -634,16 +640,16 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert m.f_bias == 7.0
             assert torch.all(m.weight_quantizer.quantizer.quantizer.f == 7.0)
             assert torch.all(m.weight_quantizer.quantizer.quantizer.f == 7.0)
-        elif isinstance(m, (QuantizedTanh)):
-            assert m.i_input == 0.0
-            assert m.f_input == 7.0
-            assert torch.all(m.output_quantizer.quantizer.i == 0.0)
-            assert torch.all(m.output_quantizer.quantizer.f == 7.0)
-        elif isinstance(m, (QuantizedReLU)):
-            assert m.i_input == 0.0
-            assert m.f_input == 8.0
-            assert torch.all(m.input_quantizer.quantizer.i == 0.0)
-            assert torch.all(m.input_quantizer.quantizer.f == 8.0)
+        elif isinstance(m, PQActivation) and m.activation_name == "tanh":
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+
+            assert torch.all(i_input == 0.0)
+            assert torch.all(f_input == 7.0)
+        elif isinstance(m, PQActivation) and m.activation_name == "relu":
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+
+            assert torch.all(i_input == 0.0)
+            assert torch.all(f_input == 8.0)
 
         elif isinstance(m, PQAvgPool2d):
             assert m.i_input == 0.0
@@ -675,16 +681,16 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert m.f_bias == 4.0
             assert torch.all(m.weight_quantizer.quantizer.quantizer.f == 3.0)
             assert torch.all(m.bias_quantizer.quantizer.quantizer.f == 4.0)
-        elif isinstance(m, (QuantizedTanh)):
-            assert m.i_input == 0.0
-            assert m.f_input == 3.0
-            assert torch.all(m.input_quantizer.quantizer.i == 0.0)
-            assert torch.all(m.input_quantizer.quantizer.f == 3.0)
-        elif isinstance(m, (QuantizedReLU)):
-            assert m.i_input == 1.0
-            assert m.f_input == 4.0
-            assert torch.all(m.input_quantizer.quantizer.i == 1.0)
-            assert torch.all(m.input_quantizer.quantizer.f == 4.0)
+        elif isinstance(m, PQActivation) and m.activation_name == "tanh":
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+
+            assert torch.all(i_input == 0.0)
+            assert torch.all(f_input == 3.0)
+        elif isinstance(m, PQActivation) and m.activation_name == "relu":
+            k_input, i_input, f_input = m.get_input_quantization_bits()
+
+            assert torch.all(i_input == 1.0)
+            assert torch.all(f_input == 4.0)
         elif isinstance(m, PQAvgPool2d):
             assert m.i_input == 1.0
             assert m.f_input == 3.0
@@ -704,10 +710,10 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
         if isinstance(m, (PQWeightBiasBase)):
             assert m.i_weight == 0.0
             assert m.f_bias == 7.0
-        elif isinstance(m, (QuantizedTanh)):
+        elif isinstance(m, PQActivation) and m.activation_name == "tanh":
             assert m.i_input == 0.0
             assert m.f_input == 7.0
-        elif isinstance(m, (QuantizedReLU)):
+        elif isinstance(m, PQActivation) and m.activation_name == "relu":
             assert m.i_input == 0.0
             assert m.f_input == 8.0
 
@@ -728,10 +734,10 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
         if isinstance(m, (PQWeightBiasBase)):
             assert m.i_weight == 1.0
             assert m.f_bias == 3.0
-        elif isinstance(m, (QuantizedTanh)):
+        elif isinstance(m, PQActivation) and m.activation_name == "tanh":
             assert m.i_input == 0.0
             assert m.f_input == 3.0
-        elif isinstance(m, (QuantizedReLU)):
+        elif isinstance(m, PQActivation) and m.activation_name == "relu":
             assert m.i_input == 0.0
             assert m.f_input == 4.0
         elif isinstance(m, PQAvgPool2d):
@@ -1144,3 +1150,778 @@ def test_batchnorm2d_direct_hgq(config_pdp, conv2d_input):
     assert torch.all(k == 1)
     assert torch.all(i == 2)
     assert torch.all(f == 5)
+
+
+class DummyLayer(nn.Module):
+
+    def __init__(self, is_pretraining=False):
+        super().__init__()
+        self.built = True
+        self.layer_called = 0
+        self.is_pretraining = is_pretraining
+
+    def forward(self, x):
+        self.layer_called += 1
+        return x
+
+    def extra_repr(self):
+        return f"Layer called = {self.layer_called} times."
+
+
+def test_dense_input_parameters_quantizers_called(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, bias=True)
+
+    layer(dense_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(dense_input)
+
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_dense_output_parameters_quantizers_called(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, bias=True, quantize_input=False, quantize_output=True)
+
+    layer(dense_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(dense_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_dense_quantizers_not_called_when_global_disabled(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = False
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, bias=True, quantize_input=True, quantize_output=True)
+
+    layer(dense_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(dense_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_dense_quantizers_not_called_when_fitcompress_pretraining(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.fitcompress_parameters.enable_fitcompress = True
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, bias=True, quantize_input=True, quantize_output=True)
+
+    layer(dense_input)
+    layer.is_pretraining = True
+    layer.pruning_layer = DummyLayer()
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+
+    assert layer.pruning_layer.layer_called == 0
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+    layer.is_pretraining = False
+    layer(dense_input)
+    assert layer.pruning_layer.layer_called == 1
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_dense_pruning_layer_not_called_when_global_disabled(config_pdp, dense_input):
+    config_pdp.pruning_parameters.enable_pruning = False
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, bias=True, quantize_input=False, quantize_output=False)
+    layer(dense_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer.pruning_layer = DummyLayer()
+
+    layer(dense_input)
+
+    assert layer.pruning_layer.layer_called == 0
+
+
+def test_dense_pruning_layer_called_when_global_enabled(config_pdp, dense_input):
+    config_pdp.pruning_parameters.enable_pruning = True
+    layer = PQDense(config_pdp, IN_FEATURES, OUT_FEATURES, bias=True, quantize_input=False, quantize_output=False)
+    layer(dense_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer.pruning_layer = DummyLayer()
+
+    layer(dense_input)
+
+    assert layer.pruning_layer.layer_called == 1
+
+
+# Conv1d
+
+
+def test_conv1d_input_parameters_quantizers_called(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv1d(config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+
+    layer(conv1d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv1d_input)
+
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_conv1d_output_parameters_quantizers_called(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv1d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=False, quantize_output=True
+    )
+
+    layer(conv1d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv1d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_conv1d_quantizers_not_called_when_global_disabled(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = False
+    layer = PQConv1d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+
+    layer(conv1d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv1d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_conv1d_quantizers_not_called_when_fitcompress_pretraining(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.fitcompress_parameters.enable_fitcompress = True
+    layer = PQConv1d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+
+    layer(conv1d_input)
+    layer.is_pretraining = True
+    layer.pruning_layer = DummyLayer()
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+
+    assert layer.pruning_layer.layer_called == 0
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+    layer.is_pretraining = False
+    layer(conv1d_input)
+    assert layer.pruning_layer.layer_called == 1
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_conv1d_pruning_layer_not_called_when_global_disabled(config_pdp, conv1d_input):
+    config_pdp.pruning_parameters.enable_pruning = False
+    layer = PQConv1d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+    layer(conv1d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer.pruning_layer = DummyLayer()
+
+    layer(conv1d_input)
+
+    assert layer.pruning_layer.layer_called == 0
+
+
+def test_conv1d_pruning_layer_called_when_global_enabled(config_pdp, conv1d_input):
+    config_pdp.pruning_parameters.enable_pruning = True
+    layer = PQConv1d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+    layer(conv1d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer.pruning_layer = DummyLayer()
+
+    layer(conv1d_input)
+
+    assert layer.pruning_layer.layer_called == 1
+
+
+# Conv2d
+
+
+def test_conv2d_input_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv2d(config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_conv2d_output_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQConv2d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=False, quantize_output=True
+    )
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_conv2d_quantizers_not_called_when_global_disabled(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = False
+    layer = PQConv2d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_conv2d_quantizers_not_called_when_fitcompress_pretraining(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.fitcompress_parameters.enable_fitcompress = True
+    layer = PQConv2d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+
+    layer(conv2d_input)
+    layer.is_pretraining = True
+    layer.pruning_layer = DummyLayer()
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+
+    assert layer.pruning_layer.layer_called == 0
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+    layer.is_pretraining = False
+    layer(conv2d_input)
+    assert layer.pruning_layer.layer_called == 1
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_conv2d_pruning_layer_not_called_when_global_disabled(config_pdp, conv2d_input):
+    config_pdp.pruning_parameters.enable_pruning = False
+    layer = PQConv2d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer.pruning_layer = DummyLayer()
+
+    layer(conv2d_input)
+
+    assert layer.pruning_layer.layer_called == 0
+
+
+def test_conv2d_pruning_layer_called_when_global_enabled(config_pdp, conv2d_input):
+    config_pdp.pruning_parameters.enable_pruning = True
+    layer = PQConv2d(
+        config_pdp, IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True, quantize_input=True, quantize_output=True
+    )
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer.pruning_layer = DummyLayer()
+
+    layer(conv2d_input)
+
+    assert layer.pruning_layer.layer_called == 1
+
+
+# AvgPool
+
+
+def test_avgpool2d_input_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQAvgPool2d(config_pdp, KERNEL_SIZE)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_avgpool2d_output_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQAvgPool2d(config_pdp, KERNEL_SIZE, quantize_input=False, quantize_output=True)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_avgpool2d_quantizers_not_called_when_global_disabled(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = False
+    layer = PQAvgPool2d(config_pdp, KERNEL_SIZE, quantize_input=True, quantize_output=True)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_avgpool2d_quantizers_not_called_when_fitcompress_pretraining(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.fitcompress_parameters.enable_fitcompress = True
+    layer = PQAvgPool2d(config_pdp, KERNEL_SIZE, quantize_input=True, quantize_output=True)
+
+    layer(conv2d_input)
+    layer.is_pretraining = True
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+    layer.is_pretraining = False
+    layer(conv2d_input)
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+# BatchNorm
+
+
+def test_batchnorm2d_input_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+
+
+def test_batchnorm2d_input_quantizer_disabled_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, quantize_input=False)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+
+
+def test_batchnorm2d_quantizers_not_called_when_global_disabled(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = False
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+
+
+def test_batchnorm2d_quantizers_not_called_when_fitcompress_pretraining(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.fitcompress_parameters.enable_fitcompress = True
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES)
+
+    layer(conv2d_input)
+    layer.is_pretraining = True
+    layer.input_quantizer = DummyLayer()
+    layer.weight_quantizer = DummyLayer()
+    layer.bias_quantizer = DummyLayer()
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.weight_quantizer.layer_called == 0
+    assert layer.bias_quantizer.layer_called == 0
+
+    layer.is_pretraining = False
+    layer(conv2d_input)
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.weight_quantizer.layer_called == 1
+    assert layer.bias_quantizer.layer_called == 1
+
+
+# Activations
+
+
+def test_activation_input_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQActivation(config_pdp, "relu")
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_activation_output_parameters_quantizers_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    layer = PQActivation(config_pdp, "relu", quantize_input=False, quantize_output=True)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 1
+
+
+def test_activation_quantizers_not_called_when_global_disabled(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = False
+
+    layer = PQActivation(config_pdp, "relu", quantize_input=True, quantize_output=True)
+
+    layer(conv2d_input)  # Builds quantizers
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+    layer(conv2d_input)
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+
+def test_activation_quantizers_not_called_when_fitcompress_pretraining(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.fitcompress_parameters.enable_fitcompress = True
+    layer = PQActivation(config_pdp, "relu", quantize_input=True, quantize_output=True)
+
+    layer(conv2d_input)
+    layer.is_pretraining = True
+    layer.input_quantizer = DummyLayer()
+    layer.output_quantizer = DummyLayer()
+
+    assert layer.input_quantizer.layer_called == 0
+    assert layer.output_quantizer.layer_called == 0
+
+    layer.is_pretraining = False
+    layer(conv2d_input)
+    assert layer.input_quantizer.layer_called == 1
+    assert layer.output_quantizer.layer_called == 1
+
+
+def dummy_ebops():
+    return 0.0
+
+
+def dummy_hgq_loss():
+    return 1.0
+
+
+class ModelWithAllLayers(nn.Module):
+
+    def __init__(self, use_bias=True):
+        super().__init__()
+        self.conv = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=use_bias)
+        self.bn = BatchNorm2d(OUT_FEATURES)
+        self.relu = ReLU()
+        self.avgpool2d = nn.AvgPool2d(2)
+        self.conv1d = Conv1d(OUT_FEATURES, 4, KERNEL_SIZE, bias=use_bias)
+        self.avgpool1d = nn.AvgPool1d(2)
+        self.tanh = Tanh()
+        self.flatten = nn.Flatten()
+        self.dense = nn.Linear(444, 2, bias=use_bias)
+
+    def forward(self, x):
+        x = self.relu(self.bn(self.conv(x)))
+        x = self.avgpool2d(x)
+        x = self.tanh(x)
+        x = torch.reshape(x, list(x.shape[:-2]) + [x.shape[-2] * x.shape[-1]])
+        x = self.conv1d(x)
+        x = self.avgpool1d(x)
+        x = self.flatten(x)
+        x = self.dense(x)
+        return x
+
+
+def test_hgq_loss_calc_no_qoutput(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.hgq_beta = 0.0
+
+    # Bias in weight layers, don't quantize output
+    model = ModelWithAllLayers()
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    expected_loss = 0.0
+    for m in model.modules():
+        if isinstance(m, (PQWeightBiasBase)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            m.output_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            expected_loss += 3.0
+        elif isinstance(m, (PQAvgPool1d, PQAvgPool2d, PQActivation)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.output_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            expected_loss += 1.0
+        elif isinstance(m, (PQBatchNorm2d)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 3.0
+
+    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    assert losses == expected_loss
+
+
+def test_hgq_loss_calc_no_bias_no_qoutput(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.hgq_beta = 0.0
+
+    # No bias in weight layers, don't quantize output
+    model = ModelWithAllLayers(use_bias=False)
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+
+    expected_loss = 0.0
+    for m in model.modules():
+        if isinstance(m, (PQWeightBiasBase)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            m.output_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            expected_loss += 2.0
+        elif isinstance(m, (PQAvgPool1d, PQAvgPool2d, PQActivation)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.output_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            expected_loss += 1.0
+        elif isinstance(m, (PQBatchNorm2d)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 3.0
+
+    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    assert losses == expected_loss
+
+
+def test_hgq_loss_calc_qoutput(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.hgq_beta = 0.0
+
+    # Bias in weight layers, quantize output
+    config_pdp.quantization_parameters.quantize_output = True
+    model = ModelWithAllLayers()
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    expected_loss = 0.0
+    for m in model.modules():
+        if isinstance(m, (PQWeightBiasBase)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            m.output_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 4.0
+        elif isinstance(m, (PQAvgPool1d, PQAvgPool2d, PQActivation)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.output_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 2.0
+        elif isinstance(m, (PQBatchNorm2d)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 3.0
+
+    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    assert losses == expected_loss
+
+
+def test_hgq_loss_calc_no_qinput(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.quantization_parameters.hgq_beta = 0.0
+
+    config_pdp.quantization_parameters.quantize_output = True
+    config_pdp.quantization_parameters.quantize_input = False
+    # Bias in weight layers, don't quantize input
+    model = ModelWithAllLayers()
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    expected_loss = 0.0
+    for m in model.modules():
+        if isinstance(m, (PQWeightBiasBase)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            m.output_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 3.0
+        elif isinstance(m, (PQAvgPool1d, PQAvgPool2d, PQActivation)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            m.output_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 1.0
+        elif isinstance(m, (PQBatchNorm2d)):
+            m.ebops = dummy_ebops
+            m.input_quantizer.hgq_loss = dummy_hgq_loss  # Won't be called
+            m.weight_quantizer.hgq_loss = dummy_hgq_loss
+            m.bias_quantizer.hgq_loss = dummy_hgq_loss
+            expected_loss += 2.0
+
+    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    assert losses == expected_loss
+
+
+# After final compression done
+
+
+def test_conv1d_parameter_quantizers_not_called_when_final_compression_done(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.quantize_output = True
+    layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    model = TestModel(layer)
+    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    model = apply_final_compression_torch(model)
+    model.submodule.input_quantizer = DummyLayer()
+    model.submodule.weight_quantizer = DummyLayer()
+    model.submodule.bias_quantizer = DummyLayer()
+    model.submodule.output_quantizer = DummyLayer()
+    model(conv1d_input)
+
+    assert model.submodule.input_quantizer.layer_called == 1
+    assert model.submodule.weight_quantizer.layer_called == 0
+    assert model.submodule.bias_quantizer.layer_called == 0
+    assert model.submodule.output_quantizer.layer_called == 1
+
+
+def test_batchnorm2d_parameter_quantizers_not_called_when_final_compression_done(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.quantize_output = True
+    layer = BatchNorm2d(IN_FEATURES)
+    model = TestModel(layer)
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = apply_final_compression_torch(model)
+    model.submodule.input_quantizer = DummyLayer()
+    model.submodule.weight_quantizer = DummyLayer()
+    model.submodule.bias_quantizer = DummyLayer()
+    model(conv2d_input)
+
+    assert model.submodule.input_quantizer.layer_called == 1
+    assert model.submodule.weight_quantizer.layer_called == 0
+    assert model.submodule.bias_quantizer.layer_called == 0
