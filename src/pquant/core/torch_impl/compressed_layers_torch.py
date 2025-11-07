@@ -26,6 +26,7 @@ class PQWeightBiasBase(nn.Module):
         layer_type,
         quantize_input=True,
         quantize_output=False,
+        enable_pruning: bool = None,
         input_quantization_bits: Tuple[T, T, T] = None,
         weight_quantization_bits: Tuple[T, T, T] = None,
         bias_quantization_bits: Tuple[T, T, T] = None,
@@ -72,7 +73,7 @@ class PQWeightBiasBase(nn.Module):
         self.round_mode = config.quantization_parameters.round_mode
         self.overflow = config.quantization_parameters.overflow
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
-        self.enable_pruning = config.pruning_parameters.enable_pruning
+        self.enable_pruning = enable_pruning if enable_pruning is not None else config.pruning_parameters.enable_pruning
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.final_compression_done = False
@@ -214,6 +215,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
         bias: bool = True,
         quantize_input=True,
         quantize_output=False,
+        enable_pruning: bool = None,
         device=None,
         dtype=None,
         input_quantization_bits: Tuple[T, T, T] = None,
@@ -232,6 +234,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
             layer_type="linear",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
+            enable_pruning=enable_pruning,
             input_quantization_bits=input_quantization_bits,
             weight_quantization_bits=weight_quantization_bits,
             bias_quantization_bits=bias_quantization_bits,
@@ -321,6 +324,11 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
         dtype=None,
         quantize_input=True,
         quantize_output=False,
+        enable_pruning: bool = None,
+        input_quantization_bits: Tuple[T, T, T] = None,
+        weight_quantization_bits: Tuple[T, T, T] = None,
+        bias_quantization_bits: Tuple[T, T, T] = None,
+        output_quantization_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -339,6 +347,11 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
             layer_type="conv",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
+            enable_pruning=enable_pruning,
+            input_quantization_bits=input_quantization_bits,
+            weight_quantization_bits=weight_quantization_bits,
+            bias_quantization_bits=bias_quantization_bits,
+            output_quantization_bits=output_quantization_bits,
             **kwargs,
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -436,6 +449,11 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
         dtype=None,
         quantize_input=True,
         quantize_output=False,
+        enable_pruning: bool = None,
+        input_quantization_bits: Tuple[T, T, T] = None,
+        weight_quantization_bits: Tuple[T, T, T] = None,
+        bias_quantization_bits: Tuple[T, T, T] = None,
+        output_quantization_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -454,6 +472,11 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
             layer_type="conv",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
+            enable_pruning=enable_pruning,
+            input_quantization_bits=input_quantization_bits,
+            weight_quantization_bits=weight_quantization_bits,
+            bias_quantization_bits=bias_quantization_bits,
+            output_quantization_bits=output_quantization_bits,
             **kwargs,
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -535,10 +558,7 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
 
 def add_compression_layers_torch(model, config, input_shape, device="cuda"):
     model = add_quantized_activations_to_model_layer(model, config)
-    # model = add_quantized_activations_to_model_functional(model, config)
     model = add_pruning_to_model(model, config)
-    model = disable_pruning_from_layers(model, config)
-    model = add_layer_specific_quantization_to_model(model, config)
     model.to(device)
     model(torch.rand(input_shape, device=next(model.parameters()).device))
     return model
@@ -881,122 +901,122 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         return super().forward(input)
 
 
-def add_layer_specific_quantization_to_model(module, config):
-    for name, layer in module.named_modules():
-        if isinstance(layer, PQWeightBiasBase):
-            if name in config.quantization_parameters.layer_specific:
-                layer_config = config.quantization_parameters.layer_specific[name]
-                if "weight" in layer_config:
-                    weight_int_bits = layer_config["weight"]["integer_bits"]
-                    weight_fractional_bits = layer_config["weight"]["fractional_bits"]
-                    layer.i_weight = torch.tensor(weight_int_bits)
-                    layer.f_weight = torch.tensor(weight_fractional_bits)
-                if "bias" in layer_config:
-                    bias_int_bits = layer_config["bias"]["integer_bits"]
-                    bias_fractional_bits = layer_config["bias"]["fractional_bits"]
-                    layer.i_bias = torch.tensor(bias_int_bits)
-                    layer.f_bias = torch.tensor(bias_fractional_bits)
-                if "input" in layer_config:
-                    if "integer_bits" in layer_config["input"]:
-                        input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
-                        layer.i_input = input_int_bits
-                    if "fractional_bits" in layer_config["input"]:
-                        input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
-                        layer.f_input = input_fractional_bits
-                    if "quantize" in layer_config["input"]:
-                        quantize = layer_config["input"]["quantize"]
-                        layer.quantize_input = quantize
-                if "output" in layer_config:
-                    if "integer_bits" in layer_config["output"]:
-                        output_int_bits = torch.tensor(layer_config["output"]["integer_bits"])
-                        layer.i_output = input_int_bits
-                    if "fractional_bits" in layer_config["output"]:
-                        input_fractional_bits = torch.tensor(layer_config["output"]["fractional_bits"])
-                        layer.f_output = input_fractional_bits
-                    if "quantize" in layer_config["output"]:
-                        quantize = layer_config["output"]["quantize"]
-                        layer.quantize_output = quantize
+def add_layer_specific_quantization_to_model(name, layer, config):
+    if isinstance(layer, PQWeightBiasBase):
+        if name in config.quantization_parameters.layer_specific:
+            layer_config = config.quantization_parameters.layer_specific[name]
+            if "weight" in layer_config:
+                weight_int_bits = layer_config["weight"]["integer_bits"]
+                weight_fractional_bits = layer_config["weight"]["fractional_bits"]
+                layer.i_weight = torch.tensor(weight_int_bits)
+                layer.f_weight = torch.tensor(weight_fractional_bits)
+            if "bias" in layer_config:
+                bias_int_bits = layer_config["bias"]["integer_bits"]
+                bias_fractional_bits = layer_config["bias"]["fractional_bits"]
+                layer.i_bias = torch.tensor(bias_int_bits)
+                layer.f_bias = torch.tensor(bias_fractional_bits)
+            if "input" in layer_config:
+                if "integer_bits" in layer_config["input"]:
+                    input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
+                    layer.i_input = input_int_bits
+                if "fractional_bits" in layer_config["input"]:
+                    input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
+                    layer.f_input = input_fractional_bits
+                if "quantize" in layer_config["input"]:
+                    quantize = layer_config["input"]["quantize"]
+                    layer.quantize_input = quantize
+            if "output" in layer_config:
+                if "integer_bits" in layer_config["output"]:
+                    output_int_bits = torch.tensor(layer_config["output"]["integer_bits"])
+                    layer.i_output = input_int_bits
+                if "fractional_bits" in layer_config["output"]:
+                    input_fractional_bits = torch.tensor(layer_config["output"]["fractional_bits"])
+                    layer.f_output = input_fractional_bits
+                if "quantize" in layer_config["output"]:
+                    quantize = layer_config["output"]["quantize"]
+                    layer.quantize_output = quantize
 
-        elif layer.__class__ in [PQBatchNorm2d]:
-            if name in config.quantization_parameters.layer_specific:
-                layer_config = config.quantization_parameters.layer_specific[name]
-                if "weight" in layer_config:
-                    i = torch.tensor(layer_config["weight"]["integer_bits"])
-                    f = torch.tensor(layer_config["weight"]["fractional_bits"])
-                    layer.i_weight = i
-                    layer.f_weight = f
-                if "bias" in layer_config:
-                    i = torch.tensor(layer_config["bias"]["integer_bits"])
-                    f = torch.tensor(layer_config["bias"]["fractional_bits"])
-                    layer.i_bias = i
-                    layer.f_biast = f
-                if "input" in layer_config:
-                    if "integer_bits" in layer_config["input"]:
-                        input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
-                        layer.i_input = input_int_bits
-                    if "fractional_bits" in layer_config["input"]:
-                        input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
-                        layer.f_input = input_fractional_bits
-                    if "quantize" in layer_config["input"]:
-                        quantize = layer_config["input"]["quantize"]
-                        layer.quantize_input = quantize
-        elif layer.__class__ in [PQAvgPool1d, PQAvgPool2d]:
-            if name in config.quantization_parameters.layer_specific:
-                layer_config = config.quantization_parameters.layer_specific[name]
-                if "input" in layer_config:
-                    if "integer_bits" in layer_config["input"]:
-                        input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
-                        layer.i_input = input_int_bits
-                    if "fractional_bits" in layer_config["input"]:
-                        input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
-                        layer.f_input = input_fractional_bits
-                    if "quantize" in layer_config["input"]:
-                        quantize = layer_config["input"]["quantize"]
-                        layer.quantize_input = quantize
-                if "output" in layer_config:
-                    if "integer_bits" in layer_config["output"]:
-                        output_int_bits = torch.tensor(layer_config["output"]["integer_bits"])
-                        layer.i_output = output_int_bits
-                    if "fractional_bits" in layer_config["output"]:
-                        output_fractional_bits = torch.tensor(layer_config["output"]["fractional_bits"])
-                        layer.f_output = output_fractional_bits
-                    if "quantize" in layer_config["output"]:
-                        quantize = layer_config["output"]["quantize"]
-                        layer.quantize_output = quantize
+    elif layer.__class__ in [PQBatchNorm2d]:
+        if name in config.quantization_parameters.layer_specific:
+            layer_config = config.quantization_parameters.layer_specific[name]
+            if "weight" in layer_config:
+                i = torch.tensor(layer_config["weight"]["integer_bits"])
+                f = torch.tensor(layer_config["weight"]["fractional_bits"])
+                layer.i_weight = i
+                layer.f_weight = f
+            if "bias" in layer_config:
+                i = torch.tensor(layer_config["bias"]["integer_bits"])
+                f = torch.tensor(layer_config["bias"]["fractional_bits"])
+                layer.i_bias = i
+                layer.f_biast = f
+            if "input" in layer_config:
+                if "integer_bits" in layer_config["input"]:
+                    input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
+                    layer.i_input = input_int_bits
+                if "fractional_bits" in layer_config["input"]:
+                    input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
+                    layer.f_input = input_fractional_bits
+                if "quantize" in layer_config["input"]:
+                    quantize = layer_config["input"]["quantize"]
+                    layer.quantize_input = quantize
+    elif layer.__class__ in [PQAvgPool1d, PQAvgPool2d]:
+        if name in config.quantization_parameters.layer_specific:
+            layer_config = config.quantization_parameters.layer_specific[name]
+            if "input" in layer_config:
+                if "integer_bits" in layer_config["input"]:
+                    input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
+                    layer.i_input = input_int_bits
+                if "fractional_bits" in layer_config["input"]:
+                    input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
+                    layer.f_input = input_fractional_bits
+                if "quantize" in layer_config["input"]:
+                    quantize = layer_config["input"]["quantize"]
+                    layer.quantize_input = quantize
+            if "output" in layer_config:
+                if "integer_bits" in layer_config["output"]:
+                    output_int_bits = torch.tensor(layer_config["output"]["integer_bits"])
+                    layer.i_output = output_int_bits
+                if "fractional_bits" in layer_config["output"]:
+                    output_fractional_bits = torch.tensor(layer_config["output"]["fractional_bits"])
+                    layer.f_output = output_fractional_bits
+                if "quantize" in layer_config["output"]:
+                    quantize = layer_config["output"]["quantize"]
+                    layer.quantize_output = quantize
 
-        elif layer.__class__ == PQActivation:
-            if name in config.quantization_parameters.layer_specific:
-                layer_config = config.quantization_parameters.layer_specific[name]
-                if "input" in layer_config:
-                    if "integer_bits" in layer_config["input"]:
-                        input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
-                        layer.i_input = input_int_bits
-                    if "fractional_bits" in layer_config["input"]:
-                        input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
-                        layer.f_input = input_fractional_bits
-                    if "quantize" in layer_config["input"]:
-                        quantize = layer_config["input"]["quantize"]
-                        layer.quantize_input = quantize
-                if "output" in layer_config:
-                    if "integer_bits" in layer_config["output"]:
-                        output_int_bits = torch.tensor(layer_config["output"]["integer_bits"])
-                        layer.i_output = output_int_bits
-                    if "fractional_bits" in layer_config["output"]:
-                        output_fractional_bits = torch.tensor(layer_config["output"]["fractional_bits"])
-                        layer.f_output = output_fractional_bits
-                    if "quantize" in layer_config["output"]:
-                        quantize = layer_config["output"]["quantize"]
-                        layer.quantize_output = quantize
-    return module
+    elif layer.__class__ == PQActivation:
+        if name in config.quantization_parameters.layer_specific:
+            layer_config = config.quantization_parameters.layer_specific[name]
+            if "input" in layer_config:
+                if "integer_bits" in layer_config["input"]:
+                    input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
+                    layer.i_input = input_int_bits
+                if "fractional_bits" in layer_config["input"]:
+                    input_fractional_bits = torch.tensor(layer_config["input"]["fractional_bits"])
+                    layer.f_input = input_fractional_bits
+                if "quantize" in layer_config["input"]:
+                    quantize = layer_config["input"]["quantize"]
+                    layer.quantize_input = quantize
+            if "output" in layer_config:
+                if "integer_bits" in layer_config["output"]:
+                    output_int_bits = torch.tensor(layer_config["output"]["integer_bits"])
+                    layer.i_output = output_int_bits
+                if "fractional_bits" in layer_config["output"]:
+                    output_fractional_bits = torch.tensor(layer_config["output"]["fractional_bits"])
+                    layer.f_output = output_fractional_bits
+                if "quantize" in layer_config["output"]:
+                    quantize = layer_config["output"]["quantize"]
+                    layer.quantize_output = quantize
+    return layer
 
 
-def add_quantized_activations_to_model_layer(module, config):
+def add_quantized_activations_to_model_layer(module, config, prefix=""):
     if not config.quantization_parameters.enable_quantization:
         return module
     quantize_input = config.quantization_parameters.quantize_input
     quantize_output = config.quantization_parameters.quantize_output
     # Replaces ReLU and Tanh layers with quantized versions
     for name, layer in module.named_children():
+        full_name = f"{prefix}.{name}" if prefix else name
         i = config.quantization_parameters.default_data_integer_bits
         f = config.quantization_parameters.default_data_fractional_bits
         if layer.__class__ in [nn.ReLU]:
@@ -1013,6 +1033,7 @@ def add_quantized_activations_to_model_layer(module, config):
                 quantize_input=quantize_input,
                 quantize_output=quantize_output,
             )
+            relu = add_layer_specific_quantization_to_model(full_name, relu, config)
             setattr(module, name, relu)
         elif layer.__class__ in [nn.Tanh]:
             type_of_tanh = "tanh" if config.quantization_parameters.use_real_tanh else "hard_tanh"
@@ -1026,6 +1047,7 @@ def add_quantized_activations_to_model_layer(module, config):
                 quantize_input=quantize_input,
                 quantize_output=quantize_output,
             )
+            tanh = add_layer_specific_quantization_to_model(full_name, tanh, config)
             setattr(module, name, tanh)
         elif layer.__class__ == nn.AvgPool1d:
             new_layer = PQAvgPool1d(
@@ -1038,6 +1060,7 @@ def add_quantized_activations_to_model_layer(module, config):
                 quantize_input,
                 quantize_output,
             )
+            new_layer = add_layer_specific_quantization_to_model(full_name, new_layer, config)
             setattr(module, name, new_layer)
         elif layer.__class__ == nn.AvgPool2d:
             new_layer = PQAvgPool2d(
@@ -1051,6 +1074,7 @@ def add_quantized_activations_to_model_layer(module, config):
                 quantize_input,
                 quantize_output,
             )
+            new_layer = add_layer_specific_quantization_to_model(full_name, new_layer, config)
             setattr(module, name, new_layer)
         elif layer.__class__ == nn.BatchNorm2d:
             new_layer = PQBatchNorm2d(
@@ -1062,9 +1086,10 @@ def add_quantized_activations_to_model_layer(module, config):
                 track_running_stats=layer.track_running_stats,
                 quantize_input=quantize_input,
             )
+            new_layer = add_layer_specific_quantization_to_model(full_name, new_layer, config)
             setattr(module, name, new_layer)
         else:
-            layer = add_quantized_activations_to_model_layer(layer, config)
+            layer = add_quantized_activations_to_model_layer(layer, config, full_name)
     return module
 
 
@@ -1101,18 +1126,18 @@ def add_quantized_activations_to_model_functional(module, config):
     return traced_model
 
 
-def disable_pruning_from_layers(module, config):
-    for name, layer in module.named_modules():
-        enable_pruning = name not in config.pruning_parameters.disable_pruning_for_layers
-        if layer.__class__ in [PQDense, PQConv2d, PQConv1d] and not enable_pruning:
-            layer.enable_pruning = enable_pruning
-    return module
+def disable_pruning_from_layers(name, layer, config):
+    enable_pruning = name not in config.pruning_parameters.disable_pruning_for_layers
+    if layer.__class__ in [PQDense, PQConv2d, PQConv1d] and not enable_pruning:
+        layer.enable_pruning = enable_pruning
+    return layer
 
 
-def add_pruning_to_model(module, config):
+def add_pruning_to_model(module, config, prefix=""):
     quantize_input = config.quantization_parameters.quantize_input
     quantize_output = config.quantization_parameters.quantize_output
     for name, layer in module.named_children():
+        full_name = f"{prefix}.{name}" if prefix else name
         if layer.__class__ is nn.Linear:
             sparse_layer = PQDense(
                 config, layer.in_features, layer.out_features, layer.bias is not None, quantize_input, quantize_output
@@ -1122,6 +1147,8 @@ def add_pruning_to_model(module, config):
             if layer.bias is not None:
                 sparse_layer._bias.data = layer.bias.data
 
+            sparse_layer = add_layer_specific_quantization_to_model(full_name, sparse_layer, config)
+            sparse_layer = disable_pruning_from_layers(full_name, sparse_layer, config)
             setattr(module, name, sparse_layer)
         elif layer.__class__ is nn.Conv2d:
             sparse_layer = PQConv2d(
@@ -1144,6 +1171,8 @@ def add_pruning_to_model(module, config):
             sparse_layer._weight.data = layer.weight.data
             if layer.bias is not None:
                 sparse_layer._bias.data = layer.bias.data
+            sparse_layer = add_layer_specific_quantization_to_model(full_name, sparse_layer, config)
+            sparse_layer = disable_pruning_from_layers(full_name, sparse_layer, config)
             setattr(module, name, sparse_layer)
         elif layer.__class__ is nn.Conv1d:
             sparse_layer = PQConv1d(
@@ -1166,9 +1195,11 @@ def add_pruning_to_model(module, config):
             sparse_layer._weight.data = layer.weight.data
             if layer.bias is not None:
                 sparse_layer._bias.data = layer.bias.data
+            sparse_layer = add_layer_specific_quantization_to_model(full_name, sparse_layer, config)
+            sparse_layer = disable_pruning_from_layers(full_name, sparse_layer, config)
             setattr(module, name, sparse_layer)
         else:
-            add_pruning_to_model(layer, config)
+            add_pruning_to_model(layer, config, full_name)
     return module
 
 
@@ -1348,3 +1379,40 @@ def add_default_layer_quantization_pruning_to_config_torch(model, config):
     config.quantization_parameters.layer_specific = custom_scheme["layer_specific"]
     config.pruning_parameters.disable_pruning_for_layers = custom_scheme["disable_pruning_for_layers"]
     return config
+
+
+def remove_compression_layers(module, config):
+    for name, layer in module.named_children():
+        if isinstance(layer, PQDense):
+            out_features = layer.out_features
+            in_features = layer.in_features
+            bias = True if layer.bias is not None else False
+            setattr(module, name, nn.Linear(in_features=in_features, out_features=out_features, bias=bias))
+            getattr(module, name).weight.data.copy_(layer.weight)
+            if getattr(module, name).bias is not None:
+                getattr(module, name).bias.data.copy_(layer.bias)
+        elif isinstance(layer, (PQConv1d, PQConv2d)):
+            bias_values = layer.bias if layer.bias is not None else None
+            bias = True if bias_values is not None else False
+            conv = nn.Conv2d if isinstance(layer, PQConv2d) else nn.Conv1d
+            setattr(
+                module,
+                name,
+                conv(
+                    layer.in_channels,
+                    layer.out_channels,
+                    layer.kernel_size,
+                    layer.stride,
+                    layer.padding,
+                    layer.dilation,
+                    layer.groups,
+                    bias,
+                    layer.padding_mode,
+                ),
+            )
+            getattr(module, name).weight.data.copy_(layer.weight)
+            if getattr(module, name).bias is not None:
+                getattr(module, name).bias.data.copy_(bias_values.data)
+        else:
+            remove_compression_layers(layer, config)
+    return module

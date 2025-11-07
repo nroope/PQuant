@@ -129,7 +129,7 @@ class PQActivation(nn.Module):
         return loss
 
     def pre_activation(self, x):
-        if self.use_multiplier:
+        if not self.use_hgq and self.use_multiplier and self.activation_name == "relu":
             x = x * 2 ** ((torch.round(self.multiplier) - self.multiplier).detach() + self.multiplier)
         if self.quantize_input and self.enable_quantization:
             x = self.input_quantizer(x)

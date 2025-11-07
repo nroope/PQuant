@@ -698,6 +698,26 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
             assert torch.all(m.input_quantizer.quantizer.quantizer.f == 3.0)
 
 
+def test_disable_pruning_from_single_layer(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    config_pdp.pruning_parameters.enable_pruning = True
+    layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
+    layer2 = Conv2d(OUT_FEATURES, OUT_FEATURES, KERNEL_SIZE)
+    model = TestModel2(layer, layer2, "relu", "tanh")
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+
+    assert model.submodule.enable_pruning
+    assert model.submodule2.enable_pruning
+
+    config_pdp.pruning_parameters.disable_pruning_for_layers = ["submodule2"]
+    model = TestModel2(layer, layer2, "relu", "tanh")
+    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+
+    assert model.submodule.enable_pruning
+    assert not model.submodule2.enable_pruning
+
+
 def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.enable_quantization = True
     config_pdp.quantization_parameters.use_high_granularity_quantization = False
