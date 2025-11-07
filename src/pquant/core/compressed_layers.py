@@ -74,8 +74,8 @@ def post_training_prune(model, calibration_data, config):
     if keras.backend.backend() == "torch":
         from pquant.core.torch_impl.compressed_layers_torch import (
             add_compression_layers_torch,
-            apply_final_compression_torch,
             post_pretrain_functions,
+            remove_compression_layers,
         )
 
         t_delta = config.pruning_parameters.t_delta
@@ -86,7 +86,7 @@ def post_training_prune(model, calibration_data, config):
                 model = add_compression_layers_torch(model, config, inputs.shape)
                 post_pretrain_functions(model, config)
             model(inputs)
-        return apply_final_compression_torch(model)
+        return remove_compression_layers(model, config)
     else:
         from pquant.core.tf_impl.compressed_layers_tf import (
             add_compression_layers_tf,
