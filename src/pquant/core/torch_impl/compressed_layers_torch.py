@@ -27,37 +27,37 @@ class PQWeightBiasBase(nn.Module):
         quantize_input=True,
         quantize_output=False,
         enable_pruning: bool = None,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         *args,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
-        if input_quantization_bits is not None:
-            self.k_input, self.i_input, self.f_input = input_quantization_bits
+        if in_quant_bits is not None:
+            self.k_input, self.i_input, self.f_input = in_quant_bits
         else:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
             self.i_input = config.quantization_parameters.default_data_integer_bits
             self.f_input = config.quantization_parameters.default_data_fractional_bits
 
-        if weight_quantization_bits is not None:
-            self.k_weight, self.i_weight, self.f_weight = weight_quantization_bits
+        if weight_quant_bits is not None:
+            self.k_weight, self.i_weight, self.f_weight = weight_quant_bits
         else:
             self.k_weight = config.quantization_parameters.default_weight_keep_negatives
             self.i_weight = config.quantization_parameters.default_weight_integer_bits
             self.f_weight = config.quantization_parameters.default_weight_fractional_bits
-        if bias_quantization_bits is not None:
-            self.k_bias, self.i_bias, self.f_bias = bias_quantization_bits
+        if bias_quant_bits is not None:
+            self.k_bias, self.i_bias, self.f_bias = bias_quant_bits
         else:
             self.k_bias = config.quantization_parameters.default_weight_keep_negatives
             self.i_bias = config.quantization_parameters.default_weight_integer_bits
             self.f_bias = config.quantization_parameters.default_weight_fractional_bits
 
-        if output_quantization_bits is not None:
-            self.k_output, self.i_output, self.f_output = output_quantization_bits
+        if out_quant_bits is not None:
+            self.k_output, self.i_output, self.f_output = out_quant_bits
         else:
             self.k_output = config.quantization_parameters.default_data_keep_negatives
             self.i_output = config.quantization_parameters.default_data_integer_bits
@@ -218,10 +218,10 @@ class PQDense(PQWeightBiasBase, nn.Linear):
         enable_pruning: bool = None,
         device=None,
         dtype=None,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -235,10 +235,10 @@ class PQDense(PQWeightBiasBase, nn.Linear):
             quantize_input=quantize_input,
             quantize_output=quantize_output,
             enable_pruning=enable_pruning,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
         self.in_features = in_features
@@ -325,10 +325,10 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
         quantize_input=True,
         quantize_output=False,
         enable_pruning: bool = None,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -348,10 +348,10 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
             quantize_input=quantize_input,
             quantize_output=quantize_output,
             enable_pruning=enable_pruning,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -450,10 +450,10 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
         quantize_input=True,
         quantize_output=False,
         enable_pruning: bool = None,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -473,10 +473,10 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
             quantize_input=quantize_input,
             quantize_output=quantize_output,
             enable_pruning=enable_pruning,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -571,20 +571,20 @@ class PQAvgPoolBase(nn.Module):
         config,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if input_quantization_bits is not None:
-            self.k_input, self.i_input, self.f_input = input_quantization_bits
+        if in_quant_bits is not None:
+            self.k_input, self.i_input, self.f_input = in_quant_bits
         else:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
             self.i_input = config.quantization_parameters.default_data_integer_bits
             self.f_input = config.quantization_parameters.default_data_fractional_bits
 
-        if output_quantization_bits is not None:
-            self.k_output, self.i_output, self.f_output = output_quantization_bits
+        if out_quant_bits is not None:
+            self.k_output, self.i_output, self.f_output = out_quant_bits
         else:
             self.k_output = config.quantization_parameters.default_data_keep_negatives
             self.i_output = config.quantization_parameters.default_data_integer_bits
@@ -686,8 +686,8 @@ class PQAvgPool1d(PQAvgPoolBase, nn.AvgPool1d):
         count_include_pad: bool = True,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -699,8 +699,8 @@ class PQAvgPool1d(PQAvgPoolBase, nn.AvgPool1d):
             config=config,
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
 
@@ -724,8 +724,8 @@ class PQAvgPool2d(PQAvgPoolBase, nn.AvgPool2d):
         divisor_override: Optional[int] = None,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -738,8 +738,8 @@ class PQAvgPool2d(PQAvgPoolBase, nn.AvgPool2d):
             config=config,
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
 
@@ -763,26 +763,26 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         device=None,
         dtype=None,
         quantize_input=True,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
     ):
         super().__init__(num_features, eps, momentum, affine, track_running_stats, device=device, dtype=dtype)
-        if input_quantization_bits is not None:
-            self.k_input, self.i_input, self.f_input = input_quantization_bits
+        if in_quant_bits is not None:
+            self.k_input, self.i_input, self.f_input = in_quant_bits
         else:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
             self.i_input = config.quantization_parameters.default_data_integer_bits
             self.f_input = config.quantization_parameters.default_data_fractional_bits
 
-        if weight_quantization_bits is not None:
-            self.k_weight, self.i_weight, self.f_weight = weight_quantization_bits
+        if weight_quant_bits is not None:
+            self.k_weight, self.i_weight, self.f_weight = weight_quant_bits
         else:
             self.k_weight = config.quantization_parameters.default_weight_keep_negatives
             self.i_weight = config.quantization_parameters.default_weight_integer_bits
             self.f_weight = config.quantization_parameters.default_weight_fractional_bits
-        if bias_quantization_bits is not None:
-            self.k_bias, self.i_bias, self.f_bias = bias_quantization_bits
+        if bias_quant_bits is not None:
+            self.k_bias, self.i_bias, self.f_bias = bias_quant_bits
         else:
             self.k_bias = config.quantization_parameters.default_weight_keep_negatives
             self.i_bias = config.quantization_parameters.default_weight_integer_bits
@@ -1026,10 +1026,8 @@ def add_quantized_activations_to_model_layer(module, config, prefix=""):
             relu = PQActivation(
                 config,
                 "relu",
-                i_input=i,
-                f_input=f,
-                i_output=i,
-                f_output=f,
+                in_quant_bits=(0, i, f),
+                out_quant_bits=(0, i, f),
                 quantize_input=quantize_input,
                 quantize_output=quantize_output,
             )
@@ -1040,10 +1038,8 @@ def add_quantized_activations_to_model_layer(module, config, prefix=""):
             tanh = PQActivation(
                 config,
                 type_of_tanh,
-                i_input=i,
-                f_input=f,
-                i_output=i,
-                f_output=f,
+                in_quant_bits=(0, i, f),
+                out_quant_bits=(0, i, f),
                 quantize_input=quantize_input,
                 quantize_output=quantize_output,
             )

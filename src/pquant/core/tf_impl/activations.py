@@ -1,3 +1,6 @@
+from typing import Tuple
+from typing import TypeVar as T
+
 import keras
 from keras.ops import maximum, minimum, relu, tanh
 
@@ -25,10 +28,8 @@ class PQActivation(keras.layers.Layer):
         self,
         config,
         activation="relu",
-        i_input=0.0,
-        f_input=8.0,
-        i_output=0.0,
-        f_output=7.0,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         quantize_input=True,
         quantize_output=False,
     ):
@@ -37,13 +38,19 @@ class PQActivation(keras.layers.Layer):
             from pquant.core.finetuning import TuningConfig
 
             config = TuningConfig.load_from_config(config)
-        self.config = config
-        self.i_input = i_input
-        self.f_input = f_input
-        self.k = 0.0 if activation.lower() == "relu" else 1.0
+        if in_quant_bits is None:
+            self.k_input = config.quantization_parameters.default_data_keep_negatives
+            self.i_input = config.quantization_parameters.default_data_integer_bits
+            self.f_input = config.quantization_parameters.default_data_fractional_bits
+        else:
+            self.k_input, self.i_input, self.f_input = in_quant_bits
 
-        self.i_output = i_output
-        self.f_output = f_output
+        if out_quant_bits is None:
+            self.k_output = config.quantization_parameters.default_data_keep_negatives
+            self.i_output = config.quantization_parameters.default_data_integer_bits
+            self.f_output = config.quantization_parameters.default_data_fractional_bits
+        else:
+            self.k_output, self.i_output, self.f_output = out_quant_bits
 
         self.activation_name = activation.lower()
         self.activation_function = activation_registry.get(self.activation_name)
@@ -69,7 +76,7 @@ class PQActivation(keras.layers.Layer):
         super().build(input_shape)
         self.input_shape = input_shape
         self.output_quantizer = Quantizer(
-            k=self.k,
+            k=self.k_output,
             i=self.i_output,
             f=self.f_output,
             overflow=self.overflow,
@@ -79,7 +86,7 @@ class PQActivation(keras.layers.Layer):
             hgq_gamma=self.hgq_gamma,
         )
         self.input_quantizer = Quantizer(
-            k=self.k,
+            k=self.k_input,
             i=self.i_input,
             f=self.f_input,
             overflow=self.overflow,
