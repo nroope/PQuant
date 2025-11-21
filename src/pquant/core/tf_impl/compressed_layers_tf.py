@@ -32,36 +32,36 @@ class PQWeightBiasBase(keras.layers.Layer):
         layer_type,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         *args,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if input_quantization_bits is not None:
-            self.k_input, self.i_input, self.f_input = input_quantization_bits
+        if in_quant_bits is not None:
+            self.k_input, self.i_input, self.f_input = in_quant_bits
         else:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
             self.i_input = config.quantization_parameters.default_data_integer_bits
             self.f_input = config.quantization_parameters.default_data_fractional_bits
 
-        if weight_quantization_bits is not None:
-            self.k_weight, self.i_weight, self.f_weight = weight_quantization_bits
+        if weight_quant_bits is not None:
+            self.k_weight, self.i_weight, self.f_weight = weight_quant_bits
         else:
             self.k_weight = config.quantization_parameters.default_weight_keep_negatives
             self.i_weight = config.quantization_parameters.default_weight_integer_bits
             self.f_weight = config.quantization_parameters.default_weight_fractional_bits
-        if bias_quantization_bits is not None:
-            self.k_bias, self.i_bias, self.f_bias = bias_quantization_bits
+        if bias_quant_bits is not None:
+            self.k_bias, self.i_bias, self.f_bias = bias_quant_bits
         else:
             self.k_bias = config.quantization_parameters.default_weight_keep_negatives
             self.i_bias = config.quantization_parameters.default_weight_integer_bits
             self.f_bias = config.quantization_parameters.default_weight_fractional_bits
 
-        if output_quantization_bits is not None:
-            self.k_output, self.i_output, self.f_output = output_quantization_bits
+        if out_quant_bits is not None:
+            self.k_output, self.i_output, self.f_output = out_quant_bits
         else:
             self.k_output = config.quantization_parameters.default_data_keep_negatives
             self.i_output = config.quantization_parameters.default_data_integer_bits
@@ -153,6 +153,11 @@ class PQWeightBiasBase(keras.layers.Layer):
     def apply_final_compression(self):
         pass
 
+    def post_pre_train_function(self):
+        self.is_pretraining = False
+        if self.pruning_layer is not None:
+            self.pruning_layer.post_pre_train_function()
+
     def save_weights(self):
         self.init_weight = self.weight.value
 
@@ -195,20 +200,14 @@ class PQWeightBiasBase(keras.layers.Layer):
 
     def pre_forward(self, x, training=None):
         if self.quantize_input:
-            if self.use_hgq and not self.input_quantizer.quantizer.built:
-                self.input_quantizer.build(x.shape)
-            if not self.pruning_layer.is_pretraining and not self.use_fitcompress:
-                x = self.input_quantizer(x)
+            x = self.quantize_i(x, self.input_quantizer)
         if self.pruning_method == "wanda":
             self.collect_input(x, self._kernel, training)
         return x
 
     def post_forward(self, x, training=None):
         if self.quantize_output:
-            if self.use_hgq and not self.output_quantizer.quantizer.built:
-                self.output_quantizer.build(x.shape)
-            if not self.pruning_layer.is_pretraining and not self.use_fitcompress:
-                x = self.output_quantizer(x)
+            x = self.quantize_i(x, self.output_quantizer)
         if self.pruning_method == "activation_pruning":
             self.collect_output(x, training)
         return x
@@ -234,7 +233,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
         data_format=None,
         dilation_rate=(1, 1),
         activation=None,
-        use_bias=False,
+        use_bias=True,
         depthwise_initializer="glorot_uniform",
         bias_initializer="zeros",
         depthwise_regularizer=None,
@@ -247,10 +246,10 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
         bias: bool = True,
         device=None,
         dtype=None,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -260,7 +259,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             depth_multiplier=depth_multiplier,
             data_format=data_format,
             dilation_rate=dilation_rate,
-            activation=activation,
+            activation=None,
             use_bias=use_bias,
             depthwise_initializer=depthwise_initializer,
             bias_initializer=bias_regularizer,
@@ -273,10 +272,10 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             layer_type="conv",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
         self.depthwise_regularizer = depthwise_regularizer
@@ -294,10 +293,18 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
 
     def build(self, input_shape):
         super().build(input_shape)
-        input_channel = input_shape[-1]
+        if self.data_format == "channels_last":
+            input_channel = input_shape[-1]
+        else:
+            input_channel = input_shape[1]
+
+        depthwise_shape = self.kernel_size + (
+            input_channel,
+            self.depth_multiplier,
+        )
         self._kernel = self.add_weight(
             name="kernel",
-            shape=self.kernel.shape,
+            shape=depthwise_shape,
             initializer=self.depthwise_initializer,
             regularizer=self.depthwise_regularizer,
             constraint=self.depthwise_constraint,
@@ -305,7 +312,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             dtype=self.dtype,
         )
         if self.use_bias:
-            self.bias = self.add_weight(
+            self._bias = self.add_weight(
                 name="bias",
                 shape=(self.depth_multiplier * input_channel,),
                 initializer=self.bias_initializer,
@@ -351,7 +358,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
 
     def ebops(self, shape):
         bw_inp = self.input_quantizer.quantizer.bits_(shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self.kernel))
+        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self._kernel))
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.depthwise_conv(
@@ -365,7 +372,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             )
         else:
             reduce_axis_kernel = tuple(range(0, 3))
-            if self.do_transpose_data:  # Is channels last
+            if self.data_format == "channels_last":  # Is channels last
                 reduce_axis_input = reduce_axis_kernel
             else:
                 reduce_axis_input = (0,) + tuple(range(2, 4))
@@ -375,7 +382,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             ebops = ops.sum(bw_inp[:, None] * bw_ker)
         if self.bias is not None:
             size = ops.cast(ops.prod(shape), self.dtype)
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self.bias))
+            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self._bias))
             ebops += ops.mean(bw_bias) * size
         return ebops
 
@@ -430,10 +437,10 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
         activity_regularizer=None,
         kernel_constraint=None,
         bias_constraint=None,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
         super().__init__(
@@ -444,7 +451,7 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
             data_format=data_format,
             dilation_rate=dilation_rate,
             groups=groups,
-            activation=activation,
+            activation=None,
             use_bias=use_bias,
             kernel_initializer=kernel_initializer,
             bias_initializer=bias_initializer,
@@ -457,10 +464,10 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
             layer_type="conv",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
 
@@ -641,10 +648,10 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
         kernel_size,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         strides=1,
         padding="valid",
         data_format=None,
@@ -670,7 +677,7 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
             data_format=data_format,
             dilation_rate=dilation_rate,
             groups=groups,
-            activation=activation,
+            activation=None,
             use_bias=use_bias,
             kernel_initializer=kernel_initializer,
             bias_initializer=bias_initializer,
@@ -683,10 +690,10 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
             layer_type="conv",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
 
@@ -788,10 +795,10 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
         dtype=None,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        weight_quantization_bits: Tuple[T, T, T] = None,
-        bias_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        weight_quant_bits: Tuple[T, T, T] = None,
+        bias_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         activation=None,
         use_bias=True,
         kernel_initializer="glorot_uniform",
@@ -807,7 +814,7 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
     ):
         super().__init__(
             units=units,
-            activation=activation,
+            activation=None,
             use_bias=use_bias,
             kernel_initializer=kernel_initializer,
             bias_initializer=bias_initializer,
@@ -822,10 +829,10 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
             layer_type="linear",
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            weight_quantization_bits=weight_quantization_bits,
-            bias_quantization_bits=bias_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            weight_quant_bits=weight_quant_bits,
+            bias_quant_bits=bias_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
         self.weight_transpose = (1, 0)
@@ -889,7 +896,10 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
     def call(self, x, training=None):
         input_shape = x.shape
         x = self.pre_forward(x, training)
-        x = super().call(x)
+        x = ops.matmul(x, self.kernel)
+        bias = self.bias
+        if bias is not None:
+            x = ops.add(x, bias)
         x = self.post_forward(x, training)
         if self.use_hgq and self.enable_quantization:
             self.add_loss(self.hgq_loss(input_shape))
@@ -989,13 +999,15 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
         self._shape = tuple(shape)
 
     def apply_final_compression(self):
+        self.final_compression_done = True
         gamma, beta = self.gamma, self.beta
         if self.enable_quantization:
-            gamma = self.weight_quantizer(gamma)
-            beta = self.bias_quantizer(beta)
-        self.gamma.assign(gamma)
-        self.beta.assign(beta)
-        self.final_compression_done = True
+            if gamma is not None:
+                gamma = self.weight_quantizer(gamma)
+                self.gamma.assign(gamma)
+            if beta is not None:
+                beta = self.bias_quantizer(beta)
+                self.beta.assign(beta)
 
     def ebops(self, shape):
         bw_inp = self.input_quantizer.quantizer.bits_(shape)
@@ -1045,6 +1057,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             variance = moving_variance
 
         if self.scale:
+            gamma = self.gamma
             if self.enable_quantization and not self.final_compression_done:
                 gamma = self.weight_quantizer(self.gamma)
             gamma = ops.cast(gamma, inputs.dtype)
@@ -1052,6 +1065,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             gamma = None
 
         if self.center:
+            beta = self.beta
             if self.enable_quantization and not self.final_compression_done:
                 beta = self.bias_quantizer(self.beta)
             beta = ops.cast(beta, inputs.dtype)
@@ -1089,22 +1103,22 @@ class PQAvgPoolBase(keras.layers.Layer):
         config,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         **kwargs,
     ):
 
         super().__init__(**kwargs)
 
-        if input_quantization_bits is not None:
-            self.k_input, self.i_input, self.f_input = input_quantization_bits
+        if in_quant_bits is not None:
+            self.k_input, self.i_input, self.f_input = in_quant_bits
         else:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
             self.i_input = config.quantization_parameters.default_data_integer_bits
             self.f_input = config.quantization_parameters.default_data_fractional_bits
 
-        if output_quantization_bits is not None:
-            self.k_output, self.i_output, self.f_output = output_quantization_bits
+        if out_quant_bits is not None:
+            self.k_output, self.i_output, self.f_output = out_quant_bits
         else:
             self.k_output = config.quantization_parameters.default_data_keep_negatives
             self.i_output = config.quantization_parameters.default_data_integer_bits
@@ -1216,8 +1230,8 @@ class PQAvgPool1d(PQAvgPoolBase, keras.layers.AveragePooling1D):
         pool_size,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         strides=None,
         padding="valid",
         data_format=None,
@@ -1233,8 +1247,8 @@ class PQAvgPool1d(PQAvgPoolBase, keras.layers.AveragePooling1D):
             config=config,
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            out_quant_bits=out_quant_bits,
             **kwargs,
         )
 
@@ -1255,8 +1269,8 @@ class PQAvgPool2d(PQAvgPoolBase, keras.layers.AveragePooling2D):
         pool_size,
         quantize_input=True,
         quantize_output=False,
-        input_quantization_bits: Tuple[T, T, T] = None,
-        output_quantization_bits: Tuple[T, T, T] = None,
+        in_quant_bits: Tuple[T, T, T] = None,
+        out_quant_bits: Tuple[T, T, T] = None,
         strides=None,
         padding="valid",
         data_format=None,
@@ -1272,8 +1286,8 @@ class PQAvgPool2d(PQAvgPoolBase, keras.layers.AveragePooling2D):
             config=config,
             quantize_input=quantize_input,
             quantize_output=quantize_output,
-            input_quantization_bits=input_quantization_bits,
-            output_quantization_bits=output_quantization_bits,
+            in_quant_bits=in_quant_bits,
+            out_quant_bits=out_quant_bits,
         )
 
     def call(self, x, training=None):
@@ -1803,8 +1817,8 @@ def add_compression_layers_tf(model, config, input_shape=None):
                     padding=layer.padding,
                     data_format=layer.data_format,
                     name=layer.name,
-                    input_quantization_bits=layer.input_quantization_bits,
-                    output_quantization_bits=layer.output_quantization_bits,
+                    in_quant_bits=layer.in_quant_bits,
+                    out_quant_bits=layer.out_quant_bits,
                 )
                 set_quantization_bits_activations(config, layer, new_layer)
                 new_layer.build(x.shape)

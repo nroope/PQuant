@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import keras
 import numpy as np
@@ -1687,4 +1688,186 @@ def test_avg_pool1d(config_pdp, conv1d_input):
     config_pdp.quantization_parameters.enable_quantization = True
     layer = PQAvgPool1d(config_pdp, KERNEL_SIZE)
     layer(conv1d_input)
+    assert True
+
+
+class DummyLayer(keras.layers.Layer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.built = True
+        self.layer_called = 0
+
+    def call(self, x, *args, **kwargs):
+        self.layer_called += 1
+        return x
+
+    def extra_repr(self):
+        return f"Layer called = {self.layer_called} times."
+
+
+def test_avgpool_quant_called(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+        layer = PQAvgPool1d(config_pdp, KERNEL_SIZE, quantize_input=True)
+        layer(conv1d_input)
+        assert layer.input_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 0
+
+        layer = PQAvgPool1d(config_pdp, KERNEL_SIZE, quantize_input=False, quantize_output=True)
+        layer(conv1d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.output_quantizer.layer_called == 1
+
+        config_pdp.quantization_parameters.enable_quantization = False
+        layer = PQAvgPool1d(config_pdp, KERNEL_SIZE, quantize_input=True, quantize_output=True)
+        layer(conv1d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.output_quantizer.layer_called == 0
+    assert True
+
+
+def test_batchnorm_quant_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    axis = -1 if keras.backend.image_data_format() == "channels_last" else 1
+    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+        layer = PQBatchNormalization(config_pdp, axis=axis, quantize_input=True)
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 1
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+
+        layer = PQBatchNormalization(config_pdp, axis=axis, quantize_input=False)
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+
+        config_pdp.quantization_parameters.enable_quantization = False
+        layer = PQBatchNormalization(config_pdp, axis=axis, quantize_input=True)
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 0
+        assert layer.bias_quantizer.layer_called == 0
+    assert True
+
+
+def test_pqconv2d_quant_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+        layer = PQConv2d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 1
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 0
+
+        layer = PQConv2d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=False, quantize_output=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 1
+
+        config_pdp.quantization_parameters.enable_quantization = False
+        layer.post_pre_train_function()
+        layer = PQConv2d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=True, quantize_output=True, use_bias=True)
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 0
+        assert layer.bias_quantizer.layer_called == 0
+        assert layer.output_quantizer.layer_called == 0
+    assert True
+
+
+def test_pqdepthwiseconv2d_quant_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+
+    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+        layer = PQDepthwiseConv2d(config_pdp, KERNEL_SIZE, quantize_input=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 1
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 0
+
+        layer = PQDepthwiseConv2d(config_pdp, KERNEL_SIZE, quantize_input=False, quantize_output=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 1
+
+        config_pdp.quantization_parameters.enable_quantization = False
+        layer.post_pre_train_function()
+        layer = PQDepthwiseConv2d(config_pdp, KERNEL_SIZE, quantize_input=True, quantize_output=True, use_bias=True)
+        layer(conv2d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 0
+        assert layer.bias_quantizer.layer_called == 0
+        assert layer.output_quantizer.layer_called == 0
+    assert True
+
+
+def test_pqconv1d_quant_called(config_pdp, conv1d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+        layer = PQConv1d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(conv1d_input)
+        assert layer.input_quantizer.layer_called == 1
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 0
+
+        layer = PQConv1d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=False, quantize_output=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(conv1d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 1
+
+        config_pdp.quantization_parameters.enable_quantization = False
+        layer.post_pre_train_function()
+        layer = PQConv1d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=True, quantize_output=True, use_bias=True)
+        layer(conv1d_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 0
+        assert layer.bias_quantizer.layer_called == 0
+        assert layer.output_quantizer.layer_called == 0
+    assert True
+
+
+def test_dense_quant_called(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+        layer = PQDense(config_pdp, OUT_FEATURES, quantize_input=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(dense_input)
+        assert layer.input_quantizer.layer_called == 1
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 0
+
+        layer = PQDense(config_pdp, OUT_FEATURES, quantize_input=False, quantize_output=True, use_bias=True)
+        layer.post_pre_train_function()
+        layer(dense_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 1
+        assert layer.bias_quantizer.layer_called == 1
+        assert layer.output_quantizer.layer_called == 1
+
+        config_pdp.quantization_parameters.enable_quantization = False
+        layer.post_pre_train_function()
+        layer = PQDense(config_pdp, OUT_FEATURES, quantize_input=True, quantize_output=True, use_bias=True)
+        layer(dense_input)
+        assert layer.input_quantizer.layer_called == 0
+        assert layer.weight_quantizer.layer_called == 0
+        assert layer.bias_quantizer.layer_called == 0
+        assert layer.output_quantizer.layer_called == 0
     assert True

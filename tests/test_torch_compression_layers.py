@@ -839,10 +839,10 @@ def test_linear_direct(config_pdp, dense_input):
         IN_FEATURES,
         OUT_FEATURES,
         quantize_output=True,
-        input_quantization_bits=(1, 2, 5),
-        weight_quantization_bits=(1, 0, 3),
-        bias_quantization_bits=(1, 0, 3),
-        output_quantization_bits=(1, 2, 5),
+        in_quant_bits=(1, 2, 5),
+        weight_quant_bits=(1, 0, 3),
+        bias_quant_bits=(1, 0, 3),
+        out_quant_bits=(1, 2, 5),
     )
     layer(dense_input)
     assert layer.get_input_quantization_bits() == (1, 2, 5)
@@ -879,10 +879,10 @@ def test_linear_direct_hgq(config_pdp, dense_input):
         IN_FEATURES,
         OUT_FEATURES,
         quantize_output=True,
-        input_quantization_bits=(1, 2, 5),
-        weight_quantization_bits=(1, 0, 3),
-        bias_quantization_bits=(1, 0, 3),
-        output_quantization_bits=(1, 2, 5),
+        in_quant_bits=(1, 2, 5),
+        weight_quant_bits=(1, 0, 3),
+        bias_quant_bits=(1, 0, 3),
+        out_quant_bits=(1, 2, 5),
     )
     layer(dense_input)
     k, i, f = layer.get_input_quantization_bits()
@@ -918,10 +918,10 @@ def test_conv2d_direct(config_pdp, conv2d_input):
         OUT_FEATURES,
         KERNEL_SIZE,
         quantize_output=True,
-        input_quantization_bits=(1, 2, 5),
-        weight_quantization_bits=(1, 0, 3),
-        bias_quantization_bits=(1, 0, 3),
-        output_quantization_bits=(1, 2, 5),
+        in_quant_bits=(1, 2, 5),
+        weight_quant_bits=(1, 0, 3),
+        bias_quant_bits=(1, 0, 3),
+        out_quant_bits=(1, 2, 5),
     )
     layer(conv2d_input)
     assert layer.get_input_quantization_bits() == (1, 2, 5)
@@ -959,10 +959,10 @@ def test_conv2d_direct_hgq(config_pdp, conv2d_input):
         OUT_FEATURES,
         KERNEL_SIZE,
         quantize_output=True,
-        input_quantization_bits=(1, 2, 5),
-        weight_quantization_bits=(1, 0, 3),
-        bias_quantization_bits=(1, 0, 3),
-        output_quantization_bits=(1, 2, 5),
+        in_quant_bits=(1, 2, 5),
+        weight_quant_bits=(1, 0, 3),
+        bias_quant_bits=(1, 0, 3),
+        out_quant_bits=(1, 2, 5),
     )
     layer(conv2d_input)
     k, i, f = layer.get_input_quantization_bits()
@@ -998,10 +998,10 @@ def test_conv1d_direct(config_pdp, conv1d_input):
         OUT_FEATURES,
         KERNEL_SIZE,
         quantize_output=True,
-        input_quantization_bits=(1, 2, 5),
-        weight_quantization_bits=(1, 0, 3),
-        bias_quantization_bits=(1, 0, 3),
-        output_quantization_bits=(1, 2, 5),
+        in_quant_bits=(1, 2, 5),
+        weight_quant_bits=(1, 0, 3),
+        bias_quant_bits=(1, 0, 3),
+        out_quant_bits=(1, 2, 5),
     )
     layer(conv1d_input)
     assert layer.get_input_quantization_bits() == (1, 2, 5)
@@ -1039,10 +1039,10 @@ def test_conv1d_direct_hgq(config_pdp, conv1d_input):
         OUT_FEATURES,
         KERNEL_SIZE,
         quantize_output=True,
-        input_quantization_bits=(1, 2, 5),
-        weight_quantization_bits=(1, 0, 3),
-        bias_quantization_bits=(1, 0, 3),
-        output_quantization_bits=(1, 2, 5),
+        in_quant_bits=(1, 2, 5),
+        weight_quant_bits=(1, 0, 3),
+        bias_quant_bits=(1, 0, 3),
+        out_quant_bits=(1, 2, 5),
     )
     layer(conv1d_input)
     k, i, f = layer.get_input_quantization_bits()
@@ -1070,9 +1070,7 @@ def test_avgpool_direct(config_pdp, conv1d_input, conv2d_input):
     layer(conv1d_input)
     assert layer.get_input_quantization_bits() == (0, 0, 7)
     assert layer.get_output_quantization_bits() == (0, 0, 7)
-    layer = PQAvgPool1d(
-        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
-    )
+    layer = PQAvgPool1d(config_pdp, KERNEL_SIZE, quantize_output=True, in_quant_bits=(1, 2, 5), out_quant_bits=(1, 2, 5))
     layer(conv1d_input)
     assert layer.get_input_quantization_bits() == (1, 2, 5)
     assert layer.get_output_quantization_bits() == (1, 2, 5)
@@ -1082,9 +1080,7 @@ def test_avgpool_direct(config_pdp, conv1d_input, conv2d_input):
     assert layer.get_input_quantization_bits() == (0, 0, 7)
     assert layer.get_output_quantization_bits() == (0, 0, 7)
 
-    layer = PQAvgPool2d(
-        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
-    )
+    layer = PQAvgPool2d(config_pdp, KERNEL_SIZE, quantize_output=True, in_quant_bits=(1, 2, 5), out_quant_bits=(1, 2, 5))
     layer(conv2d_input)
     assert layer.get_input_quantization_bits() == (1, 2, 5)
     assert layer.get_output_quantization_bits() == (1, 2, 5)
@@ -1104,9 +1100,7 @@ def test_avgpool_direct_hgq(config_pdp, conv1d_input, conv2d_input):
     assert torch.all(i == 0)
     assert torch.all(f == 7)
 
-    layer = PQAvgPool1d(
-        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
-    )
+    layer = PQAvgPool1d(config_pdp, KERNEL_SIZE, quantize_output=True, in_quant_bits=(1, 2, 5), out_quant_bits=(1, 2, 5))
     layer(conv1d_input)
     k, i, f = layer.get_input_quantization_bits()
     assert torch.all(k == 1)
@@ -1130,9 +1124,7 @@ def test_avgpool_direct_hgq(config_pdp, conv1d_input, conv2d_input):
     assert torch.all(i == 0)
     assert torch.all(f == 7)
 
-    layer = PQAvgPool2d(
-        config_pdp, KERNEL_SIZE, quantize_output=True, input_quantization_bits=(1, 2, 5), output_quantization_bits=(1, 2, 5)
-    )
+    layer = PQAvgPool2d(config_pdp, KERNEL_SIZE, quantize_output=True, in_quant_bits=(1, 2, 5), out_quant_bits=(1, 2, 5))
     layer(conv2d_input)
     k, i, f = layer.get_input_quantization_bits()
     assert torch.all(k == 1)
@@ -1150,7 +1142,7 @@ def test_batchnorm2d_direct(config_pdp, conv2d_input):
     layer = PQBatchNorm2d(config_pdp, IN_FEATURES)
     layer(conv2d_input)
     assert layer.get_input_quantization_bits() == (0, 0, 7)
-    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, input_quantization_bits=(1, 2, 5))
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, in_quant_bits=(1, 2, 5))
     layer(conv2d_input)
     assert layer.get_input_quantization_bits() == (1, 2, 5)
 
@@ -1164,7 +1156,7 @@ def test_batchnorm2d_direct_hgq(config_pdp, conv2d_input):
     assert torch.all(k == 0)
     assert torch.all(i == 0)
     assert torch.all(f == 7)
-    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, input_quantization_bits=(1, 2, 5))
+    layer = PQBatchNorm2d(config_pdp, IN_FEATURES, in_quant_bits=(1, 2, 5))
     layer(conv2d_input)
     k, i, f = layer.get_input_quantization_bits()
     assert torch.all(k == 1)
