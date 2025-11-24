@@ -7,12 +7,12 @@ import torch.nn.functional as F
 from torch.fx import symbolic_trace
 from torch.nn.common_types import _size_1_t, _size_2_t
 
-from pquant.core.torch_impl.activations import PQActivation
-from pquant.core.torch_impl.quantizer import Quantizer
+from pquant.core.torch.activations import PQActivation
+from pquant.core.torch.quantizer import Quantizer
 from pquant.core.utils import get_pruning_layer
 
 if typing.TYPE_CHECKING:
-    from pquant.core.torch_impl.fit_compress import call_fitcompress  # noqa: 401
+    from pquant.core.torch.fit_compress import call_fitcompress  # noqa: 401
 
 from keras import ops
 
@@ -133,7 +133,7 @@ class PQWeightBiasBase(nn.Module):
         self.n_parallel = ops.prod(tuple(input_shape)[1:-1])
         self.parallelization_factor = self.parallelization_factor if self.parallelization_factor > 0 else self.n_parallel
         self.built = True
-        self.input_shape = input_shape
+        self.input_shape = (1,) + input_shape[1:]
 
     def get_weight_quantization_bits(self):
         return self.weight_quantizer.get_quantization_bits()
@@ -556,7 +556,7 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
         return s.format(**self.__dict__)
 
 
-def add_compression_layers_torch(model, config, input_shape, device="cuda"):
+def add_compression_layers(model, config, input_shape, device="cuda"):
     model = add_quantized_activations_to_model_layer(model, config)
     model = add_pruning_to_model(model, config)
     model.to(device)
@@ -624,7 +624,7 @@ class PQAvgPoolBase(nn.Module):
             is_data=True,
             hgq_gamma=self.hgq_gamma,
         )
-        self.input_shape = input_shape
+        self.input_shape = (1,) + input_shape[1:]
 
     def get_input_quantization_bits(self):
         return self.input_quantizer.get_quantization_bits()
@@ -841,7 +841,7 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         shape = [1] * len(input_shape)
         shape[1] = input_shape[1]
         self._shape = tuple(shape)
-        self.input_shape = input_shape
+        self.input_shape = (1,) + input_shape[1:]
 
     def apply_final_compression(self):
         self.final_compression_done = True
@@ -1199,7 +1199,7 @@ def add_pruning_to_model(module, config, prefix=""):
     return module
 
 
-def apply_final_compression_torch(module):
+def apply_final_compression(module):
     for layer in module.modules():
         if isinstance(layer, (PQWeightBiasBase, PQBatchNorm2d)):
             layer.apply_final_compression()
@@ -1254,7 +1254,7 @@ def pre_finetune_functions(model):
 def post_pretrain_functions(model, config, train_loader=None, loss_func=None):
 
     if config.fitcompress_parameters.enable_fitcompress:
-        from pquant.core.torch_impl.fit_compress import call_fitcompress  # noqa: 811
+        from pquant.core.torch.fit_compress import call_fitcompress  # noqa: 811
 
         config, pruning_mask_importance_scores = call_fitcompress(config, model, train_loader, loss_func)
 
@@ -1305,7 +1305,7 @@ def pdp_setup(model, config):
 
 
 @torch.no_grad
-def get_layer_keep_ratio_torch(model):
+def get_layer_keep_ratio(model):
     total_w = 0
     remaining_weights = 0
     for layer in model.modules():
@@ -1322,7 +1322,7 @@ def get_layer_keep_ratio_torch(model):
     return 0.0
 
 
-def get_model_losses_torch(model, losses):
+def get_model_losses(model, losses):
 
     for layer in model.modules():
         loss = 0.0
@@ -1370,7 +1370,7 @@ def create_default_layer_quantization_pruning_config(model):
     return config
 
 
-def add_default_layer_quantization_pruning_to_config_torch(model, config):
+def populate_config_with_all_layers(model, config):
     custom_scheme = create_default_layer_quantization_pruning_config(model)
     config.quantization_parameters.layer_specific = custom_scheme["layer_specific"]
     config.pruning_parameters.disable_pruning_for_layers = custom_scheme["disable_pruning_for_layers"]
@@ -1412,3 +1412,15 @@ def remove_compression_layers(module, config):
         else:
             remove_compression_layers(layer, config)
     return module
+
+
+def post_training_prune(model, config, calibration_data):
+    t_delta = config.pruning_parameters.t_delta
+    config.pruning_parameters.t_start_collecting_batch = 0
+    for i in range(t_delta):
+        inputs = calibration_data[i]
+        if i == 0:
+            model = add_compression_layers(model, config, inputs.shape)
+            post_pretrain_functions(model, config)
+        model(inputs)
+    return remove_compression_layers(model, config)

@@ -4,7 +4,7 @@ from typing import TypeVar as T
 import keras
 from keras.ops import maximum, minimum, relu, tanh
 
-from pquant.core.tf_impl.quantizer import Quantizer
+from pquant.core.keras.quantizer import Quantizer
 
 
 def hard_sigmoid(x):

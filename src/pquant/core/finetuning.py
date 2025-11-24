@@ -10,9 +10,8 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from pquant import add_compression_layers, train_model
 from pquant.core import constants
-from pquant.core.compressed_layers import add_compression_layers
-from pquant.core.train import iterative_train
 from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
 from pquant.data_models.pruning_model import (
@@ -267,7 +266,7 @@ class TuningTask:
         scheduler_func = self.get_scheduler_function()
         scheduler = scheduler_func(optimizer, self.config)
 
-        trained_model = iterative_train(
+        trained_model = train_model(
             compressed_model,
             self.config,
             train_func,

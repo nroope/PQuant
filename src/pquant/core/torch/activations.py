@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch import maximum, minimum, relu, tanh
 
-from pquant.core.torch_impl.quantizer import Quantizer
+from pquant.core.torch.quantizer import Quantizer
 
 T = TypeVar("T")
 

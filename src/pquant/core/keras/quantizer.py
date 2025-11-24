@@ -1,21 +1,29 @@
-import torch
-import torch.nn as nn
+import keras
+from keras.initializers import Constant
 
 from pquant.core.quantizer_functions import create_quantizer
 
 
-class Quantizer(nn.Module):
+class Quantizer(keras.layers.Layer):
+    # HGQ quantizer wrapper
     def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, hgq_gamma=0):
         super().__init__()
-        self.k = torch.nn.Parameter(torch.tensor(k), requires_grad=False)
-        self.i = torch.nn.Parameter(torch.tensor(i), requires_grad=False)
-        self.f = torch.nn.Parameter(torch.tensor(f), requires_grad=False)
+        self.k = k
+        self.i = i
+        self.f = f
         self.overflow = overflow
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
         self.quantizer = create_quantizer(self.k, self.i, self.f, overflow, round_mode, is_heterogeneous, is_data)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        self.i = self.add_variable((), Constant(self.i), dtype="float32", trainable=False)
+        self.f = self.add_variable((), Constant(self.f), dtype="float32", trainable=False)
+        if self.use_hgq:
+            self.quantizer.build(input_shape)
 
     def get_quantization_bits(self):
         if self.use_hgq:
@@ -27,21 +35,23 @@ class Quantizer(nn.Module):
         if self.use_hgq:
             self.quantizer.quantizer._i.assign(self.quantizer.quantizer._i * 0.0 + i)
             self.quantizer.quantizer._f.assign(self.quantizer.quantizer._f * 0.0 + f)
-        self.i.data = i
-        self.f.data = f
+        self.i = i
+        self.f = f
 
-    def post_pre_train_function(self):
-        self.is_pretraining = False
+    def post_pretrain(self):
+        self.is_pretraining = True
 
-    def forward(self, x):
+    def call(self, x, training=None):
+        if not self.built:
+            self.build(x.shape)
         if self.use_hgq:
-            x = self.quantizer(x)
+            x = self.quantizer(x, training=training)
         else:
-            x = self.quantizer(x, k=self.k, i=self.i, f=self.f)
+            x = self.quantizer(x, k=self.k, i=self.i, f=self.f, training=training)
         return x
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
             return 0.0
-        loss = (torch.sum(self.quantizer.quantizer.i) + torch.sum(self.quantizer.quantizer.f)) * self.hgq_gamma
+        loss = (keras.ops.sum(self.quantizer.quantizer.i) + keras.ops.sum(self.quantizer.quantizer.f)) * self.hgq_gamma
         return loss

@@ -17,8 +17,8 @@ from keras.layers import (
     SeparableConv2D,
 )
 
-from pquant.core.tf_impl.activations import PQActivation
-from pquant.core.tf_impl.compressed_layers_tf import (
+from pquant.activations import PQActivation
+from pquant.layers import (
     PQAvgPool1d,
     PQAvgPool2d,
     PQBatchNormalization,
@@ -27,9 +27,9 @@ from pquant.core.tf_impl.compressed_layers_tf import (
     PQDense,
     PQDepthwiseConv2d,
     PQSeparableConv2d,
-    add_compression_layers_tf,
-    apply_final_compression_tf,
-    get_layer_keep_ratio_tf,
+    add_compression_layers,
+    apply_final_compression,
+    get_layer_keep_ratio,
     post_pretrain_functions,
     pre_finetune_functions,
 )
@@ -304,7 +304,7 @@ def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
 
     post_pretrain_functions(model, config_pdp)
@@ -321,7 +321,7 @@ def test_separable_conv2d_add_remove_layers(config_pdp, conv2d_input):
 
     output1 = model(conv2d_input)
 
-    model = apply_final_compression_tf(model)
+    model = apply_final_compression(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
 
@@ -339,7 +339,7 @@ def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = SeparableConv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -353,9 +353,9 @@ def test_separable_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     mask_50pct_pw = ops.reshape(keras.random.shuffle(mask_50pct_pw), model.layers[1].pointwise_conv.pruning_layer.mask.shape)
     model.layers[1].pointwise_conv.pruning_layer.mask = mask_50pct_pw
 
-    ratio1 = get_layer_keep_ratio_tf(model)
-    model = apply_final_compression_tf(model)
-    ratio2 = get_layer_keep_ratio_tf(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
 
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct_dw) / ops.size(mask_50pct_dw), ratio1)
@@ -371,7 +371,7 @@ def test_separable_conv2d_trigger_post_pretraining(config_pdp, conv2d_input):
     act2 = ReLU()(out2)
     model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
 
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     assert model.layers[1].depthwise_conv.pruning_layer.is_pretraining is True
     assert model.layers[1].pointwise_conv.pruning_layer.is_pretraining is True
     assert model.layers[2].is_pretraining is True
@@ -403,7 +403,7 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
     inputs = keras.Input(shape=(dense_input.shape[1:]))
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     model(dense_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -412,7 +412,7 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(dense_input)
-    model = apply_final_compression_tf(model)
+    model = apply_final_compression(model)
     output2 = model(dense_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -425,7 +425,7 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -434,7 +434,7 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(conv2d_input)
-    model = apply_final_compression_tf(model)
+    model = apply_final_compression(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -447,7 +447,7 @@ def test_depthwise_conv2d_add_remove_layers(config_pdp, conv2d_input):
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -456,7 +456,7 @@ def test_depthwise_conv2d_add_remove_layers(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(conv2d_input)
-    model = apply_final_compression_tf(model)
+    model = apply_final_compression(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -469,7 +469,7 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
     inputs = keras.Input(shape=conv1d_input.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
-    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     model(conv1d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -478,7 +478,7 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
     output1 = model(conv1d_input)
-    model = apply_final_compression_tf(model)
+    model = apply_final_compression(model)
     output2 = model(conv1d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -491,7 +491,7 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
     inputs = keras.Input(shape=(dense_input.shape[1:]))
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     model(dense_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -499,9 +499,9 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=OUT_FEATURES * IN_FEATURES) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_tf(model)
-    model = apply_final_compression_tf(model)
-    ratio2 = get_layer_keep_ratio_tf(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -511,7 +511,7 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -519,9 +519,9 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=OUT_FEATURES * IN_FEATURES * KERNEL_SIZE * KERNEL_SIZE) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_tf(model)
-    model = apply_final_compression_tf(model)
-    ratio2 = get_layer_keep_ratio_tf(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -531,7 +531,7 @@ def test_depthwise_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     inputs = keras.Input(shape=conv2d_input.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -539,9 +539,9 @@ def test_depthwise_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=ops.size(model.layers[1].kernel)) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_tf(model)
-    model = apply_final_compression_tf(model)
-    ratio2 = get_layer_keep_ratio_tf(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -552,7 +552,7 @@ def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
     inputs = keras.Input(shape=conv1d_input.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False)(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
-    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     model(conv1d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -560,9 +560,9 @@ def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=ops.size(model.layers[1].kernel)) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.layers[1].pruning_layer.mask.shape)
     model.layers[1].pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_tf(model)
-    model = apply_final_compression_tf(model)
-    ratio2 = get_layer_keep_ratio_tf(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -572,7 +572,7 @@ def test_check_activation(config_pdp, dense_input):
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="relu")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
 
     assert isinstance(model.layers[2], ReLU)
 
@@ -580,7 +580,7 @@ def test_check_activation(config_pdp, dense_input):
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="relu")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert isinstance(model.layers[2], PQActivation)
     assert model.layers[2].activation_name == "relu"
 
@@ -589,7 +589,7 @@ def test_check_activation(config_pdp, dense_input):
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="tanh")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
 
     assert isinstance(model.layers[2], Activation)
     assert model.layers[2].activation.__name__ == "tanh"
@@ -598,7 +598,7 @@ def test_check_activation(config_pdp, dense_input):
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="tanh")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert isinstance(model.layers[2], PQActivation)
     assert model.layers[2].activation_name == "tanh"
 
@@ -611,7 +611,7 @@ def test_hgq_activation_built(config_pdp, conv2d_input):
     act = ReLU()(out)
     avg = AveragePooling2D(2)(act)
     model = keras.Model(inputs=inputs, outputs=avg, name="test_conv2d_hgq")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     is_built = []
     for layer in model.layers:
@@ -627,7 +627,7 @@ def test_hgq_activation_built(config_pdp, conv2d_input):
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=True)(inputs)
     act = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d_hgq")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     is_built = []
     for layer in model.layers:
@@ -655,7 +655,7 @@ def test_ap_conv2d_channels_last_transpose(config_ap, conv2d_input):
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
     model_cf(conv2d_input)
 
-    model_cf = add_compression_layers_tf(model_cf, config_ap, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_ap, inp.shape)
     weight_cf = model_cf.layers[1].kernel
 
     post_pretrain_functions(model_cf, config_ap)
@@ -669,7 +669,7 @@ def test_ap_conv2d_channels_last_transpose(config_ap, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_ap, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_ap, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_ap)
 
@@ -699,7 +699,7 @@ def test_ap_conv1d_channels_last_transpose(config_ap, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same", data_format="channels_first")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
-    model_cf = add_compression_layers_tf(model_cf, config_ap, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_ap, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_ap)
@@ -713,7 +713,7 @@ def test_ap_conv1d_channels_last_transpose(config_ap, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv1d1")
-    model_cl = add_compression_layers_tf(model_cl, config_ap, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_ap, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_ap)
 
@@ -740,7 +740,7 @@ def test_ap_depthwiseconv2d_channels_last_transpose(config_ap, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_ap, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_ap, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_ap)
@@ -754,7 +754,7 @@ def test_ap_depthwiseconv2d_channels_last_transpose(config_ap, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_ap, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_ap, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_ap)
 
@@ -781,7 +781,7 @@ def test_ap_dense_channels_last_transpose(config_ap, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model_cf = add_compression_layers_tf(model_cf, config_ap, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_ap, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_ap)
@@ -794,7 +794,7 @@ def test_ap_dense_channels_last_transpose(config_ap, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dense1")
-    model_cl = add_compression_layers_tf(model_cl, config_ap, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_ap, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_ap)
 
@@ -824,7 +824,7 @@ def test_wanda_conv2d_channels_last_transpose(config_wanda, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_wanda, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_wanda, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_wanda)
@@ -838,7 +838,7 @@ def test_wanda_conv2d_channels_last_transpose(config_wanda, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_wanda, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_wanda, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_wanda)
 
@@ -865,7 +865,7 @@ def test_wanda_conv1d_channels_last_transpose(config_wanda, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
-    model_cf = add_compression_layers_tf(model_cf, config_wanda, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_wanda, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_wanda)
@@ -879,7 +879,7 @@ def test_wanda_conv1d_channels_last_transpose(config_wanda, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv1d1")
-    model_cl = add_compression_layers_tf(model_cl, config_wanda, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_wanda, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_wanda)
 
@@ -906,7 +906,7 @@ def test_wanda_depthwiseconv2d_channels_last_transpose(config_wanda, conv2d_inpu
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_wanda, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_wanda, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_wanda)
@@ -920,7 +920,7 @@ def test_wanda_depthwiseconv2d_channels_last_transpose(config_wanda, conv2d_inpu
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_wanda, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_wanda, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_wanda)
 
@@ -947,7 +947,7 @@ def test_wanda_dense_channels_last_transpose(config_wanda, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model_cf = add_compression_layers_tf(model_cf, config_wanda, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_wanda, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_wanda)
@@ -960,7 +960,7 @@ def test_wanda_dense_channels_last_transpose(config_wanda, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dense1")
-    model_cl = add_compression_layers_tf(model_cl, config_wanda, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_wanda, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_wanda)
 
@@ -990,7 +990,7 @@ def test_pdp_conv2d_channels_last_transpose(config_pdp, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_pdp, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_pdp, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_pdp)
@@ -1004,7 +1004,7 @@ def test_pdp_conv2d_channels_last_transpose(config_pdp, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_pdp, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_pdp, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_pdp)
 
@@ -1031,7 +1031,7 @@ def test_pdp_conv1d_channels_last_transpose(config_pdp, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
-    model_cf = add_compression_layers_tf(model_cf, config_pdp, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_pdp, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_pdp)
@@ -1045,7 +1045,7 @@ def test_pdp_conv1d_channels_last_transpose(config_pdp, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv1d1")
-    model_cl = add_compression_layers_tf(model_cl, config_pdp, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_pdp, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_pdp)
 
@@ -1072,7 +1072,7 @@ def test_pdp_depthwiseconv2d_channels_last_transpose(config_pdp, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_pdp, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_pdp, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_pdp)
@@ -1086,7 +1086,7 @@ def test_pdp_depthwiseconv2d_channels_last_transpose(config_pdp, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_pdp, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_pdp, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_pdp)
 
@@ -1112,7 +1112,7 @@ def test_pdp_dense_channels_last_transpose(config_pdp, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model_cf = add_compression_layers_tf(model_cf, config_pdp, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_pdp, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_pdp)
@@ -1125,7 +1125,7 @@ def test_pdp_dense_channels_last_transpose(config_pdp, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dense1")
-    model_cl = add_compression_layers_tf(model_cl, config_pdp, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_pdp, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_pdp)
     model_cl(inp, training=True)
@@ -1154,7 +1154,7 @@ def test_cs_conv2d_channels_last_transpose(config_cs, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_cs, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_cs, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
     s = model_cf.layers[1].pruning_layer.s.value
     new_s = np.zeros_like(s) + 0.1
@@ -1171,7 +1171,7 @@ def test_cs_conv2d_channels_last_transpose(config_cs, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv2D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_cs, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_cs, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     model_cl.layers[1].pruning_layer.s.assign(new_s)
 
@@ -1198,7 +1198,7 @@ def test_cs_conv1d_channels_last_transpose(config_cs, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_conv1d")
-    model_cf = add_compression_layers_tf(model_cf, config_cs, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_cs, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_cs)
@@ -1212,7 +1212,7 @@ def test_cs_conv1d_channels_last_transpose(config_cs, conv1d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Conv1D(OUT_FEATURES, KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_conv1d1")
-    model_cl = add_compression_layers_tf(model_cl, config_cs, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_cs, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_cs)
 
@@ -1239,7 +1239,7 @@ def test_cs_depthwiseconv2d_channels_last_transpose(config_cs, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d")
-    model_cf = add_compression_layers_tf(model_cf, config_cs, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_cs, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_cs)
@@ -1253,7 +1253,7 @@ def test_cs_depthwiseconv2d_channels_last_transpose(config_cs, conv2d_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d1")
-    model_cl = add_compression_layers_tf(model_cl, config_cs, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_cs, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_cs)
 
@@ -1280,7 +1280,7 @@ def test_cs_dense_channels_last_transpose(config_cs, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dense")
-    model_cf = add_compression_layers_tf(model_cf, config_cs, inp.shape)
+    model_cf = add_compression_layers(model_cf, config_cs, inp.shape)
     weight_cf = model_cf.layers[1]._kernel
 
     post_pretrain_functions(model_cf, config_cs)
@@ -1293,7 +1293,7 @@ def test_cs_dense_channels_last_transpose(config_cs, dense_input):
     inputs = keras.Input(shape=inp.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     model_cl = keras.Model(inputs=inputs, outputs=out, name="test_dense1")
-    model_cl = add_compression_layers_tf(model_cl, config_cs, inp.shape)
+    model_cl = add_compression_layers(model_cl, config_cs, inp.shape)
     model_cl.layers[1]._kernel.assign(weight_cf)
     post_pretrain_functions(model_cl, config_cs)
 
@@ -1328,7 +1328,7 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
     weight = ops.reshape(ops.convert_to_tensor(weight), (IN_FEATURES, OUT_FEATURES))
     weight2 = ops.reshape(ops.linspace(0.01, 0.99, OUT_FEATURES * OUT_FEATURES), (OUT_FEATURES, OUT_FEATURES))
 
-    model = add_compression_layers_tf(model, config_wanda, dense_input.shape)
+    model = add_compression_layers(model, config_wanda, dense_input.shape)
     model.layers[1]._kernel.assign(weight)
     model.layers[2]._kernel.assign(weight2)
     # Triggers calculation of pruning budget for PDP and Wanda
@@ -1353,7 +1353,7 @@ def test_trigger_post_pretraining(config_pdp, conv2d_input):
     act2 = ReLU()(out2)
     model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
 
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     assert model.layers[1].pruning_layer.is_pretraining is True
     assert model.layers[2].is_pretraining is True
@@ -1378,7 +1378,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     act2 = ReLU()(out2)
     model = keras.Model(inputs=inputs, outputs=act2, name="test_conv2d")
 
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert model.layers[1].weight_quantizer.quantizer.quantizer._i.shape == model.layers[1].kernel.shape
     layer_2_input_shape = [1] + list(model.layers[2].input.shape[1:])
     assert model.layers[2].input_quantizer.quantizer.quantizer._i.shape == layer_2_input_shape
@@ -1393,7 +1393,7 @@ def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_inp
     model = keras.Model(inputs=inputs, outputs=out)
 
     orig_output = model(dense_input)
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     output = model(dense_input)
     assert ops.all(ops.equal(orig_output, output))
 
@@ -1403,7 +1403,7 @@ def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_inp
     model = keras.Model(inputs=inputs, outputs=out)
 
     orig_output = model(conv2d_input)
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     output = model(conv2d_input)
     assert ops.all(ops.equal(orig_output, output))
     # Case Conv1D
@@ -1412,7 +1412,7 @@ def test_replace_weight_with_original_value(config_pdp, conv2d_input, conv1d_inp
     model = keras.Model(inputs=inputs, outputs=out)
 
     orig_output = model(conv1d_input)
-    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     output = model(conv1d_input)
     assert ops.all(ops.equal(orig_output, output))
 
@@ -1426,7 +1426,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     out = AveragePooling2D(2)(out)
     out = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=out)
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     for m in model.layers:
         if isinstance(m, (PQConv2d)):
@@ -1465,7 +1465,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     out = AveragePooling2D(2)(out)
     out = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=out)
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     for m in model.layers:
         if isinstance(m, (PQConv2d)):
             _, iw, fw = m.get_weight_quantization_bits()
@@ -1497,7 +1497,7 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     out = AveragePooling2D(2)(out)
     out = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=out)
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     for m in model.layers:
         if isinstance(m, (PQConv2d)):
@@ -1532,7 +1532,7 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     out = AveragePooling2D(2)(out)
     out = Activation("tanh")(out)
     model = keras.Model(inputs=inputs, outputs=out)
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     for m in model.layers:
         if isinstance(m, (PQConv2d)):
             assert m.i_weight == 1.0
@@ -1558,7 +1558,7 @@ def test_ebops_dense(config_pdp, dense_input):
     out = Dense(OUT_FEATURES, use_bias=False)(inputs)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.layers[1].hgq_loss(dense_input.shape)
 
@@ -1566,7 +1566,7 @@ def test_ebops_dense(config_pdp, dense_input):
     out = Dense(OUT_FEATURES, use_bias=True)(inputs)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.layers[1].hgq_loss(dense_input.shape)
 
@@ -1578,7 +1578,7 @@ def test_ebops_conv2d(config_pdp, conv2d_input):
     out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=False)(inputs)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.layers[1].hgq_loss(conv2d_input.shape)
 
@@ -1588,7 +1588,7 @@ def test_ebops_conv2d(config_pdp, conv2d_input):
     out = Conv2D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.layers[1].hgq_loss(conv2d_input.shape)
 
@@ -1600,7 +1600,7 @@ def test_ebops_conv1d(config_pdp, conv1d_input):
     out = Conv1D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=False)(inputs)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.layers[1].hgq_loss(conv1d_input.shape)
 
@@ -1610,7 +1610,7 @@ def test_ebops_conv1d(config_pdp, conv1d_input):
     out = Conv1D(OUT_FEATURES, kernel_size=KERNEL_SIZE, use_bias=True)(inputs)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
-    model = add_compression_layers_tf(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.layers[1].hgq_loss(conv1d_input.shape)
 
@@ -1624,7 +1624,7 @@ def test_ebops_bn(config_pdp, conv2d_input):
     out = BatchNormalization(axis=axis)(out)
     act = ReLU()(out)
     model = keras.Model(inputs=inputs, outputs=act, name="test_bn")
-    model = add_compression_layers_tf(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     if keras.backend.image_data_format() == "channels_first":
         model.layers[2].hgq_loss((1, 32, 30, 30))  # Does not work, TODO: Fix
@@ -1639,7 +1639,7 @@ def test_ebops_activations(config_pdp, dense_input):
     act = ReLU()(inputs)
     act2 = Activation("tanh")(act)
     model = keras.Model(inputs=inputs, outputs=act2, name="test_activations")
-    model = add_compression_layers_tf(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
 
 
 def test_linear_direct(config_pdp, dense_input):
@@ -1708,7 +1708,7 @@ class DummyLayer(keras.layers.Layer):
 
 def test_avgpool_quant_called(config_pdp, conv1d_input):
     config_pdp.quantization_parameters.enable_quantization = True
-    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+    with patch('pquant.layers.Quantizer', DummyLayer):
         layer = PQAvgPool1d(config_pdp, KERNEL_SIZE, quantize_input=True)
         layer(conv1d_input)
         assert layer.input_quantizer.layer_called == 1
@@ -1730,7 +1730,7 @@ def test_avgpool_quant_called(config_pdp, conv1d_input):
 def test_batchnorm_quant_called(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.enable_quantization = True
     axis = -1 if keras.backend.image_data_format() == "channels_last" else 1
-    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+    with patch('pquant.layers.Quantizer', DummyLayer):
         layer = PQBatchNormalization(config_pdp, axis=axis, quantize_input=True)
         layer(conv2d_input)
         assert layer.input_quantizer.layer_called == 1
@@ -1754,7 +1754,7 @@ def test_batchnorm_quant_called(config_pdp, conv2d_input):
 
 def test_pqconv2d_quant_called(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.enable_quantization = True
-    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+    with patch('pquant.layers.Quantizer', DummyLayer):
         layer = PQConv2d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=True, use_bias=True)
         layer.post_pre_train_function()
         layer(conv2d_input)
@@ -1785,7 +1785,7 @@ def test_pqconv2d_quant_called(config_pdp, conv2d_input):
 def test_pqdepthwiseconv2d_quant_called(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.enable_quantization = True
 
-    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+    with patch('pquant.layers.Quantizer', DummyLayer):
         layer = PQDepthwiseConv2d(config_pdp, KERNEL_SIZE, quantize_input=True, use_bias=True)
         layer.post_pre_train_function()
         layer(conv2d_input)
@@ -1815,7 +1815,7 @@ def test_pqdepthwiseconv2d_quant_called(config_pdp, conv2d_input):
 
 def test_pqconv1d_quant_called(config_pdp, conv1d_input):
     config_pdp.quantization_parameters.enable_quantization = True
-    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+    with patch('pquant.layers.Quantizer', DummyLayer):
         layer = PQConv1d(config_pdp, OUT_FEATURES, KERNEL_SIZE, quantize_input=True, use_bias=True)
         layer.post_pre_train_function()
         layer(conv1d_input)
@@ -1845,7 +1845,7 @@ def test_pqconv1d_quant_called(config_pdp, conv1d_input):
 
 def test_dense_quant_called(config_pdp, dense_input):
     config_pdp.quantization_parameters.enable_quantization = True
-    with patch('pquant.core.tf_impl.compressed_layers_tf.Quantizer', DummyLayer):
+    with patch('pquant.layers.Quantizer', DummyLayer):
         layer = PQDense(config_pdp, OUT_FEATURES, quantize_input=True, use_bias=True)
         layer.post_pre_train_function()
         layer(dense_input)
@@ -1871,3 +1871,26 @@ def test_dense_quant_called(config_pdp, dense_input):
         assert layer.bias_quantizer.layer_called == 0
         assert layer.output_quantizer.layer_called == 0
     assert True
+
+
+def test_layer_replacement_quant_called(config_pdp, conv2d_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.quantize_input = True
+    config_pdp.quantization_parameters.quantize_output = True
+    config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    with patch('pquant.layers.Quantizer', DummyLayer):
+        inp = keras.Input(shape=conv2d_input.shape[1:])
+        x = Conv2D(OUT_FEATURES, KERNEL_SIZE)(inp)
+
+        x = ReLU()(x)
+        x = keras.layers.Flatten()(x)
+        out = Dense(4)(x)
+
+        model = keras.Model(inputs=inp, outputs=out)
+        model.summary()
+
+        model = add_compression_layers(model, config_pdp, conv2d_input.shape)
+        model(conv2d_input, training=True)
+        assert model.layers[-1].output_quantizer.layer_called == 1
+        model(conv2d_input, training=False)
+        assert model.layers[-1].output_quantizer.layer_called == 2

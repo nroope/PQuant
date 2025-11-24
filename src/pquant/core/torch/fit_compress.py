@@ -10,7 +10,7 @@ import torch.nn as nn
 from quantizers import get_fixed_quantizer
 
 if typing.TYPE_CHECKING:
-    from pquant.core.torch_impl.compressed_layers_torch import (
+    from pquant.core.torch.layers import (
         CompressedLayerBase,
         CompressedLayerConv2d,
         CompressedLayerLinear,
@@ -39,7 +39,7 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
                             layer-wise quantization bits for weights and activations.
 
     """
-    from pquant.core.torch_impl.compressed_layers_torch import (
+    from pquant.core.torch.layers import (
         add_layer_specific_quantization_to_model,
     )
 
@@ -98,7 +98,7 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
 
         """
 
-        from pquant.core.torch_impl.compressed_layers_torch import (
+        from pquant.core.torch.layers import (
             CompressedLayerConv2d,
             CompressedLayerLinear,
             QuantizedPooling,
@@ -141,7 +141,7 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
         model - current model
 
         """
-        from pquant.core.torch_impl.compressed_layers_torch import (
+        from pquant.core.torch.layers import (
             CompressedLayerConv1d,
             CompressedLayerConv2d,
             CompressedLayerLinear,
@@ -742,7 +742,7 @@ class FITcompress:
                         pool_int_bits: Integer bits for the (single) pooling layer (res20).
                         pool_frac_bits: Fractional bits for the (single) pooling layer (res20).
         """
-        from pquant.core.torch_impl.compressed_layers_torch import (
+        from pquant.core.torch.layers import (
             QuantizedPooling,
             QuantizedReLU,
         )

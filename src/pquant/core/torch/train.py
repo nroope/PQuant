@@ -1,6 +1,6 @@
 import torch
 
-from pquant.core.torch_impl.compressed_layers_torch import (
+from pquant.core.torch.layers import (
     call_post_round_functions,
     post_epoch_functions,
     post_pretrain_functions,
@@ -10,7 +10,7 @@ from pquant.core.torch_impl.compressed_layers_torch import (
 )
 
 
-def iterative_train_torch(model, config, train_func, valid_func, **kwargs):
+def train_model(model, config, train_func, valid_func, **kwargs):
     """
     Generic training loop, user provides training and validation functions
     """

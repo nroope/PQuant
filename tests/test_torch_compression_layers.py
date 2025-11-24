@@ -17,8 +17,8 @@ from torch.nn import (
 )
 
 from pquant import post_training_prune
-from pquant.core.torch_impl.activations import PQActivation
-from pquant.core.torch_impl.compressed_layers_torch import (
+from pquant.activations import PQActivation
+from pquant.layers import (
     PQAvgPool1d,
     PQAvgPool2d,
     PQBatchNorm2d,
@@ -26,10 +26,10 @@ from pquant.core.torch_impl.compressed_layers_torch import (
     PQConv2d,
     PQDense,
     PQWeightBiasBase,
-    add_compression_layers_torch,
-    apply_final_compression_torch,
-    get_layer_keep_ratio_torch,
-    get_model_losses_torch,
+    add_compression_layers,
+    apply_final_compression,
+    get_layer_keep_ratio,
+    get_model_losses,
     post_pretrain_functions,
     pre_finetune_functions,
 )
@@ -311,7 +311,7 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
     orig_weight = layer.weight.data
 
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
     assert torch.all(orig_weight == model.submodule._weight.data)
@@ -319,7 +319,7 @@ def test_dense_add_remove_layers(config_pdp, dense_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
     output1 = model(dense_input)
-    model = apply_final_compression_torch(model)
+    model = apply_final_compression(model)
     output2 = model(dense_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -332,7 +332,7 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     orig_weight = layer.weight.data
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -341,7 +341,7 @@ def test_conv2d_add_remove_layers(config_pdp, conv2d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
     output1 = model(conv2d_input)
-    model = apply_final_compression_torch(model)
+    model = apply_final_compression(model)
     output2 = model(conv2d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -353,7 +353,7 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
     config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     model(conv1d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -362,7 +362,7 @@ def test_conv1d_add_remove_layers(config_pdp, conv1d_input):
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
     output1 = model(conv1d_input)
-    model = apply_final_compression_torch(model)
+    model = apply_final_compression(model)
     output2 = model(conv1d_input)
     assert ops.all(ops.equal(output1, output2))
     expected_nonzero_count = ops.count_nonzero(mask_50pct)
@@ -374,7 +374,7 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
     config_pdp.pruning_parameters.enable_pruning = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     model(dense_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -382,9 +382,9 @@ def test_dense_get_layer_keep_ratio(config_pdp, dense_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=OUT_FEATURES * IN_FEATURES) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_torch(model)
-    model = apply_final_compression_torch(model)
-    ratio2 = get_layer_keep_ratio_torch(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -393,7 +393,7 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     model(conv2d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -401,9 +401,9 @@ def test_conv2d_get_layer_keep_ratio(config_pdp, conv2d_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=OUT_FEATURES * IN_FEATURES * KERNEL_SIZE * KERNEL_SIZE) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_torch(model)
-    model = apply_final_compression_torch(model)
-    ratio2 = get_layer_keep_ratio_torch(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -412,7 +412,7 @@ def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
     config_pdp.pruning_parameters.enable_pruning = True
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     model(conv1d_input)
     post_pretrain_functions(model, config_pdp)
     pre_finetune_functions(model)
@@ -420,9 +420,9 @@ def test_conv1d_get_layer_keep_ratio(config_pdp, conv1d_input):
     mask_50pct = ops.cast(ops.linspace(0, 1, num=ops.size(model.submodule.weight)) < 0.5, "float32")
     mask_50pct = ops.reshape(keras.random.shuffle(mask_50pct), model.submodule.pruning_layer.mask.shape)
     model.submodule.pruning_layer.mask = mask_50pct
-    ratio1 = get_layer_keep_ratio_torch(model)
-    model = apply_final_compression_torch(model)
-    ratio2 = get_layer_keep_ratio_torch(model)
+    ratio1 = get_layer_keep_ratio(model)
+    model = apply_final_compression(model)
+    ratio2 = get_layer_keep_ratio(model)
     assert ops.equal(ratio1, ratio2)
     assert ops.equal(ops.count_nonzero(mask_50pct) / ops.size(mask_50pct), ratio1)
 
@@ -431,26 +431,26 @@ def test_check_activation(config_pdp, dense_input):
     # ReLU
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, ReLU)
 
     config_pdp.quantization_parameters.enable_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, PQActivation)
 
     # Tanh
     config_pdp.quantization_parameters.enable_quantization = False
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, Tanh)
 
     config_pdp.quantization_parameters.enable_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "tanh")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     assert isinstance(model.activation, PQActivation)
 
 
@@ -489,14 +489,14 @@ def test_hgq_activation_built(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.quantize_output = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModelWithAvgPool(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     is_built = check_keras_layer_is_built(model, [])
     torch.save(model.state_dict(), "test_model.pt")
     assert all(is_built)
 
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModelWithAvgPool(layer, "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     is_built = check_keras_layer_is_built(model, [])
     assert all(is_built)
@@ -507,8 +507,8 @@ def test_post_training_wanda(config_wanda, conv2d_input):
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModel(layer, "relu")
     calibration_dataset = [conv2d_input, conv2d_input]
-    model = post_training_prune(model, calibration_dataset, config_wanda)
-    assert get_layer_keep_ratio_torch(model) == 1 - config_wanda.pruning_parameters.sparsity
+    model = post_training_prune(model, config_wanda, calibration_dataset)
+    assert get_layer_keep_ratio(model) == 1 - config_wanda.pruning_parameters.sparsity
 
 
 class TestModel2(nn.Module):
@@ -557,7 +557,7 @@ def test_calculate_pruning_budget(config_wanda, dense_input):
     weight = ops.convert_to_tensor(weight)
     weight2 = ops.linspace(0.01, 0.99, OUT_FEATURES * OUT_FEATURES)
 
-    model = add_compression_layers_torch(model, config_wanda, dense_input.shape)
+    model = add_compression_layers(model, config_wanda, dense_input.shape)
     model.submodule._weight.data = ops.reshape(weight, model.submodule.weight.shape)
     model.submodule2._weight.data = ops.reshape(weight2, model.submodule2.weight.shape)
 
@@ -580,7 +580,7 @@ def test_trigger_post_pretraining(config_pdp, dense_input):
     layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel2(layer, layer2, "relu", "tanh")
 
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
 
     assert model.submodule.pruning_layer.is_pretraining is True
     assert model.activation.is_pretraining is True
@@ -602,7 +602,7 @@ def test_hgq_weight_shape(config_pdp, dense_input):
     layer2 = Linear(OUT_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel2(layer, layer2, "relu", "tanh")
 
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
 
     assert model.submodule.weight_quantizer.quantizer.quantizer._i.shape == model.submodule.weight.shape
@@ -616,7 +616,7 @@ def test_qbn_build(config_pdp, conv2d_input):
     layer2 = BatchNorm2d(OUT_FEATURES)
     model = TestModel2(layer, layer2, None, "tanh")
 
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     assert model.submodule.weight_quantizer.quantizer.quantizer._i.shape == model.submodule.weight.shape
 
@@ -627,7 +627,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     layer2 = AvgPool2d(2)
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     for m in model.modules():
         if isinstance(m, (PQWeightBiasBase)):
@@ -668,7 +668,7 @@ def test_set_activation_custom_bits_hgq(config_pdp, conv2d_input):
     }
 
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     for m in model.modules():
         if isinstance(m, (PQWeightBiasBase)):
@@ -705,14 +705,14 @@ def test_disable_pruning_from_single_layer(config_pdp, conv2d_input):
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     layer2 = Conv2d(OUT_FEATURES, OUT_FEATURES, KERNEL_SIZE)
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     assert model.submodule.enable_pruning
     assert model.submodule2.enable_pruning
 
     config_pdp.pruning_parameters.disable_pruning_for_layers = ["submodule2"]
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     assert model.submodule.enable_pruning
     assert not model.submodule2.enable_pruning
@@ -724,7 +724,7 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     layer2 = AvgPool2d(2)
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     for m in model.modules():
         if isinstance(m, (PQWeightBiasBase)):
@@ -748,7 +748,7 @@ def test_set_activation_custom_bits_quantizer(config_pdp, conv2d_input):
     }
 
     model = TestModel2(layer, layer2, "relu", "tanh")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
 
     for m in model.modules():
         if isinstance(m, (PQWeightBiasBase)):
@@ -770,13 +770,13 @@ def test_ebops_dense(config_pdp, dense_input):
     config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule.hgq_loss()
 
     layer = Linear(IN_FEATURES, OUT_FEATURES, bias=True)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule.hgq_loss()
 
@@ -786,13 +786,13 @@ def test_ebops_conv2d(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule.hgq_loss()
 
     layer = Conv2d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule.hgq_loss()
 
@@ -802,13 +802,13 @@ def test_ebops_conv1d(config_pdp, conv1d_input):
     config_pdp.quantization_parameters.use_high_granularity_quantization = True
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=False)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule.hgq_loss()
 
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModel(layer, "relu")
-    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule.hgq_loss()
 
@@ -820,7 +820,7 @@ def test_ebops_bn(config_pdp, conv2d_input):
     layer2 = BatchNorm2d(OUT_FEATURES)
     model = TestModel2(layer, layer2, None, "relu")
     shape = [1] + list(conv2d_input.shape[1:])
-    model = add_compression_layers_torch(model, config_pdp, shape)
+    model = add_compression_layers(model, config_pdp, shape)
     post_pretrain_functions(model, config_pdp)
     model.submodule2.hgq_loss()
 
@@ -1767,7 +1767,7 @@ def test_hgq_loss_calc_no_qoutput(config_pdp, conv2d_input):
 
     # Bias in weight layers, don't quantize output
     model = ModelWithAllLayers()
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     expected_loss = 0.0
     for m in model.modules():
@@ -1790,7 +1790,7 @@ def test_hgq_loss_calc_no_qoutput(config_pdp, conv2d_input):
             m.bias_quantizer.hgq_loss = dummy_hgq_loss
             expected_loss += 3.0
 
-    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    losses = get_model_losses(model, torch.tensor(0.0))
     assert losses == expected_loss
 
 
@@ -1801,7 +1801,7 @@ def test_hgq_loss_calc_no_bias_no_qoutput(config_pdp, conv2d_input):
 
     # No bias in weight layers, don't quantize output
     model = ModelWithAllLayers(use_bias=False)
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
 
     expected_loss = 0.0
@@ -1825,7 +1825,7 @@ def test_hgq_loss_calc_no_bias_no_qoutput(config_pdp, conv2d_input):
             m.bias_quantizer.hgq_loss = dummy_hgq_loss
             expected_loss += 3.0
 
-    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    losses = get_model_losses(model, torch.tensor(0.0))
     assert losses == expected_loss
 
 
@@ -1837,7 +1837,7 @@ def test_hgq_loss_calc_qoutput(config_pdp, conv2d_input):
     # Bias in weight layers, quantize output
     config_pdp.quantization_parameters.quantize_output = True
     model = ModelWithAllLayers()
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     expected_loss = 0.0
     for m in model.modules():
@@ -1860,7 +1860,7 @@ def test_hgq_loss_calc_qoutput(config_pdp, conv2d_input):
             m.bias_quantizer.hgq_loss = dummy_hgq_loss
             expected_loss += 3.0
 
-    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    losses = get_model_losses(model, torch.tensor(0.0))
     assert losses == expected_loss
 
 
@@ -1873,7 +1873,7 @@ def test_hgq_loss_calc_no_qinput(config_pdp, conv2d_input):
     config_pdp.quantization_parameters.quantize_input = False
     # Bias in weight layers, don't quantize input
     model = ModelWithAllLayers()
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
     expected_loss = 0.0
     for m in model.modules():
@@ -1896,7 +1896,7 @@ def test_hgq_loss_calc_no_qinput(config_pdp, conv2d_input):
             m.bias_quantizer.hgq_loss = dummy_hgq_loss
             expected_loss += 2.0
 
-    losses = get_model_losses_torch(model, torch.tensor(0.0))
+    losses = get_model_losses(model, torch.tensor(0.0))
     assert losses == expected_loss
 
 
@@ -1908,8 +1908,8 @@ def test_conv1d_parameter_quantizers_not_called_when_final_compression_done(conf
     config_pdp.quantization_parameters.quantize_output = True
     layer = Conv1d(IN_FEATURES, OUT_FEATURES, KERNEL_SIZE, bias=True)
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, conv1d_input.shape)
-    model = apply_final_compression_torch(model)
+    model = add_compression_layers(model, config_pdp, conv1d_input.shape)
+    model = apply_final_compression(model)
     model.submodule.input_quantizer = DummyLayer()
     model.submodule.weight_quantizer = DummyLayer()
     model.submodule.bias_quantizer = DummyLayer()
@@ -1927,8 +1927,8 @@ def test_batchnorm2d_parameter_quantizers_not_called_when_final_compression_done
     config_pdp.quantization_parameters.quantize_output = True
     layer = BatchNorm2d(IN_FEATURES)
     model = TestModel(layer)
-    model = add_compression_layers_torch(model, config_pdp, conv2d_input.shape)
-    model = apply_final_compression_torch(model)
+    model = add_compression_layers(model, config_pdp, conv2d_input.shape)
+    model = apply_final_compression(model)
     model.submodule.input_quantizer = DummyLayer()
     model.submodule.weight_quantizer = DummyLayer()
     model.submodule.bias_quantizer = DummyLayer()
