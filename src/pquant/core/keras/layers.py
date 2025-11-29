@@ -146,7 +146,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             True,
             self.hgq_gamma,
         )
-        self.input_shape = input_shape
+        self.input_shape = (1,) + input_shape[1:]
         self.n_parallel = ops.prod(input_shape[1:-1])
         self.parallelization_factor = self.parallelization_factor if self.parallelization_factor > 0 else self.n_parallel
 
@@ -164,14 +164,13 @@ class PQWeightBiasBase(keras.layers.Layer):
     def rewind_weights(self):
         self.weight.assign(self.init_weight)
 
-    def ebops(self, shape):
+    def ebops(self):
         return 0.0
 
-    def hgq_loss(self, shape):
-        shape = (1,) + shape[1:]
+    def hgq_loss(self):
         if self.pruning_layer.is_pretraining or not self.use_hgq:
             return ops.convert_to_tensor(0.0)
-        loss = self.hgq_beta * self.ebops(shape)
+        loss = self.hgq_beta * self.ebops()
         loss += self.weight_quantizer.hgq_loss()
         if self._bias is not None:
             loss += self.bias_quantizer.hgq_loss()
@@ -317,13 +316,14 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
                 dtype=self.dtype,
             )
         else:
-            self.bias = None
+            self._bias = None
         if self.use_hgq:
             self.input_quantizer.build(input_shape)
             self.weight_quantizer.build(self._kernel.shape)
             if self.use_bias:
                 self.bias_quantizer.build(self._bias.shape)
             self.output_quantizer.build(self.compute_output_shape(input_shape))
+        self.input_shape = (1,) + input_shape[1:]
 
     @property
     def kernel(self):
@@ -357,9 +357,12 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
     def bias(self, bias):
         self._bias = bias
 
-    def ebops(self, shape):
-        bw_inp = self.input_quantizer.quantizer.bits_(shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self._kernel))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._kernel))
+        if include_mask:
+            mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
+            bw_ker = bw_ker * mask
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.depthwise_conv(
@@ -381,19 +384,18 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             reduce_axis_kernel = tuple(range(0, 2))
             bw_ker = ops.sum(bw_ker, axis=reduce_axis_kernel)
             ebops = ops.sum(bw_inp[:, None] * bw_ker)
-        if self.bias is not None:
-            size = ops.cast(ops.prod(shape), self.dtype)
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self._bias))
+        if self.use_bias:
+            size = ops.cast(ops.prod(self.input_shape), self.dtype)
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             ebops += ops.mean(bw_bias) * size
         return ebops
 
     def call(self, x, training=None):
-        input_shape = x.shape
         x = self.pre_forward(x, training)
         x = super().call(x)
         x = self.post_forward(x, training)
         if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss(input_shape))
+            self.add_loss(self.hgq_loss())
         return x
 
     # Is it supposed to be like this?
@@ -527,9 +529,12 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
     def bias(self, bias):
         self._bias = bias
 
-    def ebops(self, shape):
-        bw_inp = self.input_quantizer.quantizer.bits_(shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self.kernel))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._kernel))
+        if include_mask:
+            mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
+            bw_ker = bw_ker * mask
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.conv(
@@ -552,19 +557,18 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
             bw_ker = ops.sum(bw_ker, axis=reduce_axis_kernel)
 
             ebops = ops.sum(bw_inp[:, None] * bw_ker)
-        if self._bias is not None:
-            size = ops.cast(ops.prod(shape), self.dtype)
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self._bias))
+        if self.use_bias:
+            size = ops.cast(ops.prod(self.input_shape), self.dtype)
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             ebops += ops.mean(bw_bias) * size
         return ebops
 
     def call(self, x, training=None):
-        input_shape = x.shape
         x = self.pre_forward(x, training)
         x = super().call(x)
         x = self.post_forward(x, training)
         if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss(input_shape))
+            self.add_loss(self.hgq_loss())
         return x
 
 
@@ -759,9 +763,12 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
     def bias(self, bias):
         self._bias = bias
 
-    def ebops(self, shape):
-        bw_inp = self.input_quantizer.quantizer.bits_(shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self.kernel))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._kernel))
+        if include_mask:
+            mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
+            bw_ker = bw_ker * mask
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.conv(
@@ -783,19 +790,18 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
             reduce_axis_kernel = tuple(range(0, 1))
             bw_ker = ops.sum(bw_ker, axis=reduce_axis_kernel)
             ebops = ops.sum(bw_inp[:, None] * bw_ker)
-        if self._bias is not None:
-            size = ops.cast(ops.prod(shape), self.dtype)
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self._bias))
+        if self.use_bias:
+            size = ops.cast(ops.prod(self.input_shape), self.dtype)
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             ebops += ops.mean(bw_bias) * size
         return ebops
 
     def call(self, x, training=None):
-        input_shape = x.shape
         x = self.pre_forward(x, training)
         x = super().call(x)
         x = self.post_forward(x, training)
         if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss(input_shape))
+            self.add_loss(self.hgq_loss())
         return x
 
 
@@ -901,19 +907,21 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
     def bias(self, bias):
         self._bias = bias
 
-    def ebops(self, shape):
-        bw_inp = self.input_quantizer.quantizer.bits_(shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self.kernel))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._kernel))
+        if include_mask:
+            mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
+            bw_ker = bw_ker * mask
         ebops = ops.sum(ops.matmul(bw_inp, bw_ker))
         ebops = ebops * self.n_parallel / self.parallelization_factor
         if self.use_bias:
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self.bias))
-            size = ops.cast(ops.prod(shape), self.dtype)
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
+            size = ops.cast(ops.prod(self.input_shape), self.dtype)
             ebops += ops.mean(bw_bias) * size
         return ebops
 
     def call(self, x, training=None):
-        input_shape = x.shape
         x = self.pre_forward(x, training)
         x = ops.matmul(x, self.kernel)
         bias = self.bias
@@ -921,7 +929,7 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
             x = ops.add(x, bias)
         x = self.post_forward(x, training)
         if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss(input_shape))
+            self.add_loss(self.hgq_loss())
         return x
 
 
@@ -1016,6 +1024,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
         shape = [1] * len(input_shape)
         shape[self.axis] = input_shape[self.axis]
         self._shape = tuple(shape)
+        self.input_shape = (1,) + input_shape[1:]
 
     def apply_final_compression(self):
         self.final_compression_done = True
@@ -1028,19 +1037,18 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
                 beta = self.bias_quantizer(beta)
                 self.beta.assign(beta)
 
-    def ebops(self, shape):
-        bw_inp = self.input_quantizer.quantizer.bits_(shape)
-        bw_ker = ops.reshape(self.weight_quantizer.quantizer.bits_(self.moving_mean.shape), self._shape)
-        bw_bias = ops.reshape(self.bias_quantizer.quantizer.bits_(self.moving_mean.shape), self._shape)
-        size = ops.cast(ops.prod(shape), self.dtype)
+    def ebops(self):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = ops.reshape(self.weight_quantizer.get_total_bits(self.moving_mean.shape), self._shape)
+        bw_bias = ops.reshape(self.bias_quantizer.get_total_bits(self.moving_mean.shape), self._shape)
+        size = ops.cast(ops.prod(self.input_shape), self.dtype)
         ebops = ops.sum(bw_inp * bw_ker) + ops.mean(bw_bias) * size
         return ebops
 
-    def hgq_loss(self, shape):
-        shape = (1,) + shape[1:]
+    def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
             return ops.convert_to_tensor(0.0)
-        loss = self.hgq_beta * self.ebops(shape)
+        loss = self.hgq_beta * self.ebops()
         loss += self.weight_quantizer.hgq_loss()
         loss += self.bias_quantizer.hgq_loss()
         if self.quantize_input:
@@ -1101,7 +1109,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             scale=gamma,
             epsilon=self.epsilon,
         )
-        self.add_loss(self.hgq_loss(inputs.shape))
+        self.add_loss(self.hgq_loss())
         return ops.cast(outputs, self.compute_dtype)
 
     def get_input_quantization_bits(self):
@@ -1185,6 +1193,7 @@ class PQAvgPoolBase(keras.layers.Layer):
         if self.use_hgq:
             self.input_quantizer.build(input_shape)
             self.output_quantizer.build(self.compute_output_shape(input_shape))
+        self.input_shape = (1,) + input_shape[1:]
 
     def get_input_quantization_bits(self):
         return self.input_quantizer.get_quantization_bits()
@@ -1213,15 +1222,14 @@ class PQAvgPoolBase(keras.layers.Layer):
             x = self.output_quantizer(x, training=training)
         return x
 
-    def ebops(self, shape):
-        bw_inp = self.input_quantizer.quantizer.bits_(shape)
+    def ebops(self):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
         return ops.sum(bw_inp)
 
-    def hgq_loss(self, shape):
-        shape = (1,) + shape[1:]
+    def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
             return ops.convert_to_tensor(0.0)
-        loss = self.hgq_beta * self.ebops(shape)
+        loss = self.hgq_beta * self.ebops()
         if self.quantize_input:
             loss += self.input_quantizer.hgq_loss()
         if self.quantize_output:
@@ -1232,8 +1240,10 @@ class PQAvgPoolBase(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "i": self.i,
-                "f": self.f,
+                "i_input": self.i_input,
+                "f_input": self.f_input,
+                "i_output": self.i_output,
+                "f_output": self.f_output,
                 "is_pretraining": self.is_pretraining,
                 "overflow": self.overflow,
                 "hgq_gamma": self.hgq_gamma,
@@ -1274,12 +1284,11 @@ class PQAvgPool1d(PQAvgPoolBase, keras.layers.AveragePooling1D):
         )
 
     def call(self, x, training=None):
-        input_shape = x.shape
         x = self.pre_pooling(x, training)
         x = super().call(x)
         x = self.post_pooling(x, training)
         if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss(input_shape))
+            self.add_loss(self.hgq_loss())
         return x
 
 
@@ -1312,12 +1321,11 @@ class PQAvgPool2d(PQAvgPoolBase, keras.layers.AveragePooling2D):
         )
 
     def call(self, x, training=None):
-        input_shape = x.shape
         x = self.pre_pooling(x, training)
         x = super().call(x)
         x = self.post_pooling(x, training)
         if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss(input_shape))
+            self.add_loss(self.hgq_loss())
         return x
 
 
@@ -1550,11 +1558,19 @@ def get_layer_keep_ratio(model):
                 PQDense,
             ),
         ):
-            # weight, bias = layer.prune_and_quantize(layer.weight, layer.bias)
-            weight = layer.kernel
-            total_w += ops.size(weight)
-            rem = ops.count_nonzero(weight)
-            remaining_weights += rem
+            if layer.pruning_first:
+                weight = ops.transpose(layer.pruning_layer.get_hard_mask(), layer.weight_transpose_back) * layer._kernel
+                if layer.enable_quantization:
+                    weight = layer.weight_quantizer(weight)
+                weight = weight
+            else:
+                weight = layer._kernel
+                if layer.enable_quantization:
+                    weight = layer.weight_quantizer(weight)
+                weight = ops.transpose(layer.pruning_layer.get_hard_mask(), layer.weight_transpose_back) * weight
+                total_w += ops.size(weight)
+                rem = ops.count_nonzero(weight)
+                remaining_weights += rem
         elif isinstance(layer, PQSeparableConv2d):
             depthwise_weight = ops.cast(layer.depthwise_conv.kernel, layer.depthwise_conv.kernel.dtype)
             pointwise_weight = ops.cast(layer.pointwise_conv.kernel, layer.pointwise_conv.kernel.dtype)
@@ -1854,9 +1870,6 @@ def add_compression_layers(model, config, input_shape=None):
                     strides=layer.strides,
                     padding=layer.padding,
                     data_format=layer.data_format,
-                    name=layer.name,
-                    in_quant_bits=layer.in_quant_bits,
-                    out_quant_bits=layer.out_quant_bits,
                 )
                 set_quantization_bits_activations(config, layer, new_layer)
                 new_layer.build(x.shape)
@@ -1869,7 +1882,6 @@ def add_compression_layers(model, config, input_shape=None):
                     strides=layer.strides,
                     padding=layer.padding,
                     data_format=layer.data_format,
-                    name=layer.name,
                 )
                 set_quantization_bits_activations(config, layer, new_layer)
                 new_layer.build(x.shape)
@@ -2144,3 +2156,13 @@ def post_training_prune(model, config, calibration_data):
             post_pretrain_functions(model, config)
         model(inputs, training=True)  # True so pruning works
     return apply_final_compression(model, config)
+
+
+def get_ebops(model):
+    ebops = 0
+    for m in model.layers:
+        if isinstance(m, (PQWeightBiasBase)):
+            ebops += m.ebops(include_mask=True)
+        elif isinstance(m, (PQAvgPoolBase, PQBatchNormalization, PQActivation)):
+            ebops += m.ebops()
+    return ebops

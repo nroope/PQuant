@@ -335,3 +335,60 @@ class TuningTask:
         )
 
         return study.best_params
+
+
+def ap_config():
+    yaml_name = "config_ap.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def autosparse_config():
+    yaml_name = "config_autosparse.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def cs_config():
+    yaml_name = "config_cs.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def dst_config():
+    yaml_name = "config_dst.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def mdmm_config():
+    yaml_name = "config_mdmm.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def pdp_config():
+    yaml_name = "config_pdp.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def wanda_config():
+    yaml_name = "config_wanda.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def load_from_file(path):
+    return TuningConfig.load_from_file(path)
+
+
+def load_from_dictionary(config):
+    return TuningConfig.load_from_config(config)

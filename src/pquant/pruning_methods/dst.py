@@ -65,7 +65,7 @@ class DST(keras.layers.Layer):
         self.add_loss(self.calculate_additional_loss())
         return masked_weight
 
-    def get_hard_mask(self, weight):
+    def get_hard_mask(self, weight=None):
         return self.mask
 
     def get_mask(self, weight):

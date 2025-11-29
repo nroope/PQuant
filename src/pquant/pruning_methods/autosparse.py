@@ -90,7 +90,7 @@ class AutoSparse(keras.layers.Layer):
             self.mask = ops.reshape(mask, weight.shape)
             return ops.sign(weight) * ops.reshape(mask, weight.shape)
 
-    def get_hard_mask(self, weight):
+    def get_hard_mask(self, weight=None):
         return self.mask
 
     def get_mask(self, weight):

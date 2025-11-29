@@ -54,7 +54,7 @@ class PQActivation(keras.layers.Layer):
 
         self.activation_name = activation.lower()
         self.activation_function = activation_registry.get(self.activation_name)
-
+        self.config = config
         self.enable_quantization = config.quantization_parameters.enable_quantization
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.is_pretraining = True
@@ -74,7 +74,7 @@ class PQActivation(keras.layers.Layer):
 
     def build(self, input_shape):
         super().build(input_shape)
-        self.input_shape = input_shape
+        self.input_shape = (1,) + input_shape[1:]
         self.output_quantizer = Quantizer(
             k=self.k_output,
             i=self.i_output,
@@ -162,8 +162,10 @@ class PQActivation(keras.layers.Layer):
         config.update(
             {
                 "config": self.config.get_dict(),
-                "i": float(self.i),
-                "f": float(self.f),
+                "i_input": float(self.i_input),
+                "f_input": float(self.f_input),
+                "i_output": float(self.i_output),
+                "f_output": float(self.f_output),
             }
         )
         return config

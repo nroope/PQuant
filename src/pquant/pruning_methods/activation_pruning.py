@@ -73,7 +73,7 @@ class ActivationPruning(keras.layers.Layer):
         else:
             return self.mask * weight
 
-    def get_hard_mask(self, weight):
+    def get_hard_mask(self, weight=None):
         return self.mask
 
     def post_pre_train_function(self):

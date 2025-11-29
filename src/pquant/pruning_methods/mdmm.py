@@ -84,10 +84,13 @@ class MDMM(keras.layers.Layer):
             weight = weight * self.get_hard_mask(weight)
         else:
             self.penalty_loss = self.constraint_layer(weight)
-
+        epsilon = self.config.pruning_parameters.epsilon
+        self.hard_mask = ops.cast(ops.abs(weight) > epsilon, weight.dtype)
         return weight
 
-    def get_hard_mask(self, weight):
+    def get_hard_mask(self, weight=None):
+        if weight is None:
+            return self.hard_mask
         epsilon = self.config.pruning_parameters.epsilon
         return ops.cast(ops.abs(weight) > epsilon, weight.dtype)
 

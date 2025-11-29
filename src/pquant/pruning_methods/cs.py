@@ -12,24 +12,25 @@ class ContinuousSparsification(keras.layers.Layer):
 
             config = TuningConfig.load_from_config(config)
         self.config = config
-        self.beta = 1.0
         self.final_temp = config.pruning_parameters.final_temp
         self.do_hard_mask = False
         self.layer_type = layer_type
-        self.mask = None
         self.is_pretraining = True
 
     def build(self, input_shape):
         self.s_init = ops.convert_to_tensor(self.config.pruning_parameters.threshold_init * ops.ones(input_shape))
         self.s = self.add_weight(name="threshold", shape=input_shape, initializer=Constant(self.s_init), trainable=True)
         self.scaling = 1.0 / ops.sigmoid(self.s_init)
+        self.beta = self.add_weight(name="beta", shape=(), initializer=Constant(1.0), trainable=False)
+        self.mask = self.add_weight(name="mask", shape=input_shape, initializer=Constant(1.0), trainable=False)
         super().build(input_shape)
 
     def call(self, weight):
         if self.is_pretraining:
             return weight
-        self.mask = self.get_mask()
-        return self.mask * weight
+        mask = self.get_mask()
+        self.mask.assign(mask)
+        return mask * weight
 
     def pre_finetune_function(self):
         self.do_hard_mask = True
@@ -50,7 +51,7 @@ class ContinuousSparsification(keras.layers.Layer):
         pass
 
     def post_epoch_function(self, epoch, total_epochs):
-        self.beta *= self.final_temp ** (1 / (total_epochs - 1))
+        self.beta.assign(self.beta * self.final_temp ** (1 / (total_epochs - 1)))
 
     def get_hard_mask(self, weight=None):
         if self.config.pruning_parameters.enable_pruning:
@@ -60,7 +61,7 @@ class ContinuousSparsification(keras.layers.Layer):
     def post_round_function(self):
         min_beta_s_s0 = ops.minimum(self.beta * self.s, self.s_init)
         self.s.assign(min_beta_s_s0)
-        self.beta = 1
+        self.beta.assign(1.0)
 
     def calculate_additional_loss(self):
         return ops.convert_to_tensor(

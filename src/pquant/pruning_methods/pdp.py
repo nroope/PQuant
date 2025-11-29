@@ -37,9 +37,11 @@ class PDP(keras.layers.Layer):
     def post_round_function(self):
         pass
 
-    def get_hard_mask(self, weight):
+    def get_hard_mask(self, weight=None):
         if self.fine_tuning:
             return self.mask
+        if weight is None:
+            return ops.cast((self.mask >= 0.5), self.mask.dtype)
         if self.config.pruning_parameters.structured_pruning:
             if self.layer_type == "conv":
                 mask = self.get_mask_structured_channel(weight)

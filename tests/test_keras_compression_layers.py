@@ -1560,7 +1560,7 @@ def test_ebops_dense(config_pdp, dense_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
     model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
-    model.layers[1].hgq_loss(dense_input.shape)
+    model.layers[1].hgq_loss()
 
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=True)(inputs)
@@ -1568,7 +1568,7 @@ def test_ebops_dense(config_pdp, dense_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
     model = add_compression_layers(model, config_pdp, dense_input.shape)
     post_pretrain_functions(model, config_pdp)
-    model.layers[1].hgq_loss(dense_input.shape)
+    model.layers[1].hgq_loss()
 
 
 def test_ebops_conv2d(config_pdp, conv2d_input):
@@ -1580,7 +1580,7 @@ def test_ebops_conv2d(config_pdp, conv2d_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d")
     model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
-    model.layers[1].hgq_loss(conv2d_input.shape)
+    model.layers[1].hgq_loss()
 
     config_pdp.quantization_parameters.use_high_granularity_quantization = True
     config_pdp.quantization_parameters.enable_quantization = True
@@ -1590,7 +1590,7 @@ def test_ebops_conv2d(config_pdp, conv2d_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_conv2d")
     model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
-    model.layers[1].hgq_loss(conv2d_input.shape)
+    model.layers[1].hgq_loss()
 
 
 def test_ebops_conv1d(config_pdp, conv1d_input):
@@ -1602,7 +1602,7 @@ def test_ebops_conv1d(config_pdp, conv1d_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
     model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     post_pretrain_functions(model, config_pdp)
-    model.layers[1].hgq_loss(conv1d_input.shape)
+    model.layers[1].hgq_loss()
 
     config_pdp.quantization_parameters.use_high_granularity_quantization = True
     config_pdp.quantization_parameters.enable_quantization = True
@@ -1612,7 +1612,7 @@ def test_ebops_conv1d(config_pdp, conv1d_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_dense")
     model = add_compression_layers(model, config_pdp, conv1d_input.shape)
     post_pretrain_functions(model, config_pdp)
-    model.layers[1].hgq_loss(conv1d_input.shape)
+    model.layers[1].hgq_loss()
 
 
 def test_ebops_bn(config_pdp, conv2d_input):
@@ -1626,20 +1626,19 @@ def test_ebops_bn(config_pdp, conv2d_input):
     model = keras.Model(inputs=inputs, outputs=act, name="test_bn")
     model = add_compression_layers(model, config_pdp, conv2d_input.shape)
     post_pretrain_functions(model, config_pdp)
-    if keras.backend.image_data_format() == "channels_first":
-        model.layers[2].hgq_loss((1, 32, 30, 30))  # Does not work, TODO: Fix
-    else:
-        model.layers[2].hgq_loss((1, 30, 30, 32))
+    model.layers[2].hgq_loss()
 
 
-def test_ebops_activations(config_pdp, dense_input):
-    config_pdp.quantization_parameters.use_high_granularity_quantization = True
-    config_pdp.quantization_parameters.enable_quantization = True
+def test_ebops_activations(config_cs, dense_input):
+    config_cs.quantization_parameters.use_high_granularity_quantization = True
+    config_cs.quantization_parameters.enable_quantization = True
     inputs = keras.Input(shape=dense_input.shape[1:])
     act = ReLU()(inputs)
     act2 = Activation("tanh")(act)
     model = keras.Model(inputs=inputs, outputs=act2, name="test_activations")
-    model = add_compression_layers(model, config_pdp, dense_input.shape)
+    model = add_compression_layers(model, config_cs, dense_input.shape)
+    post_pretrain_functions(model, config_cs)
+    model.layers[1].hgq_loss()
 
 
 def test_linear_direct(config_pdp, dense_input):

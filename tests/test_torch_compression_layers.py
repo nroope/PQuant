@@ -1937,3 +1937,19 @@ def test_batchnorm2d_parameter_quantizers_not_called_when_final_compression_done
     assert model.submodule.input_quantizer.layer_called == 1
     assert model.submodule.weight_quantizer.layer_called == 0
     assert model.submodule.bias_quantizer.layer_called == 0
+
+
+def test_ebops_dense_nonhgq(config_pdp, dense_input):
+    config_pdp.quantization_parameters.enable_quantization = True
+    # config_pdp.quantization_parameters.use_high_granularity_quantization = True
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=False)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.ebops(include_mask=True)
+
+    layer = Linear(IN_FEATURES, OUT_FEATURES, bias=True)
+    model = TestModel(layer, "relu")
+    model = add_compression_layers(model, config_pdp, dense_input.shape)
+    post_pretrain_functions(model, config_pdp)
+    model.submodule.ebops(include_mask=True)

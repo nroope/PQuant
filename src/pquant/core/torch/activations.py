@@ -123,8 +123,8 @@ class PQActivation(nn.Module):
         self.is_pretraining = False
 
     def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
-        bw_out = self.output_quantizer.quantizer.bits_(self.input_shape)
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_out = self.output_quantizer.get_total_bits(self.input_shape)
         return torch.sum((2.0**bw_inp) * bw_out) * 1e-4  # type: ignore
 
     def hgq_loss(self):
@@ -168,8 +168,10 @@ class PQActivation(nn.Module):
         config.update(
             {
                 "config": self.config.get_dict(),
-                "i": float(self.i),
-                "f": float(self.f),
+                "i_input": float(self.i_input),
+                "f_input": float(self.f_input),
+                "i_output": float(self.i_output),
+                "f_output": float(self.f_output),
             }
         )
         return config

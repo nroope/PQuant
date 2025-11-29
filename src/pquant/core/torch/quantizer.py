@@ -23,6 +23,13 @@ class Quantizer(nn.Module):
         else:
             return self.k, self.i, self.f
 
+    def get_total_bits(self, shape):
+        if self.use_hgq:
+            return self.quantizer.bits_(shape)
+        else:
+            b = self.i + self.f + self.k
+            return torch.ones(shape).to(b.device) * b
+
     def set_quantization_bits(self, i, f):
         if self.use_hgq:
             self.quantizer.quantizer._i.assign(self.quantizer.quantizer._i * 0.0 + i)

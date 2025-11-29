@@ -25,6 +25,13 @@ class Quantizer(keras.layers.Layer):
         if self.use_hgq:
             self.quantizer.build(input_shape)
 
+    def get_total_bits(self, shape):
+        if self.use_hgq:
+            return self.quantizer.bits_(shape)
+        else:
+            b = self.i + self.f + self.k
+            return keras.ops.ones(shape) * b
+
     def get_quantization_bits(self):
         if self.use_hgq:
             return self.quantizer.quantizer.k, self.quantizer.quantizer.i, self.quantizer.quantizer.f

@@ -169,7 +169,7 @@ class PQWeightBiasBase(nn.Module):
             return 0.0
         loss = self.hgq_beta * self.ebops()
         loss += self.weight_quantizer.hgq_loss()
-        if self.bias is not None:
+        if self._bias is not None:
             loss += self.bias_quantizer.hgq_loss()
         if self.quantize_input:
             loss += self.input_quantizer.hgq_loss()
@@ -253,13 +253,15 @@ class PQDense(PQWeightBiasBase, nn.Linear):
         del self._parameters["bias"]
         self.pruning_layer.build(self._weight.shape)
 
-    def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self._weight))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._weight))
+        if include_mask:
+            bw_ker = bw_ker * self.pruning_layer.get_hard_mask()
         ebops = ops.sum(F.linear(bw_inp, bw_ker))
         ebops = ebops * self.n_parallel / self.parallelization_factor
-        if self.bias is not None:
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self.bias))
+        if self._bias is not None:
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             size = ops.cast(ops.prod(list(self.input_shape)), self._weight.dtype)
             ebops += ops.mean(bw_bias) * size
         return ebops
@@ -364,9 +366,11 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
         del self._parameters["bias"]
         self.pruning_layer.build(self._weight.shape)
 
-    def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self.weight))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._weight))
+        if include_mask:
+            bw_ker = bw_ker * self.pruning_layer.get_hard_mask()
         if self.parallelization_factor < 0:
             ebops = ops.sum(F.conv2d(bw_inp, bw_ker, stride=self.stride, padding=self.padding, dilation=self.dilation))
         else:
@@ -376,9 +380,9 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
             bw_inp = ops.max(bw_inp, axis=reduce_axis_input)
             bw_ker = ops.sum(bw_ker, axis=reduce_axis_kernel)
             ebops = ops.sum(bw_inp[None, :] * bw_ker)
-        if self.bias is not None:
+        if self._bias is not None:
             size = ops.cast(ops.prod(list(self.input_shape)), self.weight.dtype)
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self.bias))
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             ebops += ops.mean(bw_bias) * size
         return ebops
 
@@ -489,9 +493,11 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
         del self._parameters["bias"]
         self.pruning_layer.build(self._weight.shape)
 
-    def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
-        bw_ker = self.weight_quantizer.quantizer.bits_(ops.shape(self.weight))
+    def ebops(self, include_mask=False):
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = self.weight_quantizer.get_total_bits(ops.shape(self._weight))
+        if include_mask:
+            bw_ker = bw_ker * self.pruning_layer.get_hard_mask()
         if self.parallelization_factor < 0:
             ebops = ops.sum(F.conv1d(bw_inp, bw_ker, stride=self.stride, padding=self.padding, dilation=self.dilation))
         else:
@@ -503,7 +509,7 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
             ebops = ops.sum(bw_inp[None, :] * bw_ker)
         if self.bias is not None:
             size = ops.cast(ops.prod(list(self.input_shape)), self.weight.dtype)
-            bw_bias = self.bias_quantizer.quantizer.bits_(ops.shape(self.bias))
+            bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             ebops += ops.mean(bw_bias) * size
         return ebops
 
@@ -636,7 +642,7 @@ class PQAvgPoolBase(nn.Module):
         self.is_pretraining = False
 
     def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
         return torch.sum(bw_inp)
 
     def hgq_loss(self):
@@ -873,9 +879,9 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         return self._bias
 
     def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
-        bw_ker = ops.reshape(self.weight_quantizer.quantizer.bits_(self.running_mean.shape), self._shape)
-        bw_bias = ops.reshape(self.bias_quantizer.quantizer.bits_(self.running_mean.shape), self._shape)
+        bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
+        bw_ker = ops.reshape(self.weight_quantizer.get_total_bits(self.running_mean.shape), self._shape)
+        bw_bias = ops.reshape(self.bias_quantizer.get_total_bits(self.running_mean.shape), self._shape)
         size = ops.cast(ops.prod(list(self.input_shape)), self._weight.dtype)
         ebops = ops.sum(bw_inp * bw_ker) + ops.mean(bw_bias) * size
         return ebops
@@ -1138,7 +1144,6 @@ def add_pruning_to_model(module, config, prefix=""):
             sparse_layer = PQDense(
                 config, layer.in_features, layer.out_features, layer.bias is not None, quantize_input, quantize_output
             )
-            sparse_layer.pruning_layer.build(layer.weight.shape)
             sparse_layer._weight.data = layer.weight.data
             if layer.bias is not None:
                 sparse_layer._bias.data = layer.bias.data
@@ -1163,7 +1168,6 @@ def add_pruning_to_model(module, config, prefix=""):
                 quantize_input,
                 quantize_output,
             )
-            sparse_layer.pruning_layer.build(layer.weight.shape)
             sparse_layer._weight.data = layer.weight.data
             if layer.bias is not None:
                 sparse_layer._bias.data = layer.bias.data
@@ -1187,7 +1191,6 @@ def add_pruning_to_model(module, config, prefix=""):
                 quantize_input,
                 quantize_output,
             )
-            sparse_layer.pruning_layer.build(layer.weight.shape)
             sparse_layer._weight.data = layer.weight.data
             if layer.bias is not None:
                 sparse_layer._bias.data = layer.bias.data
@@ -1310,9 +1313,18 @@ def get_layer_keep_ratio(model):
     remaining_weights = 0
     for layer in model.modules():
         if isinstance(layer, (PQConv2d, PQConv1d, PQDense)):
-            weight, _ = layer.weight, layer.bias
-            total_w += weight.numel()
-            rem = torch.count_nonzero(weight)
+            if layer.pruning_first:
+                weight = layer.pruning_layer.get_hard_mask() * layer._weight
+                if layer.enable_quantization:
+                    weight = layer.weight_quantizer(weight)
+                weight = weight
+            else:
+                weight = layer._weight
+                if layer.enable_quantization:
+                    weight = layer.weight_quantizer(weight)
+                weight = layer.pruning_layer.get_hard_mask() * weight
+            total_w += ops.size(weight)
+            rem = ops.count_nonzero(weight)
             remaining_weights += rem
         elif layer.__class__ in (nn.Conv2d, nn.Conv1d, nn.Linear):
             total_w += layer.weight.numel()
@@ -1424,3 +1436,13 @@ def post_training_prune(model, config, calibration_data):
             post_pretrain_functions(model, config)
         model(inputs)
     return remove_compression_layers(model, config)
+
+
+def get_ebops(model):
+    ebops = 0
+    for m in model.modules():
+        if isinstance(m, (PQWeightBiasBase)):
+            ebops += m.ebops(include_mask=True)
+        elif isinstance(m, (PQAvgPoolBase, PQBatchNorm2d, PQActivation)):
+            ebops += m.ebops()
+    return ebops
