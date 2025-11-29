@@ -10,7 +10,6 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from pquant import add_compression_layers, train_model
 from pquant.core import constants
 from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
@@ -241,6 +240,8 @@ class TuningTask:
         self.hyperparameters[name] = (optuna_func, args, kwargs)
 
     def objective(self, trial, model, train_func, valid_func, **kwargs):
+        from pquant import add_compression_layers, train_model
+
         for param_name, (optuna_func, func_args, func_kwargs) in self.hyperparameters.items():
             new_value = optuna_func(trial, *func_args, **func_kwargs)
             logging.info(f"Suggested {param_name} = {new_value}")
