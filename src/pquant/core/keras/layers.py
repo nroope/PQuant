@@ -1659,8 +1659,9 @@ def check_activation(layer, config):
                 set_quantization_bits_activations(config, layer, act)
             act.build(layer.input.shape)
         elif layer.activation.__name__ == "tanh":
+            type_of_tanh = "tanh" if config.quantization_parameters.use_real_tanh else "hard_tanh"
             act = (
-                PQActivation(config, "tanh", quantize_input=quantize_input, quantize_output=quantize_output)
+                PQActivation(config, type_of_tanh, quantize_input=quantize_input, quantize_output=quantize_output)
                 if quantization_enabled
                 else Activation(activation="tanh")
             )
