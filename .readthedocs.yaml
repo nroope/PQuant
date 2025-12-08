@@ -8,7 +8,11 @@ version: 2
 build:
   os: ubuntu-24.04
   tools:
-    python: "3.13"
+    python:
+
+python:
+  install:
+    - requirements: docs/requirements.txt
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
