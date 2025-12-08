@@ -9,14 +9,12 @@
 import os
 import sys
 
-import pquant
-
 sys.path.insert(0, os.path.abspath('../'))
 
 project = 'PQuantML'
 copyright = '2025, Roope Niemi'
 author = 'Roope Niemi, Anastasiia Petrovych'
-release = str(pquant.__version__)
+release = "1.0.0"
 version = release
 
 # -- General configuration ---------------------------------------------------
