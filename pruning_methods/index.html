@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Descriptions of the pruning methods - My Docs</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">My Docs</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href=".." class="nav-link">Welcome to MkDocs</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="./" class="nav-link active" aria-current="page">Descriptions of the pruning methods</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../quantization_parameters/" class="nav-link">Descriptions of the quantization parameters</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href=".." class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../quantization_parameters/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#descriptions-of-the-pruning-methods" class="nav-link">Descriptions of the pruning methods</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="descriptions-of-the-pruning-methods">Descriptions of the pruning methods</h1>
+<p>Our implementations follow the actual implementations of the author's of the papers, whenever we were able to find one. Because of this some of the functionality of the pruning methods can differ slightly from the equations shown in the papers.</p>
+<h4 id="activation-pruning"><a href="https://arxiv.org/abs/1903.04476">Activation pruning</a></h4>
+<p>Collect layer outputs to calculate average layer activity (how often layer neuron / channel outputs values greater than 0). Prune those neurons and channels which have smaller activity value than a given threshold.</p>
+<p><strong>Hyperparameters</strong>
+- <code>threshold</code>: If a neuron or channel is less active than this threshold, prune it.
+- <code>threshold_decay</code>: Not used.
+- <code>t_delta</code>: How many batches to collect as calibration data.
+- <code>t_start_collecting_batch</code>: At which epoch during training the collection begins</p>
+<h4 id="autosparse"><a href="https://arxiv.org/abs/2304.06941">AutoSparse</a></h4>
+<p>$x = sign(W) \cdot ReLU(|W| - \sigma(T))$.</p>
+<pre><code class="language-math">g = \begin{cases}
+    1, &amp; \text{if W &gt; 0} \\
+    \alpha, &amp; \text{otherwise}\quad,
+\end{cases}
+</code></pre>
+<p>where T is threshold, W is the weight matrix, g is the gradient.
+ $\alpha$ is decayed after each epoch using cosine sigmoid decay.</p>
+<p><strong>Hyperparameters:</strong>
+- <code>alpha</code>: initial value for $\alpha$
+- <code>backward_sparsity</code>: if true, sets gradients to 0 for weights in the bottom 50% magnitude of weights in the layer. False in the default config.
+- <code>threshold_decay</code>: threshold decay for optimizer. 0 in the default config.
+- <code>threshold_init</code>: initial value for threshold. -5 in the default config.
+- <code>threshold_type</code>: weightwise/channelwise/layerwise. Defines whether each weight has its own threshold, or is threshold shared between weights in a channel, or does the whole layer have one threshold.</p>
+<h4 id="continuous-sparsification"><a href="https://arxiv.org/abs/1912.04427">Continuous Sparsification</a></h4>
+<p>A multi-round pruning algorithm.</p>
+<pre><code class="language-math"> x = W\cdot M
+</code></pre>
+<p>where</p>
+<pre><code class="language-math">M=(\frac{\sigma(\beta s)}{\sigma(s_{init})})
+</code></pre>
+<p>$\beta$ starts from the initial value at the beginning of each round, and increased exponentially until reaching a final value. $s$ is a learnable matrix with a same shape as the weight matrix. $s_{init}$ is the initial value of $s$.</p>
+<p>During each round, as the $s$ matrix is learning and the $\beta$ is increased, the values of the mask get pushed more and more towards 0 and 1. After each round, $\beta$ is reset, and the positive values of $s$ are set to $s_{init}$ value, and negative values are kept as they are. This means that the weights pruned by $s$ stay pruned after each round, but the weights that have not been pruned previously can be pruned after a new round begins, since their values are reset in $s$.</p>
+<p>Before fine-tuning the mask is fixed and converted to a hard mask of 0s and 1s, and all the weights rewinded back to an earlier state.</p>
+<p><strong>Hyperparameters</strong>
+- <code>final_temp</code>: Value up to which $\beta$ is increased during each round. 200 in the default config.
+- <code>threshold_decay</code>: L1 decay for the $s$ matrix. 1.0e-09 in the default config.
+- <code>threshold_init</code>: Initial value for $s$. 0 in the default config. Lower value means more pruning, higher value means less pruning.</p>
+<h4 id="dst"><a href="https://arxiv.org/abs/2005.06870">DST</a></h4>
+<p>$x = ReLU(|W| - T)$.</p>
+<pre><code class="language-math">g = \begin{cases}
+    2-4\cdot|W|, &amp; \text{if } |x| \leq 0.4 \\
+    0.4, &amp; \text{if } 0.4 &lt; |x| \leq 1 \\
+    0, &amp; \text{if }|x| &gt; 1\quad.
+\end{cases}
+</code></pre>
+<p>The threshold T is controlled by additional loss, which is calculated by</p>
+<pre><code class="language-math">\alpha \cdot \sum_{i,j}{e^{-T_{i,j}}}
+</code></pre>
+<p><strong>Hyperparameters</strong>
+- <code>alpha</code>: Used to control the threshold via loss. 5.0e-06 in the default config.
+- <code>max_pruning_pct</code>: The algorithm has a tendency to prune whole layers, so if pruning goes higher than this value, reset the threshold. 0.99 in the default config.
+- <code>threshold_decay</code>: threshold decay for optimizer. 0 in the default config.
+- <code>threshold_init</code>: Initial value for threshold. 0 in the default config.
+- <code>threshold_type</code>: weightwise/channelwise/layerwise. Defines whether each weight has its own threshold, or is threshold shared between weights in a channel, or does the whole layer have one threshold.</p>
+<h4 id="pdp"><a href="https://arxiv.org/abs/2305.11203">PDP</a></h4>
+<p>Captures weight distribution of each layer and calculates a threshold, then does a softmax between the weights and this value, creating a soft mask.</p>
+<p>$<code>W_h = topK(|W|, (1-r) \cdot n(W))\newline</code>$\
+$<code>W_i = bottomK(|W|, r \cdot n(W))</code>$\
+$<code>t = 0.5 \cdot (min(W_h) + max(W_i))</code>$\
+$<code>zw, mw = softmax(\frac{t^2, w^2}{\tau})\text{ for $w$ in $W$}</code>$\
+$<code>w = mw \cdot w</code>$,</p>
+<p>where $\tau$ is the temperature, $r$ is the target sparsity of the layer for that iteration, $n(W)$ is the number of weights. The $mw$ in the above equation will have all the softmax values of the weights between the weight tensor and the threshold. If a weight is above the threshold, due to the temperature, the softmax result will very quickly go towards 1. The $r$ is increased linearly during training. The layerwise budget sparsity is calculated after a pre-training phase, in a way that the total sparsity of the model is the target sparsity given in the config.</p>
+<p>PDP has an unstructured, N:M pruning (not yet implemented here), and channel pruning version.</p>
+<p><strong>Hyperparameters</strong>
+  <code>epsilon</code>: How fast to increaes the sparsity during training. After each epoch, the sparsity is increased by this amount, until the value reaches 1 (100% of target sparsity). 0.015 in the default config, which means after ~70 epochs the target sparsity has been reached.
+- <code>sparsity</code>: Target sparsity for the whole model
+- <code>temperature</code>: Temperature of the softmax. 1e-5 in the default config
+- <code>threshold_decay</code>: Not used
+- <code>structured_pruning</code>: Whether to use a structured pruning variant or not. Structured pruning uses l2 norms of the channels/neurons instead of absolute values of weights when calculating the threshold, and prunes whole channels/neurons using that threshold value.</p>
+<h4 id="wanda"><a href="https://arxiv.org/abs/2306.11695">Wanda</a></h4>
+<p>One shot pruning, originally a post-training pruning method without fine-tuning (to implement the post-training version is on the to-do list).</p>
+<p>Using a calibration data set, calculate a metric based on the average input to the layer, and multiply the absolute values of the weights with that metric. Prune weights based on this multiplication result (lowest values being pruned first), until a target sparsity has been reached.</p>
+<p>For linear layers, the metric is calculated as L2 norm over the batch dimension. For convolutions, reduce dimensions by taking the average of the batch dimension, then calculate L2 norm over a flattened kernel dimension.</p>
+<p><strong>Hyperparameters</strong>
+- <code>calculate_pruning_budget</code>: If True, calculate the pruning budget for each layer, while keeping the target sparsity. If False, prunes every layer using target sparsity.
+- <code>M</code>: If doing N:M pruning, N and M should be non-null (N &lt; M)
+- <code>N</code>: If doing N:M pruning, N and M should be non-null (N &lt; M)
+- <code>threshold_decay</code>: not used
+- <code>sparsity</code>: target sparsity. 0.9 in the default config
+- <code>t_delta</code>: how many batches to collect as calibration data
+- <code>t_start_collecting</code>: training step when collection starts</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+        <script src="../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
