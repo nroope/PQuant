@@ -1,0 +1,21 @@
+.wy-nav-content {
+    max-width: 1400px !important; 
+}
+
+/* Make tables fit and wrap text */
+.rst-content table.docutils,
+.rst-content table.field-list,
+.wy-table-responsive table {
+    width: 100% !important;
+    table-layout: fixed !important;
+}
+
+.rst-content table td,
+.rst-content table th {
+    white-space: normal !important;
+    word-break: break-word !important;
+}
+
+.wy-table-responsive {
+    overflow-x: visible !important;
+}

@@ -69,7 +69,7 @@ The most important part of the library is a user-defined config yaml file. It ha
 | `type`    | str               | `"TPESampler"`     | Sampler class name (e.g., `TPESampler`, `GridSampler`).        |
 | `params`  | Dict[str, Any]    | `{}`              | Sampler-specific kwargs (e.g., `seed`, `search_space`).        |
 
-More about samplers can be found in {[optuna documentation{](https://optuna.readthedocs.io/en/stable/reference/samplers/index.html)}
+More about samplers can be found in {[optuna documentation](https://optuna.readthedocs.io/en/stable/reference/samplers/index.html)}
 
 
 #### HyperparameterSearch
@@ -174,7 +174,7 @@ There are more details about every pruning method:
 
 | **Field**          | **Type**             | **Default**               | **Description**                                              |
 |--------------------|-----------------------|----------------------------|--------------------------------------------------------------|
-| `pruning_method`   | str                   | —                          | Selects this pruning schema.                                 |
+| `pruning_method`   | str                   | `mdmm`                         | Selects this pruning schema.                                 |
 | `constraint_type`  | ConstraintType        | `"Equality"`               | Constraint form: equality / ≤ / ≥.                           |
 | `target_value`     | float                 | `0.0`                      | Target value for the chosen metric.                          |
 | `metric_type`      | MetricType            | `"UnstructuredSparsity"`   | Specifies which metric is constrained.                       |
@@ -203,7 +203,7 @@ Optionally, there is also FITCompress method implemented for PyTorch:
 | `f_lambda`                | float    | `1`         | Multiplicative factor λ in the distance function (g + λf).                      |
 
 
-#### Quantization layers in PQuantML
+### Quantization layers in PQuantML
 
 - `PQConv*D`:  Convolutional layers.
 - `PQAvgPool*D`: Average pooling layers.
