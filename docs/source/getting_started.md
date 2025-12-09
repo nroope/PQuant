@@ -7,7 +7,7 @@ This section provides an overview of how to use the PQuantML library: defining m
 ## Model definition & training
 
 
-To compress a model with PQuantML, all layers must be replaced with their PQuantML equivalents. For example, replace `Dense` by `PQDense`, `ReLU` by `PQActivation`, etc...
+To compress a model with PQuantML, all layers must be replaced with their PQuantML equivalents. For example, replace `Dense` by `PQDense`, `ReLU` by `PQActivation`, etc.
 
 
 Model compression behaviour such as pruning strength, quantization bit-widths, training parameters, etc. is controlled through the configuration object, which is a Pydantic model.
@@ -92,6 +92,47 @@ def build_model():
 model = add_compression_layers(model, config)
 ```
 
+### Fine-Tuning with PQuantML 
+PQuantML provides an automated fine-tuning and hyperparameter-optimization workflow through the `TuningTask API`. This allows you to search for optimal pruning, quantization, and training parameters using your own training, validation, and objective functions.
+
+```python 
+from pquant.core.finetuning import TuningTask, TuningConfig
+
+# Convert defined yaml file into the object
+config = TuningConfig.load_from_file(CONFIG_PATH)
+
+# Create finetuning task class
+tuner = TuningTask(config)
+
+# (Optional) Enable mlflow logging
+tuner.set_enable_mlflow()
+tuner.set_tracking_uri("https://ngt.cern.ch/models")
+tuner.set_user("your_email@cern.ch", "your_access_token")
+
+# Register training, validation and objective functions
+tuner.set_training_function(train_resnet)
+tuner.set_validation_function(validate_resnet)
+tuner.set_objective_function(name="accuracy", fn=calculate_accuracy, direction="maximize")
+
+# Set optimizer, scheduler and hyperparameters
+tuner.set_hyperparameters()
+tuner.set_optimizer_function(get_optimizer)
+tuner.set_scheduler_function(get_scheduler)
+```
+
+To run optimization:
+```python
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.to(device)
+
+best_params = tuner.run_optimization(model,
+                        trainloader=...,
+                        testloader=...,
+                        loss_func=...)
+```
+```{note}
+`tuner.run_optimization()` automatically runs multiple compression–fine-tuning cycles, evaluates each trial using your objective function, and returns the best hyperparameters.
+
 All other training code remains unchanged.
 
 ### Train a model
@@ -171,6 +212,6 @@ hls_model = convert_from_pytorch_model(
         hls_config=hls_config,
         )
 hls_model.compile()
-
+```
 
 For a complete example, please refer to this [notebook](https://github.com/nroope/PQuant/blob/dev/examples/example_jet_tagging.ipynb).
