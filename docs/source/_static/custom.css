@@ -1,5 +1,11 @@
 .wy-nav-content {
-    max-width: 1800px !important; 
+    max-width: 2000px !important;
+    width: 100% !important;
+}
+
+.rst-content,
+.rst-content .section {
+    max-width: 2000px !important;
     width: 100% !important;
 }
 
@@ -7,10 +13,12 @@
     overflow-x: visible !important;
 }
 
-.wy-table-responsive > table {
+.wy-table-responsive table,
+.rst-content table.docutils,
+.docutils {
     width: 100% !important;
     max-width: 100% !important;
-    table-layout: fixed !important;  
+    table-layout: fixed !important;
 }
 
 .wy-table-responsive table td,
@@ -26,6 +34,8 @@
     display: table !important;
 }
 
-.rst-content .wy-table-responsive {
-    max-width: none !important;
+.rst-content .literal-block,
+.rst-content .line-block,
+.rst-content .topic {
+    max-width: 2000px !important;
 }
