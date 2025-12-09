@@ -9,12 +9,16 @@ The following conditions must be met:
 
 ## Can I use MLflow locally?
 Yes. 
-PQuantML integrates with MLflow for experiment tracking and model logging and local usage is fully supported:
-To start local host: 
+
+PQuantML integrates with MLflow for experiment tracking and model logging and local usage is fully supported.
+
+
+### Start local MLFlow UI: 
 ```python
 mlflow ui --host 0.0.0.0 --port 5000
 ```
-Also, PQuantML supports local or remote databases for results storage:
+
+### Use a local or remote database for Optuna tuning:
 ```python
 from pquant.core.finetuning import TuningTask
 tuner = TuningTask(config)
