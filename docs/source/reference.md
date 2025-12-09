@@ -34,16 +34,23 @@ The most important part of the library is a user-defined config yaml file. It ha
 
 | **Field**                         | **Type** | **Default** | **Description**                                                        |
 |----------------------------------|----------|-------------|------------------------------------------------------------------------|
-| `default_integer_bits`           | float    | `0.0`       | Global integer bits for fixed-point quantization.                     |
-| `default_fractional_bits`        | float    | `7.0`       | Global fractional bits for fixed-point quantization.                  |
-| `enable_quantization`            | bool     | `true`      | Enable or disable quantization.                                       |
-| `hgq_gamma`                      | float    | `0.0003`    | High-Granularity Quantization (HGQ) regularization coefficient.       |
-| `hgq_heterogeneous`              | bool     | `true`      | Allow heterogeneous bit-widths across layers.                         |
-| `layer_specific`                 | List     | `[]`        | Per-layer overrides for quantization parameters.                      |
-| `use_high_granularity_quantization` | bool     | `false`     | Enable HGQ quantization strategy.                                     |
-| `use_real_tanh`                  | bool     | `false`     | Use a non-approximated `tanh` operator during forward pass.           |
-| `use_symmetric_quantization`     | bool     | `false`     | Use symmetric quantization (zero-point = 0).                          |
-| `use_relu_multiplier`            | bool     | `true`      | Apply optimized ReLU multiplier (faster integer implementation).       |
+| `default_data_keep_negatives`    | bool     | `0`         | Default **k** value for data quantization (0 = clamp negatives, 1 = keep). |
+| `default_data_integer_bits`      | int      | `0`         | Default integer bitwidth **i** for data quantization.                  |
+| `default_data_fractional_bits`   | int      | `0`         | Default fractional bitwidth **f** for data quantization.               |
+| `default_weight_keep_negatives`  | bool     | `0`         | Default **k** value for weight quantization (0 or 1).                  |
+| `default_weight_integer_bits`    | int      | `0`         | Default integer bitwidth **i** for weight quantization.                |
+| `default_weight_fractional_bits` | int      | `0`         | Default fractional bitwidth **f** for weight quantization.             |
+| `quantize_input`                 | bool     | `true`      | Whether inputs to layers are quantized by default.                     |
+| `quantize_output`                | bool     | `true`      | Whether outputs of layers are quantized by default.                    |
+| `enable_quantization`            | bool     | `true`      | Global switch to enable or disable quantization.                       |
+| `hgq_gamma`                      | float    | `0.0`       | HGQ regularization coefficient for bitwidth stability.                 |
+| `hgq_beta`                       | float    | `0.0`       | HGQ loss coefficient scaling EBOPs.                                    |
+| `layer_specific`                 | dict     | `{}`        | Dictionary for per-layer quantization overrides.                       |
+| `use_hgq`                        | bool     | `false`     | Enable or disable High Granularity Quantization (HGQ).                 |
+| `use_real_tanh`                  | bool     | `false`     | Use a real `tanh` instead of hard/approximate `tanh`.                  |
+| `overflow`                       | str      | `"SAT"`     | Overflow handling mode (`SAT`, `SAT_SYM`, `WRAP`, `WRAP_SM`).          |
+| `round_mode`                     | str      | `"RND"`     | Rounding mode (`TRN`, `RND`, `RND_CONV`, `RND_ZERO`, etc.).            |
+| `use_relu_multiplier`            | bool     | `true`      | Enable a learned bit-shift multiplier inside ReLU layers.              |
 
 
 ### Fine-tuning parameters
@@ -179,6 +186,21 @@ There are more details about every pruning method:
 | `use_grad`         | bool                  | `false`                    | Use gradient information during updates.                     |
 | `l0_mode`          | `"coarse"` \| `"smooth"` | `"coarse"`              | L0 approximation mode.                                       |
 | `scale_mode`       | `"mean"` \| `"sum"`      | `"mean"`                 | Aggregation mode for penalties.                              |
+
+
+Optionally, there is also FITCompress method implemented for PyTorch:
+### FitCompress method
+| **Field**                 | **Type** | **Default** | **Description**                                                                 |
+|---------------------------|----------|-------------|---------------------------------------------------------------------------------|
+| `enable_fitcompress`      | bool     | `false`     | Master switch that enables or disables FITCompress.                             |
+| `optimize_quantization`   | bool     | `true`      | Whether FITCompress searches over quantization bit-width candidates.            |
+| `quantization_schedule`   | List[float] | `[7., 4., 3., 2.]` | Candidate bit-widths evaluated during quantization search.                    |
+| `pruning_schedule`        | dict     | `{start: 0, end: -3, steps: 40}` | Logarithmic pruning curve (base 10) with defined start, end, and step count. |
+| `compression_goal`        | float    | `0.10`      | Target compression ratio for the search procedure.                              |
+| `optimize_pruning`        | bool     | `false`     | Whether FITCompress searches over pruning ratios.                               |
+| `greedy_astar`            | bool     | `true`      | Disable fallback in A* search: once a candidate is selected, all others discarded. |
+| `approximate`             | bool     | `true`      | Use Fisher Trace approximations to speed up FIT score estimation.               |
+| `f_lambda`                | float    | `1`         | Multiplicative factor λ in the distance function (g + λf).                      |
 
 
 #### Quantization layers in PQuantML
