@@ -4,5 +4,5 @@ Use `pip install pquant-ml` to install the latest version from PyPI. You will ne
 
 
 ```{warning}
-PQuantML v1.0 requires `tensorflow>=2.17`,`mlflow>=2.0,<3.0`, and `python==3.11`.
+PQuantML v1.0 requires `tensorflow>=2.17`, `mlflow>=2.0,<3.0`, and `python==3.11`.
 ```
