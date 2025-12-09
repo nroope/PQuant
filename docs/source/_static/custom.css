@@ -1,21 +1,31 @@
 .wy-nav-content {
-    max-width: 1400px !important; 
-}
-
-/* Make tables fit and wrap text */
-.rst-content table.docutils,
-.rst-content table.field-list,
-.wy-table-responsive table {
+    max-width: 1800px !important; 
     width: 100% !important;
-    table-layout: fixed !important;
-}
-
-.rst-content table td,
-.rst-content table th {
-    white-space: normal !important;
-    word-break: break-word !important;
 }
 
 .wy-table-responsive {
     overflow-x: visible !important;
+}
+
+.wy-table-responsive > table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;  
+}
+
+.wy-table-responsive table td,
+.wy-table-responsive table th,
+.rst-content table.docutils td,
+.rst-content table.docutils th {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+}
+
+.wy-table-responsive table {
+    display: table !important;
+}
+
+.rst-content .wy-table-responsive {
+    max-width: none !important;
 }
