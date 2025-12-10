@@ -167,3 +167,18 @@ h1, h2, h3, h4, h5, h6 {
     outline: none !important;
     box-shadow: 0 0 5px #cc0000 !important;
 }
+
+.wy-side-nav-search {
+    background-color: #ffffff !important;
+    padding: 20px 15px !important; 
+    border-bottom: 2px solid #b30000 !important;
+}
+
+.wy-nav-side {
+    background-color: #b30000 !important;
+}
+
+.wy-side-nav-search .wy-logo,
+.wy-logo {
+    background-color: #ffffff !important;
+}
