@@ -27,15 +27,9 @@ config.quantization_parameters.use_relu_multiplier = False
 ```
 
 ### Building a model
-PQuantML supports two ways of defining compressed models:
+PQuantML supports two ways of defining compressed models. Below we illustrate both approaches using a simple jet-tagging architecture.
 
-1) Direct layer usage
-
-2) Layer replacement
-
-Below we illustrate both approaches using a simple jet-tagging architecture.
-
-### Direct layer usage:
+### Direct layer usage
 
 ```python
 from pquant.layers import PQDense
@@ -65,7 +59,7 @@ def build_model(config):
 ```
 
 
-### Layer-replacement usage:
+### Layer-replacement usage
 ```python
 
 def build_model():
@@ -132,6 +126,7 @@ best_params = tuner.run_optimization(model,
 ```
 ```{note}
 `tuner.run_optimization()` automatically runs multiple compression–fine-tuning cycles, evaluates each trial using your objective function, and returns the best hyperparameters.
+```
 
 All other training code remains unchanged.
 
@@ -146,7 +141,6 @@ Training is handled through the `train_model(...)` wrapper:
 
 ```python
 from pquant import train_model
-model.to("cuda")
 
 trained_model = train_model(model = model, 
                                 config = config, 
@@ -163,7 +157,7 @@ trained_model = train_model(model = model,
 
 ### Using different quantization settings per layer
 ```{note}
-For FITCompress, HGQ, or architectures where activations require different quantization bit-widths, each activation layer must be instantiated separately.
+For FITCompress, HGQ, or architectures, where activations require different quantization bit-widths, each activation layer must be instantiated separately.
 ```
 ```python
 def build_model(config):
@@ -193,7 +187,7 @@ def build_model(config):
 
 
 ## Conversion to hls4ml
-After training, the PQuantML model can be exported to hls4ml for HLS synthesis,
+After training, the PQuantML model can be exported to hls4ml for HLS synthesis.
 
 ```python
 from hls4ml.converters import convert_from_pytorch_model
