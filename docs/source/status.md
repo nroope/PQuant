@@ -11,7 +11,7 @@ This page tracks the development status of PQuantML features
 | Quantization (fixed-point)      | ✅ Complete     | Supports per-layer overrides |
 | HGQ support   |✅ Complete  |  Supports HGQ quantization |
 | hls4ml integration              | ✅ Complete   | Works in v1.0.0 |
-| FITCompress                     | 🚧 Partially implemented | Work through PyTorch only |
+| FITCompress                     | 🚧 Partially implemented | Works through PyTorch only |
 | Documentation                   | 🚧 Improving    | Expanded daily |
 
 
