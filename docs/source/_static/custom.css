@@ -221,3 +221,32 @@ h1, h2, h3, h4, h5, h6 {
 .wy-side-nav-search select.rtd-version-select option {
     color: #000000 !important;
 }
+
+.search-form__wrapper form {
+    display: flex;
+    align-items: center;
+    height: 48px !important;        
+    padding: 6px 12px !important;   
+    border-radius: 8px !important;  
+    border: 2px solid #b30000 !important;
+    background: #ffffff !important;
+    box-sizing: border-box;
+}
+
+.search-form__wrapper input[type="search"] {
+    font-size: 16px !important;
+    padding: 8px !important;
+    height: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    outline: none !important;
+    background: transparent !important;
+    color: #000000 !important;
+}
+
+.search-form__wrapper svg {
+    width: 20px !important;
+    height: 20px !important;
+    margin-right: 8px !important;
+    color: #b30000 !important;
+}
