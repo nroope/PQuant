@@ -185,7 +185,6 @@ h1, h2, h3, h4, h5, h6 {
 
 .wy-side-nav-search .version-switch  {
     color: #b30000 !important;  
-    background-color: #b30000;
     font-weight: 600 !important;
 }
 
@@ -195,4 +194,12 @@ h1, h2, h3, h4, h5, h6 {
 
 .wy-side-nav-search .fa-caret-down {
     color: #b30000 !important;
+}
+.wy-side-nav-search select.version-switch {
+    color: #b30000 !important;     
+    background-color: #ffffff !important;
+    border: 2px solid #b30000 !important;
+    font-weight: 600 !important;
+    padding: 5px !important;
+    border-radius: 4px !important;
 }
