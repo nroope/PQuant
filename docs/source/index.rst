@@ -26,7 +26,7 @@ PQuantML enables efficient deployment of compact neural networks on resource-con
 
 
 .. rst-class:: light
-.. image:: _static/overview.svg
+.. image:: _static/overview_pquant.png
    :alt: PQuantML-overview
    :width: 600
 
