@@ -47,7 +47,7 @@ Contents
 
 .. toctree::
    :maxdepth: 2
-   
+   :caption: Contents
    status
    install
    getting_started
