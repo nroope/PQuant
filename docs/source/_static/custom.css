@@ -203,3 +203,21 @@ h1, h2, h3, h4, h5, h6 {
     padding: 5px !important;
     border-radius: 4px !important;
 }
+
+.wy-side-nav-search select.rtd-version-select {
+    color: #b30000 !important;             
+    background-color: #ffffff !important; 
+    border: 2px solid #b30000 !important;
+    font-weight: 600 !important;
+    padding: 6px !important;
+    border-radius: 4px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.wy-side-nav-search select.rtd-version-select::-ms-expand {
+    color: #b30000 !important;
+}
+.wy-side-nav-search select.rtd-version-select option {
+    color: #000000 !important;
+}
