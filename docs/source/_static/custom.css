@@ -39,3 +39,75 @@
 .rst-content .topic {
     max-width: 2000px !important;
 }
+
+.wy-body-for-nav {
+    background-color: #ffffff !important; 
+}
+
+.wy-nav-content {
+    background-color: #ffffff !important;
+    max-width: 1200px !important;  
+}
+
+.wy-nav-side {
+    background-color: #b30000 !important; 
+}
+.wy-side-nav-search {
+    background-color: #cc0000 !important; 
+}
+
+.wy-side-nav-search input {
+    background-color: #ffffff !important;
+    border: 1px solid #cc0000 !important;
+    color: #000 !important;
+}
+
+.wy-menu-vertical a {
+    color: #ffffff !important; 
+}
+
+.wy-menu-vertical a:hover {
+    background-color: #990000 !important; 
+}
+
+.wy-menu-vertical li.current > a,
+.wy-menu-vertical li.toctree-l1.current > a {
+    background-color: #660000 !important; 
+    color: #ffffff !important;
+}
+
+
+a {
+    color: #cc0000 !important;
+}
+
+a:hover {
+    color: #990000 !important;
+    text-decoration: underline;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #b30000 !important;
+}
+
+
+.rst-content table {
+    border-color: #b30000 !important;
+}
+
+.rst-content table th {
+    background-color: #ffe6e6 !important;  
+    color: #b30000 !important;
+}
+
+.rst-content table td {
+    background-color: #ffffff !important;
+}
+
+.highlight {
+    border-left: 4px solid #cc0000 !important;
+}
+
+.wy-nav-top {
+    background-color: #b30000 !important;
+}
