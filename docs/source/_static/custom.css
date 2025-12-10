@@ -2,7 +2,6 @@ html body nav.wy-nav-top,
 .wy-nav-top,
 .wy-header,
 .wy-header .wy-side-nav-search,
-.wy-breadcrumbs,
 .wy-nav-top > *,
 .wy-header > * {
     background-color: #b30000 !important;
@@ -65,6 +64,9 @@ html body nav.wy-nav-top,
 }
 
 .wy-side-nav-search .wy-logo {
+    background-color: #b30000 !important;
+}
+.wy-logo {
     background-color: #b30000 !important;
 }
 
