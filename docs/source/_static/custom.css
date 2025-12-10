@@ -50,10 +50,19 @@
 }
 
 .wy-nav-side {
-    background-color: #ffffff !important; 
+    background-color: #b30000 !important; 
 }
-.wy-side-nav-search {
+/* .wy-side-nav-search {
     background-color: #cc0000 !important; 
+} */
+
+.wy-side-nav-search a {
+    background-color: #ffffff !important;
+    padding: 10px 0 !important; 
+}
+
+.wy-side-nav-search img {
+    background-color: #ffffff !important;
 }
 
 .wy-side-nav-search input {
