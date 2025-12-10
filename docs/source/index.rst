@@ -45,10 +45,10 @@ Contents
 
 .. toctree::
    :maxdepth: 2
-
+   
+   status
    install
    getting_started
-   status
    reference
    faq
 
