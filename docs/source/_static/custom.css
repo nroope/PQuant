@@ -185,6 +185,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .wy-side-nav-search .version-switch  {
     color: #b30000 !important;  
+    background-color: #b30000;
     font-weight: 600 !important;
 }
 
