@@ -146,3 +146,24 @@ h1, h2, h3, h4, h5, h6 {
     background-color: #b30000 !important;
     background-image: none !important;
 }
+/* Force the search bar container to show borders */
+.wy-side-nav-search {
+    padding: 0 !important;
+    background-color: #b30000 !important;
+}
+
+.wy-side-nav-search input[type="text"] {
+    border: 2px solid #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 8px !important;
+    margin: 12px !important;
+    width: calc(100% - 24px) !important; 
+    box-sizing: border-box !important;
+}
+
+.wy-side-nav-search input[type="text"]:focus {
+    border: 2px solid #990000 !important;
+    outline: none !important;
+    box-shadow: 0 0 5px #cc0000 !important;
+}
