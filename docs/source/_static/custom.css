@@ -222,31 +222,32 @@ h1, h2, h3, h4, h5, h6 {
     color: #000000 !important;
 }
 
-.search-form__wrapper form {
-    display: flex;
-    align-items: center;
-    height: 48px !important;        
-    padding: 6px 12px !important;   
-    border-radius: 8px !important;  
+.wy-side-nav-search form {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+    height: 48px !important;
+    border-radius: 8px !important;
     border: 2px solid #b30000 !important;
     background: #ffffff !important;
-    box-sizing: border-box;
+    box-sizing: border-box !important;
 }
 
-.search-form__wrapper input[type="search"] {
+.wy-side-nav-search input[type="search"] {
     font-size: 16px !important;
-    padding: 8px !important;
+    padding: 6px 4px !important;
     height: 100% !important;
     width: 100% !important;
     border: none !important;
-    outline: none !important;
     background: transparent !important;
+    outline: none !important;
+    box-sizing: border-box !important;
     color: #000000 !important;
 }
 
-.search-form__wrapper svg {
+.wy-side-nav-search label svg {
     width: 20px !important;
     height: 20px !important;
-    margin-right: 8px !important;
     color: #b30000 !important;
 }
