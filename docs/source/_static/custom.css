@@ -123,6 +123,12 @@ h1, h2, h3, h4, h5, h6 {
     background-color: #b30000 !important;
 }
 
-.md-header {
+.wy-nav-top {
     background-color: #b30000 !important;
+    background-image: none !important;
+}
+
+.wy-header {
+    background-color: #b30000 !important;
+    background-image: none !important;
 }
