@@ -222,32 +222,21 @@ h1, h2, h3, h4, h5, h6 {
     color: #000000 !important;
 }
 
-.wy-side-nav-search form {
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    padding: 10px 12px !important;
-    height: 48px !important;
-    border-radius: 8px !important;
-    border: 2px solid #b30000 !important;
-    background: #ffffff !important;
+.wy-side-nav-search input[type="search"] {
+    height: 100% !important;         
+    width: 100% !important;          
+    font-size: 18px !important;      
+    padding: 10px 14px !important;    
+    margin: 0 !important;
+    border-radius: 6px !important;  
+    border: none !important;        
+    box-shadow: none !important;   
+    background: #ffffff !important;  
+    color: #000000 !important;   
     box-sizing: border-box !important;
 }
 
 .wy-side-nav-search input[type="search"] {
-    font-size: 16px !important;
-    padding: 6px 4px !important;
-    height: 100% !important;
-    width: 100% !important;
-    border: none !important;
-    background: transparent !important;
-    outline: none !important;
-    box-sizing: border-box !important;
-    color: #000000 !important;
-}
-
-.wy-side-nav-search label svg {
-    width: 20px !important;
-    height: 20px !important;
-    color: #b30000 !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
 }
