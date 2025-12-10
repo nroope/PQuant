@@ -182,3 +182,16 @@ h1, h2, h3, h4, h5, h6 {
 .wy-logo {
     background-color: #ffffff !important;
 }
+
+.wy-side-nav-search .version {
+    color: #b30000 !important;  
+    font-weight: 600 !important;
+}
+
+.wy-side-nav-search .version:hover {
+    color: #990000 !important;  
+}
+
+.wy-side-nav-search .fa-caret-down {
+    color: #b30000 !important;
+}
