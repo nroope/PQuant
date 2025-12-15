@@ -3,6 +3,9 @@
 ## Prune and Quantize ML models
 PQuant is a library for training compressed machine learning models, developed at CERN as part of the [Next Generation Triggers](https://nextgentriggers.web.cern.ch/t13/) project.
 
+Installation via pip: ```pip install pquant-ml```.
+To run the code, [HGQ2](https://github.com/calad0i/HGQ2) is also needed.
+
 PQuant replaces the layers and activations it finds with a Compressed (in the case of layers) or Quantized (in the case of activations) variant. These automatically handle the quantization of the weights, biases and activations, and the pruning of the weights. 
 Both PyTorch and TensorFlow models are supported. 
 
@@ -28,11 +31,6 @@ A description of the pruning methods and their hyperparameters can be found [her
 ### Quantization parameters
 A description of the quantization parameters can be found [here](docs/quantization_parameters.md).
 
-
-### Installation
-
-```pip install .``` for regular install, ```pip install -e .``` if you wish to install as a local editable package
-To run the code, [HGQ2](https://github.com/calad0i/HGQ2) is also needed. For now it only has local install available, so download the repository and install it locally.
 
 ### Authors
  - Roope Niemi (CERN)

@@ -24,9 +24,8 @@ quantization_parameters:
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
-  use_relu_multiplier: false
-  overflow: "SAT"
-  round_mode: RND
+  use_relu_multiplier: true
+  use_symmetric_quantization: false
 fitcompress_parameters:
   enable_fitcompress : false
   optimize_quantization : true
