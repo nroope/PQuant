@@ -79,7 +79,7 @@ class PQActivation(nn.Module):
         if self.built:
             return
         self.built = True
-        self.input_shape = input_shape
+        self.input_shape = (1,) + input_shape[1:]
         self.output_quantizer = Quantizer(
             k=self.k_output,
             i=self.i_output,

@@ -363,6 +363,10 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
         if include_mask:
             mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
             bw_ker = bw_ker * mask
+            _, _, f = self.get_weight_quantization_bits()
+            quantization_step_size = 2 ** (-f - 1)
+            step_size_mask = ops.cast((ops.abs(self._kernel) > quantization_step_size), self._kernel.dtype)
+            bw_ker = bw_ker * step_size_mask
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.depthwise_conv(
@@ -535,6 +539,10 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
         if include_mask:
             mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
             bw_ker = bw_ker * mask
+            _, _, f = self.get_weight_quantization_bits()
+            quantization_step_size = 2 ** (-f - 1)
+            step_size_mask = ops.cast((ops.abs(self._kernel) > quantization_step_size), self._kernel.dtype)
+            bw_ker = bw_ker * step_size_mask
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.conv(
@@ -769,6 +777,10 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
         if include_mask:
             mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
             bw_ker = bw_ker * mask
+            _, _, f = self.get_weight_quantization_bits()
+            quantization_step_size = 2 ** (-f - 1)
+            step_size_mask = ops.cast((ops.abs(self._kernel) > quantization_step_size), self._kernel.dtype)
+            bw_ker = bw_ker * step_size_mask
         if self.parallelization_factor < 0:
             ebops = ops.sum(
                 ops.conv(
@@ -913,6 +925,10 @@ class PQDense(PQWeightBiasBase, keras.layers.Dense):
         if include_mask:
             mask = self.handle_transpose(self.pruning_layer.get_hard_mask(), self.weight_transpose_back, do_transpose=True)
             bw_ker = bw_ker * mask
+            _, _, f = self.get_weight_quantization_bits()
+            quantization_step_size = 2 ** (-f - 1)
+            step_size_mask = ops.cast((ops.abs(self._kernel) > quantization_step_size), self._kernel.dtype)
+            bw_ker = bw_ker * step_size_mask
         ebops = ops.sum(ops.matmul(bw_inp, bw_ker))
         ebops = ebops * self.n_parallel / self.parallelization_factor
         if self.use_bias:
@@ -2163,7 +2179,7 @@ def get_ebops(model):
     ebops = 0
     for m in model.layers:
         if isinstance(m, (PQWeightBiasBase)):
-            ebops += m.ebops(include_mask=True)
+            ebops += m.ebops(include_mask=m.enable_pruning)
         elif isinstance(m, (PQAvgPoolBase, PQBatchNormalization, PQActivation)):
             ebops += m.ebops()
     return ebops

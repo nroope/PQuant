@@ -34,8 +34,8 @@ class Quantizer(nn.Module):
         if self.use_hgq:
             self.quantizer.quantizer._i.assign(self.quantizer.quantizer._i * 0.0 + i)
             self.quantizer.quantizer._f.assign(self.quantizer.quantizer._f * 0.0 + f)
-        self.i.data = i
-        self.f.data = f
+        self.i.data = torch.tensor(i)
+        self.f.data = torch.tensor(f)
 
     def post_pre_train_function(self):
         self.is_pretraining = False
@@ -50,5 +50,7 @@ class Quantizer(nn.Module):
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
             return 0.0
-        loss = (torch.sum(self.quantizer.quantizer.i) + torch.sum(self.quantizer.quantizer.f)) * self.hgq_gamma
+        loss = 0
+        for layer_loss in self.quantizer.quantizer.losses:
+            loss += layer_loss
         return loss

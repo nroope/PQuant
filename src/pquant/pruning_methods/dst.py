@@ -40,11 +40,12 @@ class DST(keras.layers.Layer):
         self.config = config
         self.is_pretraining = True
         self.layer_type = layer_type
+        self.is_finetuning = False
 
     def build(self, input_shape):
         self.threshold_size = get_threshold_size(self.config, input_shape)
         self.threshold = self.add_weight(shape=self.threshold_size, initializer="zeros", trainable=True)
-        self.mask = self.add_weight(shape=input_shape, initializer="ones")
+        self.mask = self.add_weight(shape=input_shape, initializer="ones", trainable=False)
 
     def call(self, weight):
         """
@@ -55,6 +56,8 @@ class DST(keras.layers.Layer):
         """
         if self.is_pretraining:
             return weight
+        if self.is_finetuning:
+            return weight * self.mask
         mask = self.get_mask(weight)
         ratio = 1.0 - ops.sum(mask) / ops.cast(ops.size(mask), mask.dtype)
         flag = ratio >= self.config.pruning_parameters.max_pruning_pct
@@ -83,10 +86,13 @@ class DST(keras.layers.Layer):
         return ops.sum(self.get_mask(weight)) / ops.size(weight)
 
     def calculate_additional_loss(self):
-        return self.config.pruning_parameters.alpha * ops.sum(ops.exp(-self.threshold))
+        if self.is_finetuning:
+            return 0.0
+        loss = self.config.pruning_parameters.alpha * ops.sum(ops.exp(-self.threshold))
+        return loss
 
     def pre_finetune_function(self):
-        pass
+        self.is_finetuning = True
 
     def post_epoch_function(self, epoch, total_epochs):
         pass
