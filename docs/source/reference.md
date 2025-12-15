@@ -5,30 +5,20 @@
 The most important part of the library is a user-defined config yaml file. It has five separate sections: training, pruning, quantization, finetuning, and fitcompress section `currently maintained by TensorFlow only` parameters. By default, the parameters in the config are the following:
 
 ### Training parameters
-
+The following table outlines the primary parameters used to configure the training process:
 
 | **Field**               | **Type**                                   | **Default**   | **Description**                                            |
 |------------------------|---------------------------------------------|---------------|------------------------------------------------------------|
 | `epochs`               | int                                         | `200`         | Total number of training epochs.                          |
 | `fine_tuning_epochs`   | int                                         | `0`           | Additional epochs for fine-tuning.                        |
 | `pretraining_epochs`   | int                                         | `50`          | Pretraining / warm-up epochs.                             |
-| `pruning_first`        | bool                                        | `false`       | Apply pruning before the main training loop.              |
 | `rewind`               | str                                         | `"never"`     | Weight rewinding policy.                                  |
 | `rounds`               | int                                         | `1`           | Number of prune–fine-tune cycles.                         |
 | `save_weights_epoch`   | int                                         | `-1`          | Save checkpoint at this epoch (`-1` disables).            |
-| `batch_size`           | int                                         | `128`         | Training batch size.                                      |
-| `optimizer`            | str                                         | `"sgd"`       | Optimizer selection.                                      |
-| `plot_frequency`       | int                                         | `100`         | Steps between progress plots.                             |
-| `label_smoothing`      | float                                       | `0.0`         | Label smoothing factor.                                   |
-| `model`                | str                                         | `"resnet18"`  | Model architecture identifier.                            |
-| `dataset`              | str                                         | `"cifar10"`   | Dataset identifier.                                       |
-| `l2_decay`             | float                                       | `0.001`       | L2 weight decay.                                          |
-| `momentum`             | float                                       | `0.9`         | Momentum for SGD-type optimizers.                         |
-| `lr_schedule`          | `"cosine"`, `"step"`, `"none"`              | `"cosine"`    | Learning-rate scheduling policy.                          |
-| `cosine_tmax`          | int                                         | `200`         | Period (`T_max`) for cosine LR schedule.                  |
-| `lr`                   | float                                       | `0.001`       | Learning rate.                                            |
-| `prune_ratio`          | float                                       | `10.0`        | Method-specific pruning ratio meaning.                    |
-| `default_integer_bits` | int                                         | `0`           | Default integer bits passed to quantizers.                |
+
+```{note}
+If you require additional parameters for the training or optimization loops, please define them directly in the config.yaml file.
+```
 
 ### Quantization parameters
 
@@ -58,6 +48,7 @@ The most important part of the library is a user-defined config yaml file. It ha
 | **Field**                | **Type**                | **Default**       | **Description**                               |
 |-------------------------|--------------------------|--------------------|-----------------------------------------------|
 | `experiment_name`       | str                      | `"experiment_1"`  | Name of the study.                            |
+| `model_name`                | str                                         | `"resnet18"`  | Model architecture name.                            |
 | `sampler`               | str                      | `GridSampler`     | Sampler selection for the search space.       |
 | `num_trials`            | int                      | `0`               | Number of trials.                             |
 | `hyperparameter_search` | HyperparameterSearch     | `{}`              | Ranges for non-grid samplers.                 |

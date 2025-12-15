@@ -4,9 +4,13 @@
 PQuantML primarily supports PyTorch and TensorFlow/Keras models and supports both direct construction and automatic layer replacement using `add_compression_layers(...)`.
 
 ## What are requirements to use PQuantML?
+Install PyTorch with the correct CUDA version that matches your system and other frameworks, like TensorFlow. This prevents version mismatches and GPU compatibility issues.
 
-The following conditions must be met:
+An example to install PyTorch with CUDA 13.0:
 
+```python
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+```
 ## Can I use MLflow locally?
 Yes. 
 
