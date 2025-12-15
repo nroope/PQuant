@@ -1,4 +1,4 @@
-![alt text](docs/_static/pquant.png)
+![alt text](docs/source/_static/pquant.png)
 
 ## Prune and Quantize ML models
 PQuant is a library for training compressed machine learning models, developed at CERN as part of the [Next Generation Triggers](https://nextgentriggers.web.cern.ch/t13/) project.
@@ -11,9 +11,9 @@ Both PyTorch and TensorFlow models are supported.
 
 Layers that can be compressed: Conv2D and Linear layers, Tanh and ReLU activations for both TensorFlow and PyTorch. For PyTorch, also Conv1D.
 
-![alt text](docs/_static/pquant.png)
-
 The various pruning methods have different training steps, such as a pre-training step and fine-tuning step. PQuant provides a training function, where the user provides the functions to train and validate an epoch, and PQuant handles the training while triggering the different training steps.
+
+![alt text](docs/source/_static/overview.png)
 
 
 
