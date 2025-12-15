@@ -17,7 +17,6 @@ training_parameters:
    optimizer: sgd
    plot_frequency: 100
    label_smoothing: 0
-   model: "resnet18"
    dataset: "cifar10"
    l2_decay:  0.001
    momentum:  0.9
@@ -47,6 +46,7 @@ fitcompress_parameters:
   f_lambda : 0.5
 finetuning_parameters:
     experiment_name: resnet_18_experiment_2
+    model_name: resnet18
     num_trials: 10
     sampler:
       type: TPESampler

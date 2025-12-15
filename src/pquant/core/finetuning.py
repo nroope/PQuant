@@ -10,6 +10,7 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+
 from pquant.core import constants
 from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
@@ -294,11 +295,12 @@ class TuningTask:
                 signature = infer_signature(sample_input.cpu().numpy(), sample_output.detach().cpu().numpy())
 
                 mlflow.log_text(yaml.safe_dump(self.get_dict()), "config.yaml")
+                model_name = self.config.finetuning_parameters.model_name
                 log_model_by_backend(
                     model=trained_model,
-                    name=self.config.training_parameters.model,
+                    name=model_name,
                     signature=signature,
-                    registered_model_name=self.config.training_parameters.model,
+                    registered_model_name=model_name,
                 )
 
         return objectives if len(objectives) > 1 else objectives[0]
