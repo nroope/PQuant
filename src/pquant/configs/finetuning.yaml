@@ -31,7 +31,7 @@ training_parameters:
    fine_tuning_epochs: 2
    pretraining_epochs: 0
    pruning_first: false
-   rewind: post-ticket-search
+   rewind: never
    rounds: 2
    save_weights_epoch: 2
 fitcompress_parameters:
