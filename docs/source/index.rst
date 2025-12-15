@@ -32,6 +32,8 @@ PQuantML enables efficient deployment of compact neural networks on resource-con
    :align: center
 
 
+
+
 Key Features
 ------------
 
