@@ -9,12 +9,13 @@ To run the code, [HGQ2](https://github.com/calad0i/HGQ2) is also needed.
 PQuant replaces the layers and activations it finds with a Compressed (in the case of layers) or Quantized (in the case of activations) variant. These automatically handle the quantization of the weights, biases and activations, and the pruning of the weights. 
 Both PyTorch and TensorFlow models are supported. 
 
-Layers that can be compressed: 
-  PQConv*D: Convolutional layers
-  PQAvgPool*D: Average pooling layers
-  PQBatchNorm*D: BatchNorm layers
-  PQDense: Linear layer
-  PQActivation: Activation layers (ReLU, Tanh)
+### Layers that can be compressed
+
+* **PQConv*D**: Convolutional layers
+* **PQAvgPool*D**: Average pooling layers
+* **PQBatchNorm*D**: BatchNorm layers
+* **PQDense**: Linear layer
+* **PQActivation**: Activation layers (ReLU, Tanh)
 
 The various pruning methods have different training steps, such as a pre-training step and fine-tuning step. PQuant provides a training function, where the user provides the functions to train and validate an epoch, and PQuant handles the training while triggering the different training steps.
 
