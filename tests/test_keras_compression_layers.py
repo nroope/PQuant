@@ -595,6 +595,7 @@ def test_check_activation(config_pdp, dense_input):
     assert model.layers[2].activation.__name__ == "tanh"
 
     config_pdp.quantization_parameters.enable_quantization = True
+    config_pdp.quantization_parameters.use_real_tanh = True
     inputs = keras.Input(shape=dense_input.shape[1:])
     out = Dense(OUT_FEATURES, use_bias=False, activation="tanh")(inputs)
     model = keras.Model(inputs=inputs, outputs=out, name="test_dense")

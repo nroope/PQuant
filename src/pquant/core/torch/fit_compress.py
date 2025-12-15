@@ -10,19 +10,20 @@ import torch.nn as nn
 from quantizers import get_fixed_quantizer
 
 if typing.TYPE_CHECKING:
-    from pquant.core.torch.layers import (
-        CompressedLayerBase,
-        CompressedLayerConv2d,
-        CompressedLayerLinear,
-        QuantizedPooling,
-        QuantizedReLU,
-        QuantizedTanh,
+    from pquant.core.torch.activations import PQActivation  # noqa: F401
+    from pquant.core.torch.layers import (  # noqa: F401
+        PQAvgPoolBase,
+        PQConv1d,
+        PQConv2d,
+        PQDense,
+        PQWeightBiasBase,
     )
+
 
 quantizer = get_fixed_quantizer(overflow_mode="SAT", round_mode="RND")
 
 
-def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func):
+def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func, input_shape):
     """
     Calls the path-finding algorithm of FITcompress to find an optimal configuration for quantization
     (layer-wise) and pruning (global sparsity value) of weights for the uncompressed network.
@@ -39,19 +40,11 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
                             layer-wise quantization bits for weights and activations.
 
     """
-    from pquant.core.torch.layers import (
-        add_layer_specific_quantization_to_model,
-    )
 
     # Set the device
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Check that we have a pruning method active which has a global pruning sparsity target
-    if config.fitcompress_parameters.optimize_pruning:
-        assert config.pruning_parameters.pruning_method in [
-            "pdp",
-            "wanda",
-        ], "Pruning method must be either 'pdp' or 'wanda' if FITcompress should find a global pruning target."
 
     def enable_quantization(model):
         """
@@ -65,16 +58,18 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
                 model - current model with quantization enabled
 
         """
+        from pquant.activations import PQActivation  # noqa: F811
+        from pquant.layers import PQAvgPoolBase, PQWeightBiasBase  # noqa: F811
+
         for m in model.modules():
-            if isinstance(m, CompressedLayerBase):
+            if isinstance(m, PQWeightBiasBase):
                 m.enable_quantization = True
-            if m.__class__ in [QuantizedReLU, QuantizedTanh, QuantizedPooling]:
+                m.enable_pruning = True
+            if m.__class__ in [PQActivation, PQAvgPoolBase]:
                 m.enable_quantization = True
         return model
 
-    def add_quantization_settings_to_config(
-        model, quant_info_weights, config, activ_int_bits, activ_frac_bits, pool_int_bits, pool_frac_bits
-    ):
+    def add_quantization_settings_to_config(model, quant_info_weights, config):
         """
 
 
@@ -98,40 +93,23 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
 
         """
 
-        from pquant.core.torch.layers import (
-            CompressedLayerConv2d,
-            CompressedLayerLinear,
-            QuantizedPooling,
-            QuantizedReLU,
+        from pquant.core.torch.activations import PQActivation  # noqa: F401, F811
+        from pquant.core.torch.layers import (  # noqa: F401, F811
+            PQAvgPoolBase,
+            PQBatchNorm2d,
+            PQConv2d,
+            PQDense,
         )
 
-        # Counter for activations
-        counter = 0
         # Since in config currently a list, but dictionary makes it easier
         config.quantization_parameters.layer_specific = {}
-
         for name, layer in model.named_modules():
-
             # For weights
-            if isinstance(layer, (CompressedLayerLinear, CompressedLayerConv2d)):
+            if isinstance(layer, (PQDense, PQConv2d)):
                 config.quantization_parameters.layer_specific[name] = {
                     "weight": {"integer_bits": quant_info_weights[name][0], "fractional_bits": quant_info_weights[name][1]},
                 }
-            # For activations (in this case only ReLU since we are working on res20)
-            if layer.__class__ in [QuantizedReLU]:
-
-                config.quantization_parameters.layer_specific[name] = {
-                    "integer_bits": activ_int_bits[counter],
-                    "fractional_bits": activ_frac_bits[counter],
-                }
-                counter += 1
-
-            # NOTE : This is specific to res20
-            if layer.__class__ in [QuantizedPooling]:
-                config.quantization_parameters.layer_specific[name] = {
-                    "integer_bits": pool_int_bits,
-                    "fractional_bits": pool_frac_bits,
-                }
+                layer.weight_quantizer.set_quantization_bits(quant_info_weights[name][0], quant_info_weights[name][1])
 
     def print_info_bits(model):
         """
@@ -141,20 +119,19 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
         model - current model
 
         """
-        from pquant.core.torch.layers import (
-            CompressedLayerConv1d,
-            CompressedLayerConv2d,
-            CompressedLayerLinear,
-            QuantizedPooling,
-            QuantizedReLU,
-            QuantizedTanh,
+        from pquant.core.torch.activations import PQActivation  # noqa: F811
+        from pquant.core.torch.layers import (  # noqa: F811
+            PQAvgPoolBase,
+            PQConv1d,
+            PQConv2d,
+            PQDense,
         )
 
         for n, m in model.named_modules():
-            if isinstance(m, (CompressedLayerConv2d, CompressedLayerConv1d, CompressedLayerLinear)):
-                logging.info(f"Layer {n}: {m.i_weight, m.f_weight} bits")
-            elif isinstance(m, (QuantizedReLU, QuantizedTanh, QuantizedPooling)):
-                logging.info(f"Layer {n}: {m.i, m.f} bits")
+            if isinstance(m, (PQConv2d, PQConv1d, PQDense)):
+                logging.info(f"Layer {n}: {m.get_weight_quantization_bits()} bits")
+            elif isinstance(m, (PQActivation, PQAvgPoolBase)):
+                logging.info(f"Layer {n}: {m.get_input_quantization_bits()} bits")
 
     # Save the this model's state dict (i.e. uncompressed version)
     trained_uncompressed_model_state_dict = trained_uncompressed_model.state_dict()
@@ -169,6 +146,7 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
         criterion=loss_func,
         config=config,
         layerwise_pruning=False,
+        input_shape=input_shape,
     )
 
     # Start A* (path-finding through compression space)
@@ -176,12 +154,8 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
         optimal_node,
         quant_prune_config,
         trained_uncompressed_model,
-        activ_int_bits,
-        activ_frac_bits,
-        pool_int_bits,
-        pool_frac_bits,
         optimal_node_pruning_mask,
-    ) = fit_compress_computer.astar()
+    ) = fit_compress_computer.astar(config)
 
     logging.info("Finished FITcompress")
 
@@ -189,23 +163,8 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
     # only finds optimal pruning and quantization settings, but shouldn't change the model's weights/quantization settings
     trained_uncompressed_model.load_state_dict(trained_uncompressed_model_state_dict)
 
-    # Only in PDP and Wanda we have a global pruning sparsity target, which can be found via fitcompress
-    if config.pruning_parameters.pruning_method in ["pdp", "wanda"]:
-        # Create copy of default sparsity
-        default_sparsity_target = float(config.pruning_parameters.sparsity)
-
-        # Set the optimal sparsity target for pruning
-        if config.fitcompress_parameters.optimize_pruning:
-            config.pruning_parameters.sparsity = float(quant_prune_config["pruning_metrics"]["percentage"])
-
-        # If 0 was found as optimal, set to default sparsity target
-        if config.pruning_parameters.sparsity == 0:
-            # Set to the previous default value
-            config.pruning_parameters.sparsity = default_sparsity_target
-
     # Enable quantization for the model
-    if config.quantization_parameters.enable_quantization:
-        trained_uncompressed_model = enable_quantization(trained_uncompressed_model)
+    trained_uncompressed_model = enable_quantization(trained_uncompressed_model)
 
     if config.fitcompress_parameters.optimize_quantization:
         # Set layer specific quantization in config file
@@ -213,16 +172,9 @@ def call_fitcompress(config, trained_uncompressed_model, train_loader, loss_func
             trained_uncompressed_model,
             quant_prune_config["quant_config"],
             config,
-            activ_int_bits,
-            activ_frac_bits,
-            pool_int_bits,
-            pool_frac_bits,
         )
         # Now add the layer specific configuration to the model
-        add_layer_specific_quantization_to_model(trained_uncompressed_model, config)
-
-    if config.fitcompress_parameters.optimize_pruning:
-        logging.info("Pruning Sparsity after FITcompress : ", config.pruning_parameters.sparsity)
+        # add_layer_specific_quantization_to_model(trained_uncompressed_model, config)
 
     logging.info("Layerwise quantization bits after FITcompress : ", config.quantization_parameters.layer_specific)
 
@@ -305,7 +257,7 @@ class node:
 
 class FITcompress:
 
-    def __init__(self, model, device, dataloader, criterion, config, layerwise_pruning=False):
+    def __init__(self, model, device, dataloader, criterion, config, layerwise_pruning=False, input_shape=None):
         """
         Calculate initial EF of the uncompressed model and set up quantization &
         pruning schedules, as well as the initial node in the compression space.
@@ -340,7 +292,7 @@ class FITcompress:
         # This marks which weights & activations can be pruned/quantized.
         # We can then reuse this instance and its corresponding .get_EF() function
         # and get_FIT() functions, passing the appropriate empirical Fisher traces.
-        self.fit_computer = FIT(self.model, self.device, input_spec=(3, 32, 32))
+        self.fit_computer = FIT(self.model, self.device, input_spec=input_shape)
 
         # Calculate the EF trace of the uncompressed model (i.e. initial EF trace), only based on weights
         self.FeM, self.EF_trace_params_layerwise_uncompressed, _, _, _ = self.fit_computer.get_EF(
@@ -495,8 +447,10 @@ class FITcompress:
                 this is not done in the original code.
         """
         i = 0
+        from pquant.layers import PQConv2d, PQDense  # noqa: F811
+
         for _, module in model.named_modules():
-            if isinstance(module, (CompressedLayerLinear, CompressedLayerConv2d)):
+            if isinstance(module, (PQDense, PQConv2d)):
                 for name_param, matrix_param in list(module.named_parameters()):
                     if name_param.endswith('weight'):
                         matrix_param.data = nn.parameter.Parameter(params[i].to(self.device))
@@ -714,7 +668,25 @@ class FITcompress:
 
         return current_node_matrices_params_layerwise
 
-    def post_fitcompress_calibration(self, best_node_quant_config, calibration_epochs=50):
+    def set_activation_bits(self, layer):
+        if layer.quantize_input:
+            max_abs = torch.max(torch.tensor([torch.max(torch.abs(e)) for e in layer.saved_inputs]))
+            k, i, f = layer.get_input_quantization_bits()
+            bits = k + i + f
+            int_bits = math.ceil(math.log2(max_abs))
+            frac_bits = bits - int_bits - k
+            layer.saved_inputs = []
+            layer.input_quantizer.set_quantization_bits(int_bits, frac_bits)
+        if layer.quantize_output:
+            max_abs = torch.max(torch.tensor([torch.max(torch.abs(e)) for e in layer.saved_outputs]))
+            k, i, f = layer.get_output_quantization_bits()
+            bits = k + i + f
+            int_bits = math.ceil(math.log2(max_abs))
+            frac_bits = bits - int_bits - k
+            layer.saved_outputs = []
+            layer.output_quantizer.set_quantization_bits(int_bits, frac_bits)
+
+    def post_fitcompress_calibration(self, best_node_quant_config, config, calibration_epochs=50):
         """
         Calibrate integer/fractional bit allocation for activations, pooling layers,
                 and model inputs *after* the FITcompress path search.
@@ -742,17 +714,19 @@ class FITcompress:
                         pool_int_bits: Integer bits for the (single) pooling layer (res20).
                         pool_frac_bits: Fractional bits for the (single) pooling layer (res20).
         """
-        from pquant.core.torch.layers import (
-            QuantizedPooling,
-            QuantizedReLU,
+        from pquant.core.torch.activations import PQActivation  # noqa: F811
+        from pquant.core.torch.layers import (  # noqa: F811
+            PQAvgPoolBase,
+            PQWeightBiasBase,
         )
 
         # To avoid numerical issues
-        eps = 1e-12
         # Store input data, as we also need to quantize input (which is currently done in resnet.py of pquant-dev)
         data_input = []
         for m in self.model.modules():
-            if m.__class__ in [QuantizedReLU, QuantizedPooling]:
+            if isinstance(m, (PQAvgPoolBase, PQWeightBiasBase)):
+                m.post_fitcompress_calibration = True
+            elif m.__class__ == PQActivation and m.activation_name == "relu":
                 m.post_fitcompress_calibration = True
 
         # Trigger forward pass through model
@@ -767,78 +741,18 @@ class FITcompress:
                 _ = self.model(data_batch)
                 counter += 1
 
-        # Get ranges of activation inputs
-        activation_ranges = []
-        # Access the inputs to the ReLU
-        for name, m in self.model.named_modules():
-            if m.__class__ in [QuantizedReLU]:
-                # Average over calibration data
-                avg_relu = torch.stack(m.saved_inputs, dim=0).mean(dim=0)
-                # Now get the activation range
-                range_relu = (avg_relu.min().item(), avg_relu.max().item())
-                activation_ranges.append((name, range_relu))
-
-        # Get ranges of data input
-        avg_inputs = torch.stack(data_input, dim=0).mean(dim=0)
-        range_inputs = (avg_inputs.min().item(), avg_inputs.max().item())
-
-        # Get ranges of pooling layer input(s)
-        activation_ranges_pool = []
-        # And for the pooling layer (specific to res20)
         for m in self.model.modules():
-            if m.__class__ in [QuantizedPooling]:
-                # Average over calibration data
-                avg_pool = torch.stack(m.saved_inputs, dim=0).mean(dim=0)
-                # Now get the activation range
-                range_pool = (avg_pool.min().item(), avg_pool.max().item())
-                activation_ranges_pool.append(range_pool)
+            if isinstance(m, PQAvgPoolBase):
+                m.post_fitcompress_calibration = False
+                self.set_activation_bits(m)
+            elif m.__class__ == PQActivation and m.activation_name == "relu":
+                m.post_fitcompress_calibration = False
+                self.set_activation_bits(m)
+            elif isinstance(m, PQWeightBiasBase):
+                m.post_fitcompress_calibration = False
+                self.set_activation_bits(m)
 
-        activ_int_bits = []
-        activ_frac_bits = []
-        for _, (name, layer) in enumerate(activation_ranges):
-            max_abs = np.abs(np.max(layer))  # np.abs(layer[1])
-            # Find the corresponding quant config of the weight layer that belongs to this activation unit
-            try:
-                curr_quant_config = best_node_quant_config[name.replace("relu", "conv")]
-            except KeyError:
-                curr_quant_config = best_node_quant_config["conv1"]
-
-            # curr_quant_config[0] : integer bits of weights, curr_quant_config[1] : fractional bits of weights
-            int_bits = (
-                (curr_quant_config[0] + curr_quant_config[1] + 1)
-                if max(0, math.ceil(math.log2(max_abs + eps))) > (curr_quant_config[0] + curr_quant_config[1] + 1)
-                else max(0, math.ceil(math.log2(max_abs + eps)))
-            )
-            activ_int_bits.append(int_bits)
-            # + 1 since ReLUs don't need the sign bit
-            frac_bits = (curr_quant_config[0] + curr_quant_config[1] + 1) - int_bits
-            activ_frac_bits.append(frac_bits)
-
-        # Same logic for data input (using 7 bits as standard, 1 goes to sign)
-        max_abs_input = np.abs(np.max(range_inputs))  # np.abs(range_inputs[1])
-        int_bits_input = (
-            (7)
-            if max(0, math.ceil(math.log2(max_abs_input + eps))) > (7)
-            else max(0, math.ceil(math.log2(max_abs_input + eps)))
-        )
-        frac_bits_input = (7) - int_bits_input
-
-        # Same logic for pooling layer (using 7 bits as standard, 1 goes to sign) ; just one pooling layer in res20
-        for _, layer in enumerate(activation_ranges_pool):
-            max_abs = np.abs(np.max(layer))  # np.abs(layer[1])
-            int_bits = (
-                (7) if max(0, math.ceil(math.log2(max_abs + eps))) > (7) else max(0, math.ceil(math.log2(max_abs + eps)))
-            )
-            pool_int_bits = int_bits
-            frac_bits = (7) - int_bits
-            pool_frac_bits = frac_bits
-
-        logging.info("SET INT BITS INPUT:", int_bits_input, " SET FRAC BITS INPUT:", frac_bits_input)
-        logging.info(f"INT BITS POOLING: {pool_int_bits}, FRAC BITS POOLING: {pool_frac_bits}")
-
-        return activ_int_bits, activ_frac_bits, pool_int_bits, pool_frac_bits
-
-    def astar(self):
+    def astar(self, config):
         """
         The actual search algorithm of FITcompress, which is based on the A* algorithm.
         Find either the node that has an optimal configuration (i.e. compression rate lower than the goal) and break or find
@@ -881,18 +795,14 @@ class FITcompress:
 
                     self.assign_parameters(self.model, params_quantized_unpruned)
 
-                    activ_int_bits, activ_frac_bits, pool_int_bits, pool_frac_bits = self.post_fitcompress_calibration(
-                        p_node.extract_config_from_node(self.layer_names)['quant_config']
+                    self.post_fitcompress_calibration(
+                        p_node.extract_config_from_node(self.layer_names)['quant_config'], config
                     )
 
                     return (
                         p_node,
                         p_node.extract_config_from_node(self.layer_names),
                         self.model,
-                        activ_int_bits,
-                        activ_frac_bits,
-                        pool_int_bits,
-                        pool_frac_bits,
                         p_node_pruning_mask_layerwise,
                     )
 
@@ -1011,6 +921,7 @@ class FITcompress:
                         neighbour_node_state=neighbour_node_state,
                         neighbour_node_pruning_metrics=neighbour_node_pruning_metrics,
                         neighbour_node_unquantized_parameters_layerwise=current_node.unquantized_weights.copy(),
+                        neighbour_node_int_bits=neighbour_node_int_bits,
                         neighbour_node_frac_bits=neighbour_node_frac_bits,
                         approximate=self.config.fitcompress_parameters.approximate,
                     )
@@ -1234,7 +1145,7 @@ class FITcompress:
         uncompressed = 0.0
         for params_layer, quant_conf_layer in zip(params_layerwise, quant_config):
             # Count which parameters are non-zero, non_zero is simply the number of non-zero parameters in the current layer
-            non_zero = torch.sum(torch.where(torch.abs(params_layer) < 10e-8, 0, 1)).detach().cpu().numpy()
+            non_zero = torch.sum(torch.where(torch.abs(params_layer) < 2**-quant_conf_layer, 0, 1)).detach().cpu().numpy()
             active_bytes += (
                 non_zero * quant_conf_layer / 8
             )  # Gives us the number of total bytes needed to store the parameters in the current layer
@@ -1289,17 +1200,18 @@ class FIT:
                 matrices_params_sizes_layerwise (list): A list of sizes of the weight matrices for each layer of interest.
                 layer_names (list): A list of the names of the layers of interest.
         """
+        from pquant.layers import PQConv2d, PQDense  # noqa: F811
 
         matrices_params_layerwise = []
         layer_names = []
         # Iterate through all modules in the model
         for name, module in model.named_modules():
 
-            if isinstance(module, (CompressedLayerLinear, CompressedLayerConv2d)):
+            if isinstance(module, (PQDense, PQConv2d)):
                 layer_names.append(name)
                 for name_param, matrix_param in list(module.named_parameters()):
                     # Search for the weights
-                    if name_param.endswith('weight'):
+                    if name_param.endswith('_weight'):
                         matrices_params_layerwise.append(matrix_param)
                         # Set their collect flag to True (later on we can then access them easily like this)
                         matrix_param.collect = True
@@ -1325,6 +1237,7 @@ class FIT:
         Args :
                 model (torch.nn.Module): The model to hook the layers of.
         """
+        from pquant.layers import PQConv2d, PQDense  # noqa: F811
 
         def hook_inp(module, inp, outp):
             """
@@ -1334,7 +1247,7 @@ class FIT:
             module.activ_in = inp
 
         for _, module in model.named_modules():
-            if isinstance(module, (CompressedLayerLinear, CompressedLayerConv2d)):
+            if isinstance(module, (PQDense, PQConv2d)):
                 # Forward Hook to get inputs into activation function
                 hook = module.register_forward_hook(hook_inp)
                 self.hooks.append(hook)  # Store hooks so we can remove them later
@@ -1471,21 +1384,26 @@ class FIT:
         per_batch_layerwise_grad_sum_squared_params = []
         per_batch_layerwise_grad_sum_squared_activs = []
         # Iterate over mini-batches in the data loader untill we reach the max_iterations or convergence flag is not set
+        batch_size = None
         while total_batches < max_iterations and not convergence_flag:
             for _, data in enumerate(data_loader):
                 model.zero_grad()
                 data_batch, target_batch = data[0].to(self.device), data[1].to(self.device)
-                batch_size = data_batch.size(0)
+                if batch_size is None:
+                    batch_size = data_batch.size(0)  # Only save once
+                if data_batch.size(0) != batch_size:
+                    continue  # Uneven batches break loop
 
                 loss = self.get_loss(model, data_batch, target_batch, loss_func, mode='mini-batch')
                 curr_batch_matrices_params_layerwise = []
                 curr_batch_minmax_range_params_layerwise = []
                 for weights in model.parameters():
-                    if weights.collect:
-                        curr_batch_matrices_params_layerwise.append(weights)
-                        curr_batch_minmax_range_params_layerwise.append(
-                            (torch.max(weights.data) - torch.min(weights.data)).detach().cpu().numpy()
-                        )
+                    if hasattr(weights, "collect"):
+                        if weights.collect:
+                            curr_batch_matrices_params_layerwise.append(weights)
+                            curr_batch_minmax_range_params_layerwise.append(
+                                (torch.max(weights.data) - torch.min(weights.data)).detach().cpu().numpy()
+                            )
 
                 per_batch_layerwise_minmax_range_params.append(curr_batch_minmax_range_params_layerwise)
 
