@@ -13,6 +13,7 @@ class Sampler(BaseModel):
 
 class BaseFinetuningModel(BaseModel):
     experiment_name: str = Field(default="experiment_1")
+    model_name: str = Field(default="example_model")
     sampler: Sampler = Field(default_factory=Sampler)
     num_trials: int = Field(default=0)
     hyperparameter_search: HyperparameterSearch = Field(default_factory=HyperparameterSearch)
