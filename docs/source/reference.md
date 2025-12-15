@@ -2,7 +2,7 @@
 
 ## Config file
 
-The most important part of the library is a user-defined config yaml file. It has five separate sections: training, pruning, quantization, finetuning, and fitcompress section `currently maintained by TensorFlow only` parameters. By default, the parameters in the config are the following:
+The most important part of the library is a user-defined config yaml file. It has five separate sections: training, pruning, quantization, finetuning, and fitcompress section, `currently maintained by TensorFlow only`, parameters. By default, the parameters in the config are the following:
 
 ### Training parameters
 The following table outlines the primary parameters used to configure the training process:
