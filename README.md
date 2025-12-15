@@ -11,7 +11,7 @@ Both PyTorch and TensorFlow models are supported.
 
 Layers that can be compressed: Conv2D and Linear layers, Tanh and ReLU activations for both TensorFlow and PyTorch. For PyTorch, also Conv1D.
 
-![alt text](docs/_static/pquant_transform.png)
+![alt text](docs/_static/pquant.png)
 
 The various pruning methods have different training steps, such as a pre-training step and fine-tuning step. PQuant provides a training function, where the user provides the functions to train and validate an epoch, and PQuant handles the training while triggering the different training steps.
 
@@ -31,6 +31,7 @@ A description of the pruning methods and their hyperparameters can be found [her
 ### Quantization parameters
 A description of the quantization parameters can be found [here](docs/quantization_parameters.md).
 
+For detailed documentation check this page: [PQuantML documentation](https://pquantml.readthedocs.io/en/latest/)
 
 ### Authors
  - Roope Niemi (CERN)
