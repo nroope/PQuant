@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -12,7 +13,7 @@ class BasePruningModel(BaseModel):
 class CSPruningModel(BasePruningModel):
     pruning_method: Literal["cs"] = "cs"
     final_temp: int = Field(default=200)
-    threshold_init: int = Field(default=0)
+    threshold_init: float = Field(default=0)
 
 
 class DSTPruningModel(BasePruningModel):
@@ -21,6 +22,11 @@ class DSTPruningModel(BasePruningModel):
     max_pruning_pct: float = Field(default=0.99)
     threshold_init: float = Field(default=0.0)
     threshold_type: str = Field(default="channelwise")
+
+
+class FITCompressPruningModel(BasePruningModel):
+    pruning_method: Literal["fitcompress"] = "fitcompress"
+    min_frac_bit: float = Field(default=2.0)
 
 
 class PDPPruningModel(BasePruningModel):
@@ -33,8 +39,8 @@ class PDPPruningModel(BasePruningModel):
 
 class WandaPruningModel(BasePruningModel):
     pruning_method: Literal["wanda"] = "wanda"
-    M: Optional[int] = Field(default=None),
-    N: Optional[int] = Field(default=None),
+    M: Optional[int] = (Field(default=None),)
+    N: Optional[int] = (Field(default=None),)
     sparsity: float = Field(default=0.9)
     t_delta: int = Field(default=100)
     t_start_collecting_batch: int = Field(default=100)

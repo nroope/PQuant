@@ -66,6 +66,7 @@ class AutoSparse(keras.layers.Layer):
         global BACKWARD_SPARSITY
         BACKWARD_SPARSITY = config.pruning_parameters.backward_sparsity
         self.is_pretraining = True
+        self.is_finetuning = False
 
     def build(self, input_shape):
         self.threshold_size = get_threshold_size(self.config, input_shape)
@@ -85,6 +86,8 @@ class AutoSparse(keras.layers.Layer):
         """
         if self.is_pretraining:
             return weight
+        if self.is_finetuning:
+            return self.mask * weight
         else:
             mask = self.get_mask(weight)
             self.mask = ops.reshape(mask, weight.shape)
@@ -110,7 +113,7 @@ class AutoSparse(keras.layers.Layer):
         return 0
 
     def pre_finetune_function(self):
-        pass
+        self.is_finetuning = True
 
     def post_round_function(self):
         pass

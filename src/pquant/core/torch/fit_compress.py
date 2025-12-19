@@ -485,10 +485,11 @@ class FITcompress:
             max_abs = torch.max(torch.abs(param_layer.detach().cpu()))
             eps = 1e-12
             int_bits = max(0, math.ceil(math.log2(max_abs + eps)))
-            fractional_bits = quant_config[idx] - int_bits
+            fractional_bits = max(1, quant_config[idx] - int_bits)
 
             all_int_bits.append(int_bits)
             all_frac_bits.append(fractional_bits)
+            logging.info(f"Weights int bits={int_bits}, fractional bits={fractional_bits}")
 
         for idx, param_layer in enumerate(params):
             # If reset is inactive, we quantize weights given the unquantized, but possibly pruned weights
@@ -674,17 +675,20 @@ class FITcompress:
             k, i, f = layer.get_input_quantization_bits()
             bits = k + i + f
             int_bits = math.ceil(math.log2(max_abs))
-            frac_bits = bits - int_bits - k
+            frac_bits = max(self.config.pruning_parameters.min_frac_bits, bits - int_bits - k)
             layer.saved_inputs = []
             layer.input_quantizer.set_quantization_bits(int_bits, frac_bits)
+            logging.info(f"Set input quantization bits from {i}, {f} to {int_bits}, {frac_bits}")
+
         if layer.quantize_output:
             max_abs = torch.max(torch.tensor([torch.max(torch.abs(e)) for e in layer.saved_outputs]))
             k, i, f = layer.get_output_quantization_bits()
             bits = k + i + f
             int_bits = math.ceil(math.log2(max_abs))
-            frac_bits = bits - int_bits - k
+            frac_bits = max(self.config.pruning_parameters.min_frac_bits, bits - int_bits - k)
             layer.saved_outputs = []
             layer.output_quantizer.set_quantization_bits(int_bits, frac_bits)
+            logging.info(f"Set output quantization bits from {i}, {f} to {int_bits}, {frac_bits}")
 
     def post_fitcompress_calibration(self, best_node_quant_config, config, calibration_epochs=50):
         """
@@ -1145,7 +1149,14 @@ class FITcompress:
         uncompressed = 0.0
         for params_layer, quant_conf_layer in zip(params_layerwise, quant_config):
             # Count which parameters are non-zero, non_zero is simply the number of non-zero parameters in the current layer
-            non_zero = torch.sum(torch.where(torch.abs(params_layer) < 2**-quant_conf_layer, 0, 1)).detach().cpu().numpy()
+            int_bits = max(0, math.ceil(math.log2(torch.max(torch.abs(params_layer)))))
+            frac_bits_round_threshold = max(
+                1, quant_conf_layer - int_bits - 2
+            )  # - sign bit and rounding causes the second one
+            non_zero = (
+                torch.sum(torch.where(torch.abs(params_layer) < 2**-frac_bits_round_threshold, 0, 1)).detach().cpu().numpy()
+            )
+            logging.info(f"With {quant_conf_layer}, fractional bits is {frac_bits_round_threshold}")
             active_bytes += (
                 non_zero * quant_conf_layer / 8
             )  # Gives us the number of total bytes needed to store the parameters in the current layer

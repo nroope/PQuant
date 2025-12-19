@@ -1408,7 +1408,7 @@ def call_post_round_functions(model, rewind, rounds, r):
         rewind_weights_functions(model)
     elif rewind == "post-ticket-search" and r == rounds - 1:
         rewind_weights_functions(model)
-    else:
+    elif r != rounds - 1:
         post_round_functions(model)
 
 

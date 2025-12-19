@@ -10,7 +10,7 @@ from pquant.core.torch.layers import (
 )
 
 
-def train_model(model, config, train_func, valid_func, **kwargs):
+def train_model(model, config, train_func, valid_func, input_shape=None, **kwargs):
     """
     Generic training loop, user provides training and validation functions
     """
@@ -25,7 +25,7 @@ def train_model(model, config, train_func, valid_func, **kwargs):
             valid_func(model, epoch=epoch, **kwargs)
             post_epoch_functions(model, e, training_config.pretraining_epochs)
             epoch += 1
-    post_pretrain_functions(model, config, kwargs['trainloader'], kwargs['loss_func'])
+    post_pretrain_functions(model, config, kwargs['trainloader'], kwargs['loss_function'], input_shape=input_shape)
     for r in range(training_config.rounds):
         for e in range(training_config.epochs):
             model.train()

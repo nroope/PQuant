@@ -1,10 +1,12 @@
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
+
 from pydantic import BaseModel, Field
-from typing_extensions import Literal
+
 
 class HyperparameterSearch(BaseModel):
     numerical: Dict[str, List[Union[int, float]]] = Field(default_factory=dict)
     categorical: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+
 
 class Sampler(BaseModel):
     type: str = Field(default="TPESampler")

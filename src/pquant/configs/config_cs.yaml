@@ -1,11 +1,10 @@
 pruning_parameters:
-  disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
-    -
+  disable_pruning_for_layers: [] # Disable pruning for these layers, even if enable_pruning is true
   enable_pruning: true
   final_temp: 200
   pruning_method: cs
   threshold_decay: 1.0e-09
-  threshold_init: 0
+  threshold_init: 0.
 quantization_parameters:
   default_weight_keep_negatives: 1.
   default_weight_integer_bits: 0.

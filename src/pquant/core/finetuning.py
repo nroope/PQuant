@@ -10,7 +10,6 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-
 from pquant.core import constants
 from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
@@ -20,6 +19,7 @@ from pquant.data_models.pruning_model import (
     BasePruningModel,
     CSPruningModel,
     DSTPruningModel,
+    FITCompressPruningModel,
     MDMMPruningModel,
     PDPPruningModel,
     WandaPruningModel,
@@ -70,6 +70,7 @@ class TuningConfig(BaseModel):
         Union[
             CSPruningModel,
             DSTPruningModel,
+            FITCompressPruningModel,
             PDPPruningModel,
             WandaPruningModel,
             AutoSparsePruningModel,
@@ -363,6 +364,13 @@ def cs_config():
 
 def dst_config():
     yaml_name = "config_dst.yaml"
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(parent, "configs", yaml_name)
+    return TuningConfig.load_from_file(path)
+
+
+def fitcompress_config():
+    yaml_name = "config_fitcompress.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
     return TuningConfig.load_from_file(path)

@@ -6,6 +6,7 @@ from pquant.pruning_methods.activation_pruning import ActivationPruning
 from pquant.pruning_methods.autosparse import AutoSparse
 from pquant.pruning_methods.cs import ContinuousSparsification
 from pquant.pruning_methods.dst import DST
+from pquant.pruning_methods.fitcompress import FITCompress
 from pquant.pruning_methods.mdmm import MDMM
 from pquant.pruning_methods.pdp import PDP
 from pquant.pruning_methods.wanda import Wanda
@@ -27,6 +28,8 @@ def get_pruning_layer(config, layer_type):
         return Wanda(config, layer_type)
     elif pruning_method == "mdmm":
         return MDMM(config, layer_type)
+    elif pruning_method == "fitcompress":
+        return FITCompress(config)
 
 
 def get_default_config(pruning_method: str):
@@ -35,6 +38,7 @@ def get_default_config(pruning_method: str):
         "ap",
         "cs",
         "dst",
+        "fitcompress",
         "pdp",
         "wanda",
         "mdmm",

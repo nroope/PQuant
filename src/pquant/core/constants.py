@@ -5,6 +5,7 @@ from pquant.data_models.pruning_model import (
     AutoSparsePruningModel,
     CSPruningModel,
     DSTPruningModel,
+    FITCompressPruningModel,
     MDMMPruningModel,
     PDPPruningModel,
     WandaPruningModel,
@@ -22,6 +23,7 @@ from pquant.pruning_methods.metric_functions import (
 PRUNING_MODEL_REGISTRY = {
     "cs": CSPruningModel,
     "dst": DSTPruningModel,
+    "fitcompress": FITCompressPruningModel,
     "pdp": PDPPruningModel,
     "wanda": WandaPruningModel,
     "autosparse": AutoSparsePruningModel,
@@ -44,6 +46,7 @@ SAMPLER_REGISTRY = {
 
 try:
     import mlflow
+
     LOG_FUNCTIONS_REGISTRY = {
         "torch": mlflow.pytorch.log_model,
         "tensorflow": mlflow.tensorflow.log_model,

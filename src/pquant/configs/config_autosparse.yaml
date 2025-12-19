@@ -3,8 +3,7 @@ pruning_parameters:
   alpha_reset_epoch: 90
   autotune_epochs: 10
   backward_sparsity: false
-  disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
-    -
+  disable_pruning_for_layers: [] # Disable pruning for these layers, even if enable_pruning is true
   enable_pruning: true
   pruning_method: autosparse
   threshold_decay: 0
