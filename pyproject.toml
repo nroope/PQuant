@@ -23,7 +23,11 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dynamic = [ "version" ]
-dependencies = [ "keras>=3", "pyyaml>=6.0.1", "quantizers>=1.1", "torch>=2.1", "pydantic>=2.0"]
+dependencies = [ "hgq2", "keras>=3", "optuna", "pydantic>=2", "pyyaml>=6.0.1", "quantizers>=1.1" ]
+optional-dependencies.all = [ "pytest>=8.4", "tensorflow>=2.17,<=2.20", "torch>=2.1" ]
+optional-dependencies.tensorflow = [ "tensorflow>=2.17,<=2.20" ]
+optional-dependencies.test = [ "pytest>=8.4" ]
+optional-dependencies.torch = [ "torch>=2.1" ]
 urls.repository = "https://github.com/nroope/PQuant"
 
 [tool.setuptools]

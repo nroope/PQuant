@@ -16,6 +16,7 @@ from keras.layers import (
     ReLU,
     SeparableConv2D,
 )
+from keras.src.layers.input_spec import InputSpec
 from keras.src.ops.operation_utils import compute_pooling_output_shape
 
 from pquant.core.keras.activations import PQActivation
@@ -276,10 +277,8 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
         self.use_bias = use_bias
         self.strides = strides
         self.dilation_rate = dilation_rate
-        # self.weight_transpose = (2, 3, 0, 1)
-        # self.weight_transpose_back = (2, 3, 1, 0)
-        self.weight_transpose = (3, 2, 0, 1)
-        self.weight_transpose_back = (2, 3, 1, 0)
+        self.weight_transpose = (2, 3, 0, 1)
+        self.weight_transpose_back = (2, 3, 0, 1)
         self.data_transpose = (0, 3, 1, 2)
         self.do_transpose_data = self.data_format == "channels_last"
         self._weight = None
@@ -288,10 +287,12 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
     def build(self, input_shape):
         super().build(input_shape)
         if self.data_format == "channels_last":
+            channel_axis = -1
             input_channel = input_shape[-1]
         else:
+            channel_axis = 1
             input_channel = input_shape[1]
-
+        self.input_spec = InputSpec(min_ndim=self.rank + 2, axes={channel_axis: input_channel})
         depthwise_shape = self.kernel_size + (
             input_channel,
             self.depth_multiplier,

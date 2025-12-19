@@ -735,15 +735,18 @@ def test_ap_conv1d_channels_last_transpose(config_ap, conv1d_input):
 
 
 def test_ap_depthwiseconv2d_channels_last_transpose(config_ap, conv2d_input):
+    if keras.backend.image_data_format() == "channels_last":
+        conv2d_input = ops.transpose(conv2d_input, (0, 3, 1, 2))
     keras.backend.set_image_data_format("channels_first")
     inp = ops.reshape(ops.linspace(0, 1, ops.size(conv2d_input)), conv2d_input.shape)
 
     inputs = keras.Input(shape=inp.shape[1:])
-    out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same")(inputs)
+    out = DepthwiseConv2D(KERNEL_SIZE, use_bias=False, padding="same", data_format="channels_first")(inputs)
     model_cf = keras.Model(inputs=inputs, outputs=out, name="test_dwconv2d")
     model_cf = add_compression_layers(model_cf, config_ap, inp.shape)
-    weight_cf = model_cf.layers[1]._kernel
 
+    weight_cf = model_cf.layers[1]._kernel
+    model_cf.summary()
     post_pretrain_functions(model_cf, config_ap)
     model_cf(inp, training=True)
     model_cf(inp, training=True)
