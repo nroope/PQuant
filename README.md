@@ -40,7 +40,9 @@ A description of the pruning methods and their hyperparameters can be found [her
 ### Quantization parameters
 A description of the quantization parameters can be found [here](docs/quantization_parameters.md).
 
+
 For detailed documentation check this page: [PQuantML documentation](https://pquantml.readthedocs.io/en/latest/)
+
 
 ### Authors
  - Roope Niemi (CERN)
