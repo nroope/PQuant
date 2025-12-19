@@ -6,13 +6,14 @@ from pquant.pruning_methods.activation_pruning import ActivationPruning
 from pquant.pruning_methods.autosparse import AutoSparse
 from pquant.pruning_methods.cs import ContinuousSparsification
 from pquant.pruning_methods.dst import DST
+from pquant.pruning_methods.fitcompress import FITCompress
+from pquant.pruning_methods.mdmm import MDMM
 from pquant.pruning_methods.pdp import PDP
 from pquant.pruning_methods.wanda import Wanda
-from pquant.pruning_methods.mdmm import MDMM
 
 
 def get_pruning_layer(config, layer_type):
-    pruning_method = config["pruning_parameters"]["pruning_method"]
+    pruning_method = config.pruning_parameters.pruning_method
     if pruning_method == "dst":
         return DST(config, layer_type)
     elif pruning_method == "autosparse":
@@ -27,6 +28,8 @@ def get_pruning_layer(config, layer_type):
         return Wanda(config, layer_type)
     elif pruning_method == "mdmm":
         return MDMM(config, layer_type)
+    elif pruning_method == "fitcompress":
+        return FITCompress(config)
 
 
 def get_default_config(pruning_method: str):
@@ -35,6 +38,7 @@ def get_default_config(pruning_method: str):
         "ap",
         "cs",
         "dst",
+        "fitcompress",
         "pdp",
         "wanda",
         "mdmm",
@@ -56,7 +60,7 @@ def write_config_to_yaml(config, output_path, sort_keys=True):
 
 
 def validate_pruning_parameters(config):
-    pruning_method = config["pruning_parameters"]["pruning_method"]
+    pruning_method = config.pruning_parameters.pruning_method
     if pruning_method == "dst":
         valid_keys = [
             "alpha",
@@ -121,7 +125,7 @@ def validate_pruning_parameters(config):
             "sparsity",
         ]
     for k in valid_keys:
-        assert k in config["pruning_parameters"].keys(), f"missing pruning parameter: {k}"
+        assert k in config.pruning_parameters.keys(), f"missing pruning parameter: {k}"
 
 
 def validate_quantization_parameters(config):
@@ -136,7 +140,7 @@ def validate_quantization_parameters(config):
         "use_symmetric_quantization",
     ]
     for k in valid_keys:
-        assert k in config["quantization_parameters"].keys(), f"missing quantization parameter: {k}"
+        assert k in config.quantization_parameters.keys(), f"missing quantization parameter: {k}"
 
 
 def validate_training_parameters(config):
@@ -150,7 +154,7 @@ def validate_training_parameters(config):
         "save_weights_epoch",
     ]
     for k in valid_keys:
-        assert k in config["training_parameters"].keys(), f"missing training parameter: {k}"
+        assert k in config.training_parameters.keys(), f"missing training parameter: {k}"
 
 
 def validate_config(config):

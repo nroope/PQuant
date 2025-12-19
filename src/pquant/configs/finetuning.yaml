@@ -1,0 +1,60 @@
+pruning_parameters:
+    disable_pruning_for_layers:
+      []
+    pruning_method: pdp
+quantization_parameters:
+  default_integer_bits: 0.
+  default_fractional_bits: 7.
+  enable_quantization: true
+  hgq_gamma: 0.0003
+  hgq_heterogeneous: True
+  layer_specific: []
+  use_high_granularity_quantization: false
+  use_real_tanh: false
+  use_symmetric_quantization: false
+training_parameters:
+   batch_size: 128
+   optimizer: sgd
+   plot_frequency: 100
+   label_smoothing: 0
+   dataset: "cifar10"
+   l2_decay:  0.001
+   momentum:  0.9
+   lr_schedule: "cosine"
+   milestones: [30, 80]
+   gamma: 0.1
+   cosine_tmax: 200
+   learning_rate: 0.001
+   prune_ratio: 10
+   default_integer_bits: 0
+   epochs: 2
+   fine_tuning_epochs: 2
+   pretraining_epochs: 0
+   pruning_first: false
+   rewind: never
+   rounds: 2
+   save_weights_epoch: 2
+fitcompress_parameters:
+  enable_fitcompress : false
+  optimize_quantization : true
+  quantization_schedule : [7.,4.,3.,2.,1.]
+  pruning_schedule : {start : 0, end : -3, steps : 40}
+  compression_goal : 0.04
+  optimize_pruning : true
+  greedy_astar : true
+  approximate : true
+  f_lambda : 0.5
+finetuning_parameters:
+    experiment_name: resnet_18_experiment_2
+    model_name: resnet18
+    num_trials: 10
+    sampler:
+      type: RandomSampler
+    hyperparameter_search:
+      numerical:
+        learning_rate: [1e-5, 1e-3, 0.2]
+        epochs: [20, 100, 20]
+        batch_size: [16, 256, 32]
+        default_integer_bits: [0, 8, 2]
+      categorical:
+        lr_schedule: ["cosine", "multistep"]

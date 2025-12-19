@@ -1,6 +1,5 @@
 pruning_parameters:
-  disable_pruning_for_layers: # Disable pruning for these layers, even if enable_pruning is true
-    -
+  disable_pruning_for_layers: [] # Disable pruning for these layers, even if enable_pruning is true
   enable_pruning: true
   epsilon: 0.015
   pruning_method: pdp
@@ -9,35 +8,43 @@ pruning_parameters:
   threshold_decay: 0.
   structured_pruning: false
 quantization_parameters:
-  default_integer_bits: 0.
-  default_fractional_bits: 7.
+  default_weight_keep_negatives: 1.
+  default_weight_integer_bits: 0.
+  default_weight_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_data_integer_bits: 0.
+  default_data_fractional_bits: 7.
+  quantize_input: true
+  quantize_output: false
   enable_quantization: true
+  hgq_beta: 1e-5
   hgq_gamma: 0.0003
   hgq_heterogeneous: True
   layer_specific: []
   use_high_granularity_quantization: false
   use_real_tanh: false
-  use_relu_multiplier: true
-  use_symmetric_quantization: false
+  use_relu_multiplier: false
+  overflow: SAT
+  round_mode: RND
 fitcompress_parameters:
   enable_fitcompress : false
   optimize_quantization : true
   quantization_schedule : [7.,4.,3.,2.,1.]
-  pruning_schedule : {start : 0, end : -3, steps : 40}
+  pruning_schedule : {start : 0, end : -2, steps : 40}
   compression_goal : 0.10
   optimize_pruning : true
   greedy_astar : true
   approximate : true
-  lambda : 1
+  f_lambda : 1
 training_parameters:
   epochs: 100
-  fine_tuning_epochs: 100
-  pretraining_epochs: 0
+  fine_tuning_epochs: 20
+  pretraining_epochs: 1
   pruning_first: false
   rewind: never
   rounds: 1
   save_weights_epoch: -1
-batch_size: 64
+batch_size: 256
 cosine_tmax: 200
 gamma: 0.1
 l2_decay: 0.0001

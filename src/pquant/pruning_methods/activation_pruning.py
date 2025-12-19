@@ -2,9 +2,13 @@ import keras
 from keras import ops
 
 
+@keras.saving.register_keras_serializable(package="Layers")
 class ActivationPruning(keras.layers.Layer):
-
     def __init__(self, config, layer_type, *args, **kwargs):
+        if isinstance(config, dict):
+            from pquant.core.finetuning import TuningConfig
+
+            config = TuningConfig.load_from_config(config)
         super().__init__(*args, **kwargs)
         self.config = config
         self.act_type = "relu"
@@ -14,9 +18,8 @@ class ActivationPruning(keras.layers.Layer):
         self.activations = None
         self.total = 0.0
         self.is_pretraining = True
-        self.done = False
-        self.threshold = ops.convert_to_tensor(config["pruning_parameters"]["threshold"])
-        self.t_start_collecting_batch = self.config["pruning_parameters"]["t_start_collecting_batch"]
+        self.threshold = ops.convert_to_tensor(config.pruning_parameters.threshold)
+        self.t_start_collecting_batch = self.config.pruning_parameters.t_start_collecting_batch
 
     def build(self, input_shape):
         self.shape = (input_shape[0], 1)
@@ -33,7 +36,7 @@ class ActivationPruning(keras.layers.Layer):
         linear/convolution layer are over 0. Every t_delta steps, uses these values to update
         the mask to prune those channels and neurons that are active less than a given threshold
         """
-        if self.done or not training or self.is_pretraining:
+        if not training or self.is_pretraining:
             # Don't collect during validation
             return
         if self.activations is None:
@@ -46,10 +49,11 @@ class ActivationPruning(keras.layers.Layer):
         gt_zero = ops.cast((output > 0), output.dtype)
         gt_zero = ops.sum(gt_zero, axis=0)  # Sum over batch, take average during mask update
         self.activations += gt_zero
-        if self.batches_collected % self.config["pruning_parameters"]["t_delta"] == 0:
+        if self.batches_collected % self.config.pruning_parameters.t_delta == 0:
             pct_active = self.activations / self.total
             self.t = 0
             self.total = 0
+            self.batches_collected = 0
             if self.layer_type == "linear":
                 self.mask = ops.expand_dims(ops.cast((pct_active > self.threshold), pct_active.dtype), 1)
             else:
@@ -61,15 +65,14 @@ class ActivationPruning(keras.layers.Layer):
                 else:
                     self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1, 1])
             self.activations *= 0.0
-            self.done = True
 
     def call(self, weight):  # Mask is only updated every t_delta step, using collect_output
-        if self.is_pretraining and self.config["fitcompress_parameters"]["enable_fitcompress"]:
+        if self.is_pretraining:
             return weight
         else:
             return self.mask * weight
 
-    def get_hard_mask(self, weight):
+    def get_hard_mask(self, weight=None):
         return self.mask
 
     def post_pre_train_function(self):
@@ -94,3 +97,9 @@ class ActivationPruning(keras.layers.Layer):
         if self.is_pretraining is False:
             self.t += 1
         pass
+
+    def get_config(self):
+        config = super().get_config()
+
+        config.update({"config": self.config.get_dict(), "layer_type": self.layer_type})
+        return config

@@ -1,0 +1,57 @@
+pruning_parameters:
+  disable_pruning_for_layers: [] # Disable pruning for these layers, even if enable_pruning is true
+  enable_pruning: true
+  threshold_decay: 0.
+  pruning_method: fitcompress
+  min_frac_bits: 2.
+quantization_parameters:
+  default_weight_keep_negatives: 1.
+  default_weight_integer_bits: 0.
+  default_weight_fractional_bits: 7.
+  default_data_keep_negatives: 0.
+  default_data_integer_bits: 0.
+  default_data_fractional_bits: 7.
+  quantize_input: true
+  quantize_output: false
+  enable_quantization: true
+  hgq_beta: 1e-5
+  hgq_gamma: 0.0003
+  hgq_heterogeneous: True
+  layer_specific: []
+  use_high_granularity_quantization: false
+  use_real_tanh: false
+  use_relu_multiplier: true
+  use_symmetric_quantization: false
+  overflow: SAT
+  round_mode: RND
+fitcompress_parameters:
+  enable_fitcompress : true
+  optimize_quantization : true
+  quantization_schedule : [7., 6., 5., 4.,3.]
+  pruning_schedule : {start : 0, end : -2, steps : 40}
+  compression_goal : 0.007
+  optimize_pruning : true
+  greedy_astar : true
+  approximate : true
+  f_lambda : 1
+training_parameters:
+  epochs: 200
+  fine_tuning_epochs: 0
+  pretraining_epochs: 100
+  pruning_first: false
+  rewind: never
+  rounds: 1
+  save_weights_epoch: -1
+batch_size: 256
+cosine_tmax: 200
+gamma: 0.1
+l2_decay: 0.0001
+label_smoothing: 0.0
+lr: 0.1
+lr_schedule: cosine
+milestones:
+- -1
+- -1
+momentum: 0.9
+optimizer: adam
+plot_frequency: 100
