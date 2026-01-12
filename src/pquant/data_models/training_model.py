@@ -11,3 +11,5 @@ class BaseTrainingModel(BaseModel):
     rewind: str = Field(default="never")
     rounds: int = Field(default=1)
     save_weights_epoch: int = Field(default=-1)
+    pruning_first: bool = Field(default=False)
+    
