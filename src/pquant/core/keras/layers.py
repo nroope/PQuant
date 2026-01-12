@@ -1347,11 +1347,12 @@ class PQAvgPool2d(PQAvgPoolBase, keras.layers.AveragePooling2D):
 
 
 def call_post_round_functions(model, rewind, rounds, r):
+    last_round = (r == rounds - 1)
     if rewind == "round":
         rewind_weights_functions(model)
-    elif rewind == "post-ticket-search" and r == rounds - 1:
+    elif rewind == "post-ticket-search" and last_round:
         rewind_weights_functions(model)
-    else:
+    elif not last_round:
         post_round_functions(model)
 
 
