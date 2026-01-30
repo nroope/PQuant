@@ -16,7 +16,7 @@ class PDP(keras.layers.Layer):
         self.temp = config.pruning_parameters.temperature
         self.is_pretraining = True
         self.config = config
-        self.fine_tuning = False
+        self.is_finetuning = False
         self.layer_type = layer_type
 
     def build(self, input_shape):
@@ -38,7 +38,7 @@ class PDP(keras.layers.Layer):
         pass
 
     def get_hard_mask(self, weight=None):
-        if self.fine_tuning:
+        if self.is_finetuning:
             return self.mask
         if weight is None:
             return ops.cast((self.mask >= 0.5), self.mask.dtype)
@@ -53,7 +53,7 @@ class PDP(keras.layers.Layer):
         return self.mask
 
     def pre_finetune_function(self):
-        self.fine_tuning = True
+        self.is_finetuning = True
         self.mask = ops.cast((self.mask >= 0.5), self.mask.dtype)
 
     def get_mask_structured_linear(self, weight):
@@ -134,7 +134,7 @@ class PDP(keras.layers.Layer):
         return mask
 
     def call(self, weight):
-        if self.fine_tuning:
+        if self.is_finetuning:
             mask = self.mask
         else:
             if self.config.pruning_parameters.structured_pruning:
