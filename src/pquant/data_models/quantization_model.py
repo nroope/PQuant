@@ -1,5 +1,3 @@
-from typing import List
-
 from pydantic import BaseModel, Field
 
 
@@ -16,7 +14,7 @@ class BaseQuantizationModel(BaseModel):
     hgq_gamma: float = Field(default=0.0003)
     hgq_beta: float = Field(default=1e-5)
     hgq_heterogeneous: bool = Field(default=True)
-    layer_specific: List = Field(default_factory=list)
+    layer_specific: dict[str, dict] = Field(default_factory=dict)
     use_high_granularity_quantization: bool = Field(default=False)
     use_real_tanh: bool = Field(default=False)
     overflow: str = Field(default="SAT")
