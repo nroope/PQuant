@@ -17,7 +17,7 @@ quantization_parameters:
   hgq_beta: 1e-5
   hgq_gamma: 0.0003
   hgq_heterogeneous: True
-  layer_specific: []
+  layer_specific: {}
   use_high_granularity_quantization: false
   use_real_tanh: false
   use_relu_multiplier: true
