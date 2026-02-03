@@ -1533,13 +1533,15 @@ def get_layer_keep_ratio(model):
     return 0.0
 
 
-def get_model_losses(model, losses):
+def is_training_stage(layer):
+    return False if layer.pruning_layer.is_finetune and layer.pruning_layer.is_pretraining else True
 
+
+def get_model_losses(model, losses):
     for layer in model.modules():
         loss = 0.0
         if isinstance(layer, (PQConv2d, PQConv1d, PQDense)):
-
-            if layer.enable_pruning and not layer.use_fitcompress:
+            if layer.enable_pruning and is_training_stage(layer) and not layer.use_fitcompress:
                 loss += layer.pruning_layer.calculate_additional_loss()
             if layer.use_hgq:
                 loss += layer.hgq_loss()

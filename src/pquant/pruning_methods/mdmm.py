@@ -29,6 +29,8 @@ class MDMM(keras.layers.Layer):
         self.penalty_loss = None
         self.built = False
         self.is_finetuning = False
+        self.is_pretraining = True
+        
 
     def build(self, input_shape):
         pruning_parameters = self.config.pruning_parameters
@@ -121,7 +123,7 @@ class MDMM(keras.layers.Layer):
         pass
 
     def post_pre_train_function(self):
-        pass
+        self.is_pretraining = False
 
     def post_round_function(self):
         pass

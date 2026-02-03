@@ -18,6 +18,7 @@ class ActivationPruning(keras.layers.Layer):
         self.activations = None
         self.total = 0.0
         self.is_pretraining = True
+        self.is_finetuning = False
         self.threshold = ops.convert_to_tensor(config.pruning_parameters.threshold)
         self.t_start_collecting_batch = self.config.pruning_parameters.t_start_collecting_batch
 
@@ -85,7 +86,7 @@ class ActivationPruning(keras.layers.Layer):
         pass
 
     def pre_finetune_function(self):
-        pass
+        self.is_finetuning = True
 
     def calculate_additional_loss(self):
         return 0
