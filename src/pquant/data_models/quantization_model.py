@@ -1,4 +1,12 @@
+from typing import List
+from enum import Enum
 from pydantic import BaseModel, Field
+
+
+class QuantizationGranularity(str, Enum):
+    PER_TENSOR = "per_tensor"
+    PER_CHANNEL = "per_channel"
+    PER_WEIGHT = "per_weight"
 
 
 class BaseQuantizationModel(BaseModel):
@@ -10,6 +18,7 @@ class BaseQuantizationModel(BaseModel):
     default_data_fractional_bits: float = Field(default=7.0)
     quantize_input: bool = Field(default=True)
     quantize_output: bool = Field(default=False)
+    granularity: QuantizationGranularity = Field(default=QuantizationGranularity.PER_TENSOR)
     enable_quantization: bool = Field(default=True)
     hgq_gamma: float = Field(default=0.0003)
     hgq_beta: float = Field(default=1e-5)

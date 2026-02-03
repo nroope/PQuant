@@ -1,12 +1,13 @@
 import keras
 from keras.initializers import Constant
+from keras import ops
 
 from pquant.core.quantizer_functions import create_quantizer
 
 
 class Quantizer(keras.layers.Layer):
     # HGQ quantizer wrapper
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, hgq_gamma=0):
+    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, granularity, hgq_gamma=0):
         super().__init__()
         self.k = k
         self.i = i
@@ -17,7 +18,28 @@ class Quantizer(keras.layers.Layer):
         self.quantizer = create_quantizer(self.k, self.i, self.f, overflow, round_mode, is_heterogeneous, is_data)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
-
+        self.is_data = is_data
+        self.granularity = granularity
+    
+    def compute_dynamic_bits(self, x):
+        if self.granularity == "per_channel":
+            if ops.ndim(x) == 2:
+                abs_x = ops.max(ops.abs(x), axis=0, keepdims=True)
+            elif ops.ndim(x) == 3:
+                abs_x = ops.max(ops.abs(x), axis=(0, 1), keepdims=True)
+            elif ops.ndim(x) == 4:
+                abs_x = ops.max(ops.abs(x), axis=(0, 1, 2), keepdims=True)
+            else:
+                raise ValueError("Unsupported tensor rank")
+        elif self.granularity == "per_weight":
+            abs_x = ops.abs(x)
+        else:
+            raise ValueError(f"compute_dynamic_bits called for granularity={self.granularity}")
+        m = ops.ceil(ops.log(abs_x + 1e-6) / ops.log(2.0))
+        int_bits = ops.maximum(m, 0.0)
+        frac_bits = ops.maximum(self.b - int_bits - self.k, 0.0)
+        return int_bits, frac_bits
+    
     def build(self, input_shape):
         super().build(input_shape)
         self.i = self.add_variable((), Constant(self.i), dtype="float32", trainable=False)
@@ -52,13 +74,20 @@ class Quantizer(keras.layers.Layer):
         if not self.built:
             self.build(x.shape)
         if self.use_hgq:
-            x = self.quantizer(x, training=training)
+            return self.quantizer(x, training=training)
+        elif self.is_data or ops.ndim(x) == 1 or self.granularity == "per_tensor":
+            i, f = self.i, self.f
         else:
-            x = self.quantizer(x, k=self.k, i=self.i, f=self.f, training=training)
-        return x
+            i, f = self.compute_dynamic_bits(x)
+            self.i.assign(i)
+            self.f.assign(f)
+
+        return self.quantizer(x, k=self.k, i=i, f=f, training=training)
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
             return 0.0
-        loss = (keras.ops.sum(self.quantizer.quantizer.i) + keras.ops.sum(self.quantizer.quantizer.f)) * self.hgq_gamma
+        loss = 0
+        for layer_loss in self.quantizer.quantizer.losses:
+            loss += layer_loss
         return loss
