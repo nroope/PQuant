@@ -10,6 +10,7 @@ quantization_parameters:
   hgq_heterogeneous: True
   layer_specific: []
   use_high_granularity_quantization: false
+  granularity: "per_tensor"
   use_real_tanh: false
   use_symmetric_quantization: false
 training_parameters:
