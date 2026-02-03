@@ -10,6 +10,7 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+
 from pquant.core import constants
 from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
