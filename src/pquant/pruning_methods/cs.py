@@ -13,7 +13,7 @@ class ContinuousSparsification(keras.layers.Layer):
             config = TuningConfig.load_from_config(config)
         self.config = config
         self.final_temp = config.pruning_parameters.final_temp
-        self.do_hard_mask = False
+        self.is_finetuning = False
         self.layer_type = layer_type
         self.is_pretraining = True
 
@@ -33,10 +33,10 @@ class ContinuousSparsification(keras.layers.Layer):
         return mask * weight
 
     def pre_finetune_function(self):
-        self.do_hard_mask = True
+        self.is_finetuning = True
 
     def get_mask(self):
-        if self.do_hard_mask:
+        if self.is_finetuning:
             mask = self.get_hard_mask()
             return mask
         else:
