@@ -1628,9 +1628,13 @@ def get_layer_keep_ratio(model):
         return remaining_weights / total_w
     return 0.0
 
+def is_training_stage(layer):
+    return False if layer.pruning_layer.is_finetune and layer.pruning_layer.is_pretraining else True
+        
 
 def get_model_losses(model, losses):
     for layer in model.layers:
+        loss = 0
         if isinstance(
             layer,
             (
@@ -1639,14 +1643,16 @@ def get_model_losses(model, losses):
                 PQConv1d,
                 PQDense,
             ),
-        ):
-            loss = layer.pruning_layer.calculate_additional_loss()
+        ):  
+            if layer.enable_pruning and is_training_stage(layer):
+                loss += layer.pruning_layer.calculate_additional_loss()
             if layer.enable_quantization and layer.use_hgq:
                 loss += layer.hgq_loss()
             losses += loss
         elif isinstance(layer, PQSeparableConv2d):
-            loss = layer.depthwise_conv.pruning_layer.calculate_additional_loss()
-            loss += layer.pointwise_conv.pruning_layer.calculate_additional_loss()
+            if layer.enable_pruning and is_training_stage(layer):
+                loss += layer.depthwise_conv.pruning_layer.calculate_additional_loss()
+                loss += layer.pointwise_conv.pruning_layer.calculate_additional_loss()
             if layer.enable_quantization and layer.use_hgq:
                 loss += layer.depthwise_conv.hgq_loss()
                 loss += layer.pointwise_conv.hgq_loss()
