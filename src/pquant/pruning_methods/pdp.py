@@ -18,6 +18,8 @@ class PDP(keras.layers.Layer):
         self.config = config
         self.is_finetuning = False
         self.layer_type = layer_type
+        
+        
 
     def build(self, input_shape):
         input_shape_concatenated = list(input_shape) + [1]
