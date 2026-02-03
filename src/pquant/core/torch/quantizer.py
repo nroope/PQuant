@@ -5,7 +5,7 @@ from pquant.core.quantizer_functions import create_quantizer
 
 
 class Quantizer(nn.Module):
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, hgq_gamma=0):
+    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, granularity, hgq_gamma=0):
         super().__init__()
         self.k = torch.nn.Parameter(torch.tensor(k), requires_grad=False)
         self.i = torch.nn.Parameter(torch.tensor(i), requires_grad=False)
@@ -16,6 +16,8 @@ class Quantizer(nn.Module):
         self.quantizer = create_quantizer(self.k, self.i, self.f, overflow, round_mode, is_heterogeneous, is_data)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
+        self.is_data = is_data
+        self.granularity = granularity
 
     def get_quantization_bits(self):
         if self.use_hgq:
@@ -40,12 +42,36 @@ class Quantizer(nn.Module):
     def post_pre_train_function(self):
         self.is_pretraining = False
 
+    def compute_dynamic_bits(self, x):
+        if self.granularity == "per_channel":
+            if torch.ndim(x) == 2:
+                abs_x = torch.amax(torch.abs(x), dim=1, keepdim=True)
+            elif torch.ndim(x) == 3:
+                abs_x = torch.amax(torch.abs(x), dim=(1, 2), keepdim=True)   
+            elif torch.ndim(x) == 4:
+                abs_x = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)        
+        elif self.granularity == "per_weight":
+            abs_x = torch.abs(x)
+        else:  
+            raise ValueError("The selected granularity is not supported.")
+
+        m = torch.ceil(torch.log2(abs_x + 1e-6))
+        int_bits = torch.clamp(m, min=0)
+        frac_bits = torch.clamp(self.b - int_bits - self.k, min=0)
+        return int_bits, frac_bits
+
+    
     def forward(self, x):
         if self.use_hgq:
-            x = self.quantizer(x, training=self.training)
+            return self.quantizer(x, training=self.training)
         else:
-            x = self.quantizer(x, k=self.k, i=self.i, f=self.f, training=self.training)
-        return x
+            if self.is_data or x.ndim == 1 or self.granularity == 'per_tensor':
+                i, f = self.i, self.f
+            else:
+                i, f = self.compute_dynamic_bits(x)
+            self.i.data = i
+            self.f.data = f
+        return self.quantizer(x, k=self.k, i=i, f=f, training=self.training)
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
