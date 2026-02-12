@@ -81,6 +81,7 @@ class PQWeightBiasBase(keras.layers.Layer):
         self.enable_pruning = config.pruning_parameters.enable_pruning
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
+        self.granularity = config.quantization_parameters.granularity
         self.final_compression_done = False
         self.built = False
         self.parallelization_factor = -1
@@ -106,46 +107,47 @@ class PQWeightBiasBase(keras.layers.Layer):
     def build(self, input_shape):
         super().build(input_shape)
         self.weight_quantizer = Quantizer(
-            ops.convert_to_tensor(self.k_weight),
-            ops.convert_to_tensor(self.i_weight),
-            ops.convert_to_tensor(self.f_weight),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            False,
-            self.hgq_gamma,
+            k=ops.convert_to_tensor(self.k_weight),
+            i=ops.convert_to_tensor(self.i_weight),
+            f=ops.convert_to_tensor(self.f_weight),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=False,
+            granularity=self.granularity,
+            hgq_gamma=self.hgq_gamma,
         )
 
         # if self.use_bias:
         self.bias_quantizer = Quantizer(
-            ops.convert_to_tensor(self.k_bias),
-            ops.convert_to_tensor(self.i_bias),
-            ops.convert_to_tensor(self.f_bias),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            False,
-            self.hgq_gamma,
+            k=ops.convert_to_tensor(self.k_bias),
+            i=ops.convert_to_tensor(self.i_bias),
+            f=ops.convert_to_tensor(self.f_bias),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=False,
+            hgq_gamma=self.hgq_gamma,
         )
         self.input_quantizer = Quantizer(
-            ops.convert_to_tensor(self.k_input),
-            ops.convert_to_tensor(self.i_input),
-            ops.convert_to_tensor(self.f_input),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            True,
-            self.hgq_gamma,
+            k=ops.convert_to_tensor(self.k_input),
+            i=ops.convert_to_tensor(self.i_input),
+            f=ops.convert_to_tensor(self.f_input),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=True,
+            hgq_gamma=self.hgq_gamma,
         )
         self.output_quantizer = Quantizer(
-            ops.convert_to_tensor(self.k_output),
-            ops.convert_to_tensor(self.i_output),
-            ops.convert_to_tensor(self.f_output),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            True,
-            self.hgq_gamma,
+            k=ops.convert_to_tensor(self.k_output),
+            i=ops.convert_to_tensor(self.i_output),
+            f=ops.convert_to_tensor(self.f_output),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=True,
+            hgq_gamma=self.hgq_gamma,
         )
         self.input_shape = (1,) + input_shape[1:]
         self.n_parallel = ops.prod(input_shape[1:-1])
@@ -997,6 +999,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.hgq_beta = config.quantization_parameters.hgq_beta
         self.quantize_input = quantize_input
+        self.granularity= config.quantization_parameters.granularity
         self.config = config
         self.f_weight = self.f_bias = ops.convert_to_tensor(config.quantization_parameters.default_weight_fractional_bits)
         self.i_weight = self.i_bias = ops.convert_to_tensor(config.quantization_parameters.default_weight_integer_bits)
@@ -1629,7 +1632,7 @@ def get_layer_keep_ratio(model):
     return 0.0
 
 def is_training_stage(layer):
-    return False if layer.pruning_layer.is_finetune and layer.pruning_layer.is_pretraining else True
+    return False if layer.pruning_layer.is_finetuning and layer.pruning_layer.is_pretraining else True
         
 
 def get_model_losses(model, losses):
