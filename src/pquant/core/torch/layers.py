@@ -76,6 +76,7 @@ class PQWeightBiasBase(nn.Module):
         self.enable_pruning = enable_pruning if enable_pruning is not None else config.pruning_parameters.enable_pruning
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
+        self.granularity = config.quantization_parameters.granularity
         self.final_compression_done = False
         self.built = False
         self.parallelization_factor = -1
@@ -91,46 +92,47 @@ class PQWeightBiasBase(nn.Module):
             return
         # Build function to delay quantizer creation until after custom i,f bits have been set
         self.input_quantizer = Quantizer(
-            torch.tensor(self.k_input),
-            torch.tensor(self.i_input),
-            torch.tensor(self.f_input),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            True,
-            self.hgq_gamma,
+            k=torch.tensor(self.k_input),
+            i=torch.tensor(self.i_input),
+            f=torch.tensor(self.f_input),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=True,
+            hgq_gamma=self.hgq_gamma,
         )
         self.weight_quantizer = Quantizer(
-            torch.tensor(self.k_weight),
-            torch.tensor(self.i_weight),
-            torch.tensor(self.f_weight),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            False,
-            self.hgq_gamma,
+            k=torch.tensor(self.k_weight),
+            i=torch.tensor(self.i_weight),
+            f=torch.tensor(self.f_weight),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=False,
+            hgq_gamma=self.hgq_gamma,
+            granularity=self.granularity
         )
 
         self.bias_quantizer = Quantizer(
-            torch.tensor(self.k_bias),
-            torch.tensor(self.i_bias),
-            torch.tensor(self.f_bias),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            False,
-            self.hgq_gamma,
+            k=torch.tensor(self.k_bias),
+            i=torch.tensor(self.i_bias),
+            f=torch.tensor(self.f_bias),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=False,
+            hgq_gamma=self.hgq_gamma,
         )
 
         self.output_quantizer = Quantizer(
-            torch.tensor(self.k_output),
-            torch.tensor(self.i_output),
-            torch.tensor(self.f_output),
-            self.overflow,
-            self.round_mode,
-            self.use_hgq,
-            True,
-            self.hgq_gamma,
+            k=torch.tensor(self.k_output),
+            i=torch.tensor(self.i_output),
+            f=torch.tensor(self.f_output),
+            overflow=self.overflow,
+            round_mode=self.round_mode,
+            is_heterogeneous=self.use_hgq,
+            is_data=True,
+            hgq_gamma=self.hgq_gamma,
         )
 
         self.n_parallel = ops.prod(tuple(input_shape)[1:-1])
@@ -254,12 +256,12 @@ class PQDense(PQWeightBiasBase, nn.Linear):
         self.out_features = out_features
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
+        self.register_parameter("_weight", self._weight)
         if bias:
             self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
+            self.register_parameter("_bias", self._bias)
         else:
             self.register_parameter("_bias", None)
-        del self._parameters["weight"]
-        del self._parameters["bias"]
         self.pruning_layer.build(self._weight.shape)
 
     def ebops(self, include_mask=False):
@@ -371,12 +373,12 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
+        self.register_parameter("_weight", self._weight)
         if bias:
             self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
+            self.register_parameter("_bias", self._bias)
         else:
             self.register_parameter("_bias", None)
-        del self._parameters["weight"]
-        del self._parameters["bias"]
         self.pruning_layer.build(self._weight.shape)
 
     def ebops(self, include_mask=False):
@@ -429,7 +431,17 @@ class PQConv2d(PQWeightBiasBase, nn.Conv2d):
 
     def forward(self, x):
         x = self.pre_forward(x)
-        x = super().forward(x)
+        weight = self.weight
+        bias = self.bias
+        x = F.conv2d(
+            x,
+            weight,
+            bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
         x = self.post_forward(x)
         return x
 
@@ -501,13 +513,12 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
             **kwargs,
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
-        self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
+        self.register_parameter("_weight", self._weight)
         if bias:
             self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
+            self.register_parameter("_bias", self._bias)
         else:
             self.register_parameter("_bias", None)
-        del self._parameters["weight"]
-        del self._parameters["bias"]
         self.pruning_layer.build(self._weight.shape)
 
     def ebops(self, include_mask=False):
@@ -592,7 +603,6 @@ def add_compression_layers(model, config, input_shape, device="cuda"):
 
 
 class PQAvgPoolBase(nn.Module):
-
     def __init__(
         self,
         config,
@@ -702,7 +712,6 @@ class PQAvgPoolBase(nn.Module):
 
 
 class PQAvgPool1d(PQAvgPoolBase, nn.AvgPool1d):
-
     def __init__(
         self,
         config,
@@ -739,7 +748,6 @@ class PQAvgPool1d(PQAvgPoolBase, nn.AvgPool1d):
 
 
 class PQAvgPool2d(PQAvgPoolBase, nn.AvgPool2d):
-
     def __init__(
         self,
         config,
@@ -778,7 +786,6 @@ class PQAvgPool2d(PQAvgPoolBase, nn.AvgPool2d):
 
 
 class PQBatchNorm2d(nn.BatchNorm2d):
-
     def __init__(
         self,
         config,
@@ -825,8 +832,6 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         self.quantize_input = quantize_input
         self._weight = nn.Parameter(self.weight.clone())
         self._bias = nn.Parameter(self.bias.clone())
-        del self._parameters["weight"]
-        del self._parameters["bias"]
         self.built = False
         self.final_compression_done = False
         self.is_pretraining = True
@@ -934,7 +939,6 @@ class PQBatchNorm2d(nn.BatchNorm2d):
 
 
 class PQBatchNorm1d(nn.BatchNorm1d):
-
     def __init__(
         self,
         config,
@@ -980,9 +984,7 @@ class PQBatchNorm1d(nn.BatchNorm1d):
         self.config = config
         self.quantize_input = quantize_input
         self._weight = nn.Parameter(self.weight.clone())
-        self._bias = nn.Parameter(self.bias.clone())
-        del self._parameters["weight"]
-        del self._parameters["bias"]
+        self.register_parameter("_weight", self._weight)
         self.built = False
         self.final_compression_done = False
         self.is_pretraining = True
@@ -1136,7 +1138,7 @@ def add_layer_specific_quantization_to_model(name, layer, config):
                 i = torch.tensor(layer_config["bias"]["integer_bits"])
                 f = torch.tensor(layer_config["bias"]["fractional_bits"])
                 layer.i_bias = i
-                layer.f_biast = f
+                layer.f_bias = f
             if "input" in layer_config:
                 if "integer_bits" in layer_config["input"]:
                     input_int_bits = torch.tensor(layer_config["input"]["integer_bits"])
@@ -1417,6 +1419,8 @@ def post_epoch_functions(model, epoch, total_epochs, **kwargs):
     for layer in model.modules():
         if isinstance(layer, (PQConv2d, PQConv1d, PQDense)):
             layer.pruning_layer.post_epoch_function(epoch, total_epochs, **kwargs)
+        # if isinstance(layer, Quantizer):
+        #     layer.post_epoch_function()
 
 
 def pre_epoch_functions(model, epoch, total_epochs):
@@ -1534,7 +1538,7 @@ def get_layer_keep_ratio(model):
 
 
 def is_training_stage(layer):
-    return False if layer.pruning_layer.is_finetune and layer.pruning_layer.is_pretraining else True
+    return False if layer.pruning_layer.is_finetuning and layer.pruning_layer.is_pretraining else True
 
 
 def get_model_losses(model, losses):

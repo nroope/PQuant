@@ -1,13 +1,14 @@
 import keras
 from keras.initializers import Constant
 from keras import ops
+from enum import Enum
 
 from pquant.core.quantizer_functions import create_quantizer
 
 
 class Quantizer(keras.layers.Layer):
     # HGQ quantizer wrapper
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, granularity, hgq_gamma=0):
+    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data=False, granularity="per_tensor", hgq_gamma=0):
         super().__init__()
         self.k = k
         self.i = i
@@ -19,7 +20,10 @@ class Quantizer(keras.layers.Layer):
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
         self.is_data = is_data
-        self.granularity = granularity
+        if isinstance(granularity, Enum):
+            self.granularity = granularity.value
+        else:
+            self.granularity = granularity
     
     def compute_dynamic_bits(self, x):
         if self.granularity == "per_channel":
@@ -75,7 +79,7 @@ class Quantizer(keras.layers.Layer):
             self.build(x.shape)
         if self.use_hgq:
             return self.quantizer(x, training=training)
-        elif self.is_data or ops.ndim(x) == 1 or self.granularity == "per_tensor":
+        elif self.granularity == "per_tensor":
             i, f = self.i, self.f
         else:
             i, f = self.compute_dynamic_bits(x)
