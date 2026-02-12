@@ -68,6 +68,7 @@ class PQActivation(nn.Module):
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
+        self.granularity = config.quantization_parameters.granularity
 
         self.post_fitcompress_calibration = False
         self.saved_inputs = []
@@ -98,7 +99,7 @@ class PQActivation(nn.Module):
             round_mode=self.round_mode,
             is_data=True,
             is_heterogeneous=self.use_hgq,
-            hgq_gamma=self.hgq_gamma,
+            hgq_gamma=self.hgq_gamma,     
         )
         if self.use_hgq:
             self.input_quantizer.quantizer.build(input_shape)

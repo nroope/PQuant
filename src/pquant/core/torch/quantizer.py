@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
+from enum import Enum
 
 from pquant.core.quantizer_functions import create_quantizer
 
-
 class Quantizer(nn.Module):
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, granularity, hgq_gamma=0):
+    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data=False, granularity='per_tensor', hgq_gamma=0):
         super().__init__()
         self.k = torch.nn.Parameter(torch.tensor(k), requires_grad=False)
         self.i = torch.nn.Parameter(torch.tensor(i), requires_grad=False)
@@ -17,7 +17,11 @@ class Quantizer(nn.Module):
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
         self.is_data = is_data
-        self.granularity = granularity
+        if isinstance(granularity, Enum):
+            self.granularity = granularity.value
+        else:
+            self.granularity = granularity
+        self.b = torch.nn.Parameter(torch.tensor(self.k + self.i + self.f), requires_grad=False)
 
     def get_quantization_bits(self):
         if self.use_hgq:
@@ -44,11 +48,11 @@ class Quantizer(nn.Module):
 
     def compute_dynamic_bits(self, x):
         if self.granularity == "per_channel":
-            if torch.ndim(x) == 2:
+            if x.ndim == 2:
                 abs_x = torch.amax(torch.abs(x), dim=1, keepdim=True)
-            elif torch.ndim(x) == 3:
+            elif x.ndim == 3:
                 abs_x = torch.amax(torch.abs(x), dim=(1, 2), keepdim=True)   
-            elif torch.ndim(x) == 4:
+            elif x.ndim == 4:
                 abs_x = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)        
         elif self.granularity == "per_weight":
             abs_x = torch.abs(x)
@@ -65,7 +69,7 @@ class Quantizer(nn.Module):
         if self.use_hgq:
             return self.quantizer(x, training=self.training)
         else:
-            if self.is_data or x.ndim == 1 or self.granularity == 'per_tensor':
+            if self.granularity == 'per_tensor':
                 i, f = self.i, self.f
             else:
                 i, f = self.compute_dynamic_bits(x)
@@ -80,3 +84,10 @@ class Quantizer(nn.Module):
         for layer_loss in self.quantizer.quantizer.losses:
             loss += layer_loss
         return loss
+    
+    def post_epoch_function(self):
+        if self.use_hgq:
+            constrained_i = self.quantizer.quantizer._i.constraint(self.quantizer.quantizer._i)
+            self.quantizer.quantizer._i.assign(constrained_i)
+            constrained_f = self.quantizer.quantizer._f.constraint(self.quantizer.quantizer._f)
+            self.quantizer.quantizer._f.assign(constrained_f)
