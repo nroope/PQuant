@@ -513,6 +513,7 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
             **kwargs,
         )
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
+        self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
         self.register_parameter("_weight", self._weight)
         if bias:
             self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
@@ -830,8 +831,13 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.config = config
         self.quantize_input = quantize_input
-        self._weight = nn.Parameter(self.weight.clone())
-        self._bias = nn.Parameter(self.bias.clone())
+        self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
+        self.register_parameter("_weight", self._weight)
+        if self.bias:
+            self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
+            self.register_parameter("_bias", self._bias)
+        else:
+            self.register_parameter("_bias", None)
         self.built = False
         self.final_compression_done = False
         self.is_pretraining = True
@@ -983,7 +989,13 @@ class PQBatchNorm1d(nn.BatchNorm1d):
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.config = config
         self.quantize_input = quantize_input
-        self._weight = nn.Parameter(self.weight.clone())
+        self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
+        self.register_parameter("_weight", self._weight)
+        if self.bias:
+            self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
+            self.register_parameter("_bias", self._bias)
+        else:
+            self.register_parameter("_bias", None)
         self.register_parameter("_weight", self._weight)
         self.built = False
         self.final_compression_done = False
@@ -1419,8 +1431,8 @@ def post_epoch_functions(model, epoch, total_epochs, **kwargs):
     for layer in model.modules():
         if isinstance(layer, (PQConv2d, PQConv1d, PQDense)):
             layer.pruning_layer.post_epoch_function(epoch, total_epochs, **kwargs)
-        # if isinstance(layer, Quantizer):
-        #     layer.post_epoch_function()
+        elif isinstance(layer, Quantizer):
+            layer.post_epoch_function()
 
 
 def pre_epoch_functions(model, epoch, total_epochs):
