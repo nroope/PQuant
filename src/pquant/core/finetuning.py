@@ -10,7 +10,6 @@ import torch
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-
 from pquant.core import constants
 from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
@@ -38,6 +37,8 @@ def get_sampler(sampler_type, **kwargs):
 
 def log_model_by_backend(model, name, signature=None, registered_model_name=None):
     backend = keras.backend.backend()
+    print("Backend:", backend)
+    print("Registry keys:", constants.LOG_FUNCTIONS_REGISTRY.keys())
 
     kwargs = {
         "artifact_path": name,
@@ -112,7 +113,7 @@ class TuningConfig(BaseModel):
         )
 
     def get_dict(self):
-        return self.model_dump()
+        return self.model_dump(mode="json")
 
 
 class TuningTask:
@@ -146,7 +147,7 @@ class TuningTask:
         self.enable_mlflow = True
 
     def get_dict(self):
-        return self.config.model_dump()
+        return self.config.model_dump(mode="json")
 
     def set_objective_function(self, name: str, fn: Callable, direction: str):
         if not callable(fn):
@@ -250,7 +251,12 @@ class TuningTask:
             logging.info(f"Suggested {param_name} = {new_value}")
 
             applied = False
-            for sub_config in [self.config.training_parameters, self.config.finetuning_parameters]:
+            for sub_config in [
+                self.config.training_parameters,
+                self.config.pruning_parameters,
+                self.config.quantization_parameters,
+                self.config.fitcompress_parameters,
+            ]:
                 if hasattr(sub_config, param_name):
                     setattr(sub_config, param_name, new_value)
                     applied = True
@@ -308,13 +314,13 @@ class TuningTask:
         return objectives if len(objectives) > 1 else objectives[0]
 
     def run_optimization(self, model, **kwargs):
+        finetuning_parameters = self.config.finetuning_parameters
         if self.enable_mlflow:
             import mlflow
-
+            
             if not self.tracking_uri:
                 raise ValueError("Tracking URI must be set when MLflow logging is enabled.")
             mlflow.set_tracking_uri(self.tracking_uri)
-            finetuning_parameters = self.config.finetuning_parameters
             mlflow.set_experiment(finetuning_parameters.experiment_name)
 
         sampler = get_sampler(finetuning_parameters.sampler.type, **finetuning_parameters.sampler.params)

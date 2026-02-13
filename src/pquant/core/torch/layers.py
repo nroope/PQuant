@@ -71,7 +71,8 @@ class PQWeightBiasBase(nn.Module):
         self.pruning_first = config.training_parameters.pruning_first
         self.enable_quantization = config.quantization_parameters.enable_quantization
         self.round_mode = config.quantization_parameters.round_mode
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.enable_pruning = enable_pruning if enable_pruning is not None else config.pruning_parameters.enable_pruning
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -95,7 +96,7 @@ class PQWeightBiasBase(nn.Module):
             k=torch.tensor(self.k_input),
             i=torch.tensor(self.i_input),
             f=torch.tensor(self.f_input),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -105,7 +106,7 @@ class PQWeightBiasBase(nn.Module):
             k=torch.tensor(self.k_weight),
             i=torch.tensor(self.i_weight),
             f=torch.tensor(self.f_weight),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=False,
@@ -117,7 +118,7 @@ class PQWeightBiasBase(nn.Module):
             k=torch.tensor(self.k_bias),
             i=torch.tensor(self.i_bias),
             f=torch.tensor(self.f_bias),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=False,
@@ -128,7 +129,7 @@ class PQWeightBiasBase(nn.Module):
             k=torch.tensor(self.k_output),
             i=torch.tensor(self.i_output),
             f=torch.tensor(self.f_output),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -627,7 +628,7 @@ class PQAvgPoolBase(nn.Module):
             self.k_output = config.quantization_parameters.default_data_keep_negatives
             self.i_output = config.quantization_parameters.default_data_integer_bits
             self.f_output = config.quantization_parameters.default_data_fractional_bits
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.config = config
         self.is_pretraining = True
         self.round_mode = config.quantization_parameters.round_mode
@@ -646,7 +647,7 @@ class PQAvgPoolBase(nn.Module):
             k=torch.tensor(self.k_input),
             i=torch.tensor(self.i_input),
             f=torch.tensor(self.f_input),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -656,7 +657,7 @@ class PQAvgPoolBase(nn.Module):
             k=torch.tensor(self.k_output),
             i=torch.tensor(self.i_output),
             f=torch.tensor(self.f_output),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -822,7 +823,8 @@ class PQBatchNorm2d(nn.BatchNorm2d):
             self.k_bias = config.quantization_parameters.default_weight_keep_negatives
             self.i_bias = config.quantization_parameters.default_weight_integer_bits
             self.f_bias = config.quantization_parameters.default_weight_fractional_bits
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.round_mode = config.quantization_parameters.round_mode
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
@@ -833,7 +835,7 @@ class PQBatchNorm2d(nn.BatchNorm2d):
         self.quantize_input = quantize_input
         self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
         self.register_parameter("_weight", self._weight)
-        if self.bias:
+        if self.bias is not None:
             self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
             self.register_parameter("_bias", self._bias)
         else:
@@ -852,7 +854,7 @@ class PQBatchNorm2d(nn.BatchNorm2d):
             k=torch.tensor(self.k_input),
             i=torch.tensor(self.i_input),
             f=torch.tensor(self.f_input),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -863,7 +865,7 @@ class PQBatchNorm2d(nn.BatchNorm2d):
             i=torch.tensor(self.i_weight),
             f=torch.tensor(self.f_weight),
             round_mode=self.round_mode,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
         )
@@ -872,7 +874,7 @@ class PQBatchNorm2d(nn.BatchNorm2d):
             i=torch.tensor(self.i_bias),
             f=torch.tensor(self.f_bias),
             round_mode=self.round_mode,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
         )
@@ -980,7 +982,8 @@ class PQBatchNorm1d(nn.BatchNorm1d):
             self.k_bias = config.quantization_parameters.default_weight_keep_negatives
             self.i_bias = config.quantization_parameters.default_weight_integer_bits
             self.f_bias = config.quantization_parameters.default_weight_fractional_bits
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.round_mode = config.quantization_parameters.round_mode
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
@@ -991,7 +994,7 @@ class PQBatchNorm1d(nn.BatchNorm1d):
         self.quantize_input = quantize_input
         self._weight = nn.Parameter(self.weight.clone()).to(self.weight.device)
         self.register_parameter("_weight", self._weight)
-        if self.bias:
+        if self.bias is not None:
             self._bias = nn.Parameter(self.bias.clone()).to(self.bias.device)
             self.register_parameter("_bias", self._bias)
         else:
@@ -1011,7 +1014,7 @@ class PQBatchNorm1d(nn.BatchNorm1d):
             k=torch.tensor(self.k_input),
             i=torch.tensor(self.i_input),
             f=torch.tensor(self.f_input),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -1022,7 +1025,7 @@ class PQBatchNorm1d(nn.BatchNorm1d):
             i=torch.tensor(self.i_weight),
             f=torch.tensor(self.f_weight),
             round_mode=self.round_mode,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
         )
@@ -1031,7 +1034,7 @@ class PQBatchNorm1d(nn.BatchNorm1d):
             i=torch.tensor(self.i_bias),
             f=torch.tensor(self.f_bias),
             round_mode=self.round_mode,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
         )
