@@ -41,7 +41,7 @@ training_parameters:
   epochs: 100
   fine_tuning_epochs: 20
   pretraining_epochs: 1
-  pruning_first: false
+  pruning_first: true
   rewind: never
   rounds: 1
   save_weights_epoch: -1

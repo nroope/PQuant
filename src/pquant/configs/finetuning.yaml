@@ -7,7 +7,7 @@ quantization_parameters:
   default_fractional_bits: 7.
   enable_quantization: true
   hgq_gamma: 0.0003
-  hgq_heterogeneous: True
+  hgq_heterogeneous: true
   layer_specific:
     layer3.0.conv1:
       integer_bits: 4
@@ -34,7 +34,7 @@ training_parameters:
    epochs: 2
    fine_tuning_epochs: 2
    pretraining_epochs: 0
-   pruning_first: false
+   pruning_first: true
    rewind: never
    rounds: 2
    save_weights_epoch: 2

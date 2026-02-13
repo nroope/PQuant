@@ -26,7 +26,7 @@ quantization_parameters:
   layer_specific: {}
   use_high_granularity_quantization: false
   use_real_tanh: false
-  use_relu_multiplier: true
+  use_relu_multiplier: false
   use_symmetric_quantization: false
   overflow: SAT
   round_mode: RND
@@ -44,7 +44,7 @@ training_parameters:
   epochs: 100
   fine_tuning_epochs: 0
   pretraining_epochs: 0
-  pruning_first: false
+  pruning_first: true
   rewind: never
   rounds: 1
   save_weights_epoch: -1.0
