@@ -76,7 +76,8 @@ class PQWeightBiasBase(keras.layers.Layer):
         self.pruning_first = config.training_parameters.pruning_first
         self.enable_quantization = config.quantization_parameters.enable_quantization
         self.round_mode = config.quantization_parameters.round_mode
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.enable_pruning = config.pruning_parameters.enable_pruning
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
@@ -110,7 +111,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             k=ops.convert_to_tensor(self.k_weight),
             i=ops.convert_to_tensor(self.i_weight),
             f=ops.convert_to_tensor(self.f_weight),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=False,
@@ -123,7 +124,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             k=ops.convert_to_tensor(self.k_bias),
             i=ops.convert_to_tensor(self.i_bias),
             f=ops.convert_to_tensor(self.f_bias),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=False,
@@ -133,7 +134,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             k=ops.convert_to_tensor(self.k_input),
             i=ops.convert_to_tensor(self.i_input),
             f=ops.convert_to_tensor(self.f_input),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -143,7 +144,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             k=ops.convert_to_tensor(self.k_output),
             i=ops.convert_to_tensor(self.i_output),
             f=ops.convert_to_tensor(self.f_output),
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -990,7 +991,8 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             synchronized,
             **kwargs,
         )
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.round_mode = config.quantization_parameters.round_mode
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.data_k = config.quantization_parameters.default_data_keep_negatives
@@ -1014,7 +1016,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             k=1.0,
             i=self.i_input,
             f=self.f_input,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -1025,7 +1027,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             i=self.i_weight,
             f=self.f_weight,
             round_mode=self.round_mode,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
         )
@@ -1034,7 +1036,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             i=self.i_bias,
             f=self.f_bias,
             round_mode=self.round_mode,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
         )
@@ -1171,8 +1173,7 @@ class PQAvgPoolBase(keras.layers.Layer):
             self.k_output = config.quantization_parameters.default_data_keep_negatives
             self.i_output = config.quantization_parameters.default_data_integer_bits
             self.f_output = config.quantization_parameters.default_data_fractional_bits
-
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.config = config
         self.is_pretraining = True
         self.round_mode = config.quantization_parameters.round_mode
@@ -1194,7 +1195,7 @@ class PQAvgPoolBase(keras.layers.Layer):
             k=1.0,
             i=self.i_input,
             f=self.f_input,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -1204,7 +1205,7 @@ class PQAvgPoolBase(keras.layers.Layer):
             k=1.0,
             i=self.i_output,
             f=self.f_output,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_heterogeneous=self.use_hgq,
             is_data=True,
@@ -1265,7 +1266,7 @@ class PQAvgPoolBase(keras.layers.Layer):
                 "i_output": self.i_output,
                 "f_output": self.f_output,
                 "is_pretraining": self.is_pretraining,
-                "overflow": self.overflow,
+                "overflow": self.overflow_mode_data,
                 "hgq_gamma": self.hgq_gamma,
                 "hgq_heterogeneous": self.hgq_heterogeneous,
                 "pooling": self.pooling,

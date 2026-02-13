@@ -26,6 +26,7 @@ class BaseQuantizationModel(BaseModel):
     layer_specific: dict[str, dict] = Field(default_factory=dict)
     use_high_granularity_quantization: bool = Field(default=False)
     use_real_tanh: bool = Field(default=False)
-    overflow: str = Field(default="SAT")
+    overflow_mode_parameters: str = Field(default="SAT")
+    overflow_mode_data: str = Field(default="SAT")
     round_mode: str = Field(default="RND")
     use_relu_multiplier: bool = Field(default=True)

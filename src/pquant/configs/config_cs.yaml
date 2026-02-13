@@ -24,7 +24,8 @@ quantization_parameters:
   use_real_tanh: false
   use_relu_multiplier: false
   use_symmetric_quantization: false
-  overflow: SAT
+  overflow_mode_parameters: SAT
+  overflow_mode_data: SAT
   round_mode: RND
 fitcompress_parameters:
   enable_fitcompress : false
