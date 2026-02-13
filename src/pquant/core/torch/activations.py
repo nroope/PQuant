@@ -62,7 +62,8 @@ class PQActivation(nn.Module):
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.is_pretraining = True
         self.round_mode = config.quantization_parameters.round_mode
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.use_multiplier = config.quantization_parameters.use_relu_multiplier
         self.hgq_beta = config.quantization_parameters.hgq_beta
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
@@ -85,7 +86,7 @@ class PQActivation(nn.Module):
             k=self.k_output,
             i=self.i_output,
             f=self.f_output,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_data=True,
             is_heterogeneous=self.use_hgq,
@@ -95,7 +96,7 @@ class PQActivation(nn.Module):
             k=self.k_input,
             i=self.i_input,
             f=self.f_input,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_data=True,
             is_heterogeneous=self.use_hgq,

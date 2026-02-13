@@ -16,6 +16,8 @@ quantization_parameters:
   granularity: "per_tensor"
   use_real_tanh: false
   use_symmetric_quantization: false
+  overflow_mode_parameters: WRAP
+  overflow_mode_data: SAT
 training_parameters:
    batch_size: 128
    optimizer: sgd
@@ -49,15 +51,16 @@ fitcompress_parameters:
   approximate : true
   f_lambda : 0.5
 finetuning_parameters:
-    experiment_name: resnet_18_experiment_2
+    experiment_name: resnet_18_experiment_4
+    epochs: 2
     model_name: resnet18
-    num_trials: 10
+    num_trials: 1
     sampler:
       type: RandomSampler
     hyperparameter_search:
       numerical:
         learning_rate: [1e-5, 1e-3, 0.2]
-        epochs: [20, 100, 20]
+        # epochs: [20, 100, 20]
         batch_size: [16, 256, 32]
         default_integer_bits: [0, 8, 2]
       categorical:

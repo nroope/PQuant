@@ -13,10 +13,10 @@ class Quantizer(nn.Module):
         self.overflow = overflow
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
-        self.quantizer = create_quantizer(self.k, self.i, self.f, overflow, round_mode, is_heterogeneous, is_data)
+        self.is_data = is_data
+        self.quantizer = create_quantizer(self.k, self.i, self.f, self.overflow, self.round_mode, self.use_hgq, self.is_data)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
-        self.is_data = is_data
         if isinstance(granularity, Enum):
             self.granularity = granularity.value
         else:
