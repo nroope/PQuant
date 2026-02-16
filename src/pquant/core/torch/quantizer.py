@@ -1,27 +1,29 @@
+from enum import Enum
+
 import torch
 import torch.nn as nn
-from enum import Enum
 
 from pquant.core.quantizer_functions import create_quantizer
 
+
 class Quantizer(nn.Module):
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data=False, granularity='per_tensor', hgq_gamma=0):
+    def __init__(
+        self, k, i, f, overflow, round_mode, is_heterogeneous, is_data=False, granularity='per_tensor', hgq_gamma=0
+    ):
         super().__init__()
         self.k = torch.nn.Parameter(torch.tensor(k), requires_grad=False)
-        self.i = torch.nn.Parameter(torch.tensor(i), requires_grad=False)
-        self.f = torch.nn.Parameter(torch.tensor(f), requires_grad=False)
         self.overflow = overflow
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
         self.is_data = is_data
-        self.quantizer = create_quantizer(self.k, self.i, self.f, self.overflow, self.round_mode, self.use_hgq, self.is_data)
+        self.quantizer = create_quantizer(self.k, i, f, self.overflow, self.round_mode, self.use_hgq, self.is_data)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
         if isinstance(granularity, Enum):
             self.granularity = granularity.value
         else:
             self.granularity = granularity
-        self.b = torch.nn.Parameter(torch.tensor(self.k + self.i + self.f), requires_grad=False)
+        self.final_compression_done = nn.Parameter(torch.tensor(False), requires_grad=False)
 
     def get_quantization_bits(self):
         if self.use_hgq:
@@ -51,12 +53,12 @@ class Quantizer(nn.Module):
             if x.ndim == 2:
                 abs_x = torch.amax(torch.abs(x), dim=1, keepdim=True)
             elif x.ndim == 3:
-                abs_x = torch.amax(torch.abs(x), dim=(1, 2), keepdim=True)   
+                abs_x = torch.amax(torch.abs(x), dim=(1, 2), keepdim=True)
             elif x.ndim == 4:
-                abs_x = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)        
+                abs_x = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)
         elif self.granularity == "per_weight":
             abs_x = torch.abs(x)
-        else:  
+        else:
             raise ValueError("The selected granularity is not supported.")
 
         m = torch.ceil(torch.log2(abs_x + 1e-6))
@@ -64,10 +66,13 @@ class Quantizer(nn.Module):
         frac_bits = torch.clamp(self.b - int_bits - self.k, min=0)
         return int_bits, frac_bits
 
-    
     def forward(self, x):
         if self.use_hgq:
-            return self.quantizer(x, training=self.training)
+            x = self.quantizer(x, training=self.training)
+            if not hasattr(self, "f"):
+                _, i, f = self.get_quantization_bits()
+                self.initialize_quantization_parameters(i, f)
+            return x
         else:
             if self.granularity == 'per_tensor':
                 i, f = self.i, self.f
@@ -75,7 +80,10 @@ class Quantizer(nn.Module):
                 i, f = self.compute_dynamic_bits(x)
             self.i.data = i
             self.f.data = f
-        return self.quantizer(x, k=self.k, i=i, f=f, training=self.training)
+            if not hasattr(self, "f"):
+                _, i, f = self.get_quantization_bits()
+                self.initialize_quantization_parameters(i, f)
+        x = self.quantizer(x, k=self.k, i=i, f=f, training=self.training)
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
@@ -84,10 +92,31 @@ class Quantizer(nn.Module):
         for layer_loss in self.quantizer.quantizer.losses:
             loss += layer_loss
         return loss
-    
+
     def post_epoch_function(self):
-        if self.use_hgq:
+        if self.use_hgq and self.quantizer.quantizer.built:
             constrained_i = self.quantizer.quantizer._i.constraint(self.quantizer.quantizer._i)
             self.quantizer.quantizer._i.assign(constrained_i)
             constrained_f = self.quantizer.quantizer._f.constraint(self.quantizer.quantizer._f)
             self.quantizer.quantizer._f.assign(constrained_f)
+
+    def apply_final_compression(self):
+        if self.use_hgq and not self.quantizer.built:
+            return
+        _, i, f = self.get_quantization_bits()
+        self.i.data = i
+        self.f.data = f
+        self.b.data = i + f
+        self.final_compression_done.data = torch.tensor(True)
+
+    def initialize_quantization_parameters(self, i, f):
+        # Lazy initialization
+        self.i = torch.nn.Parameter(torch.tensor(i), requires_grad=False)
+        self.f = torch.nn.Parameter(torch.tensor(f), requires_grad=False)
+        self.b = torch.nn.Parameter(torch.tensor(self.k + i + f), requires_grad=False)
+
+    def reload_from_local(self):
+        if not self.use_hgq:
+            return
+        self.quantizer.quantizer._i.assign(self.i)
+        self.quantizer.quantizer._f.assign(self.f)
