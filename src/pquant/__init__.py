@@ -24,6 +24,7 @@ if backend == "torch":
         get_ebops,
         get_layer_keep_ratio,
         get_model_losses,
+        load_torch_hgq_model,
         post_training_prune,
     )
     from .core.torch.train import train_model
@@ -52,6 +53,7 @@ if backend == "torch":
     _forwards.append("load_from_file")
     _forwards.append("load_from_dictionary")
     _forwards.append("get_ebops")
+    _forwards.append("load_torch_hgq_model")
     __all__ = _forwards
 
 else:
