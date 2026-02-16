@@ -43,29 +43,16 @@ SAMPLER_REGISTRY = {
     "BruteForceSampler": optuna.samplers.BruteForceSampler,
 }
 
-
-try:
-    import mlflow
-
-    LOG_FUNCTIONS_REGISTRY = {
-        "torch": mlflow.pytorch.log_model,
-        "tensorflow": mlflow.tensorflow.log_model,
-    }
-except ModuleNotFoundError:
-    LOG_FUNCTIONS_REGISTRY = {}
-
-
 TRACKING_URI = "http://0.0.0.0:5000/"
 DB_STORAGE = "sqlite:///optuna_study.db"
 
-JAX_BACKEND = "jax"
+TORCH_BACKEND = "torch"
+TF_BACKEND = 'tensorflow'
 
 FINETUNING_DIRECTION = {"maximize", "minimize"}
 CONFIG_FILE = "config.yaml"
 
 N_JOBS = 1
-TORCH_BACKEND = "torch"
-TF_BACKEND = 'tensorflow'
 
 
 METRIC_REGISTRY = {
