@@ -92,16 +92,17 @@ class PQWeightBiasBase(nn.Module):
         if self.built:
             return
         # Build function to delay quantizer creation until after custom i,f bits have been set
-        self.input_quantizer = Quantizer(
-            k=torch.tensor(self.k_input),
-            i=torch.tensor(self.i_input),
-            f=torch.tensor(self.f_input),
-            overflow=self.overflow_mode_data,
-            round_mode=self.round_mode,
-            is_heterogeneous=self.use_hgq,
-            is_data=True,
-            hgq_gamma=self.hgq_gamma,
-        )
+        if self.quantize_input:
+            self.input_quantizer = Quantizer(
+                k=torch.tensor(self.k_input),
+                i=torch.tensor(self.i_input),
+                f=torch.tensor(self.f_input),
+                overflow=self.overflow_mode_data,
+                round_mode=self.round_mode,
+                is_heterogeneous=self.use_hgq,
+                is_data=True,
+                hgq_gamma=self.hgq_gamma,
+            )
         self.weight_quantizer = Quantizer(
             k=torch.tensor(self.k_weight),
             i=torch.tensor(self.i_weight),
@@ -111,7 +112,7 @@ class PQWeightBiasBase(nn.Module):
             is_heterogeneous=self.use_hgq,
             is_data=False,
             hgq_gamma=self.hgq_gamma,
-            granularity=self.granularity
+            granularity=self.granularity,
         )
 
         self.bias_quantizer = Quantizer(
@@ -124,17 +125,17 @@ class PQWeightBiasBase(nn.Module):
             is_data=False,
             hgq_gamma=self.hgq_gamma,
         )
-
-        self.output_quantizer = Quantizer(
-            k=torch.tensor(self.k_output),
-            i=torch.tensor(self.i_output),
-            f=torch.tensor(self.f_output),
-            overflow=self.overflow_mode_data,
-            round_mode=self.round_mode,
-            is_heterogeneous=self.use_hgq,
-            is_data=True,
-            hgq_gamma=self.hgq_gamma,
-        )
+        if self.quantize_output:
+            self.output_quantizer = Quantizer(
+                k=torch.tensor(self.k_output),
+                i=torch.tensor(self.i_output),
+                f=torch.tensor(self.f_output),
+                overflow=self.overflow_mode_data,
+                round_mode=self.round_mode,
+                is_heterogeneous=self.use_hgq,
+                is_data=True,
+                hgq_gamma=self.hgq_gamma,
+            )
 
         self.n_parallel = ops.prod(tuple(input_shape)[1:-1])
         self.parallelization_factor = self.parallelization_factor if self.parallelization_factor > 0 else self.n_parallel
@@ -264,6 +265,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
         else:
             self.register_parameter("_bias", None)
         self.pruning_layer.build(self._weight.shape)
+        self.final_compression_done = nn.Parameter(torch.tensor(False), requires_grad=False)
 
     def ebops(self, include_mask=False):
         bw_inp = self.input_quantizer.get_total_bits(self.input_shape)
@@ -279,7 +281,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
             bw_bias = self.bias_quantizer.get_total_bits(ops.shape(self._bias))
             size = ops.cast(ops.prod(self.input_shape[:-1]) * self.out_features, self._weight.dtype)
             ebops += ops.mean(bw_bias) * size
-        ebops = ebops * self.n_parallel / self.parallelization_factor
+        ebops = ebops * self.parallelization_factor / self.n_parallel
         return ebops
 
     @property
@@ -304,7 +306,7 @@ class PQDense(PQWeightBiasBase, nn.Linear):
         self._weight.data = self.weight
         if self._bias is not None:
             self._bias.data = self.bias
-        self.final_compression_done = True
+        self.final_compression_done.data = torch.tensor(True)
 
     def forward(self, x):
         x = self.pre_forward(x)
@@ -1415,13 +1417,13 @@ def add_pruning_to_model(module, config, prefix=""):
 
 def apply_final_compression(module):
     for layer in module.modules():
-        if isinstance(layer, (PQWeightBiasBase, PQBatchNorm2d, PQBatchNorm1d)):
+        if isinstance(layer, (PQWeightBiasBase, PQBatchNorm2d, PQBatchNorm1d, Quantizer)):
             layer.apply_final_compression()
     return module
 
 
 def call_post_round_functions(model, rewind, rounds, r):
-    last_round = (r == rounds - 1)
+    last_round = r == rounds - 1
     if rewind == "round":
         rewind_weights_functions(model)
     elif rewind == "post-ticket-search" and last_round:
@@ -1468,13 +1470,13 @@ def pre_finetune_functions(model):
             layer.pruning_layer.pre_finetune_function()
 
 
-def post_pretrain_functions(model, config, train_loader=None, loss_func=None, input_shape=None):
+def post_pretrain_functions(model, config, train_loader=None, loss_function=None, input_shape=None):
 
     if config.fitcompress_parameters.enable_fitcompress:
         from pquant.core.torch.fit_compress import call_fitcompress  # noqa: 811
 
         config, pruning_mask_importance_scores = call_fitcompress(
-            config, model, train_loader, loss_func, input_shape=input_shape
+            config, model, train_loader, loss_function, input_shape=input_shape
         )
         idx = 0
         for layer in model.modules():
@@ -1667,3 +1669,12 @@ def get_ebops(model):
         elif isinstance(m, (PQAvgPoolBase, PQBatchNorm1d, PQBatchNorm2d, PQActivation)):
             ebops += m.ebops()
     return ebops
+
+
+def load_torch_hgq_model(model, path_to_checkpoint):
+    model.load_state_dict(torch.load(path_to_checkpoint), strict=False)
+    for m in model.modules():
+        if isinstance(m, Quantizer) and m.quantizer.built:
+            # Populate HGQ quantizer bit values from PQuantML quantizer
+            m.reload_from_local()
+    return model

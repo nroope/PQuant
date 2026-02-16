@@ -1,18 +1,30 @@
-import keras
-from keras.initializers import Constant
-from keras import ops
 from enum import Enum
+
+import keras
+from keras import ops
 
 from pquant.core.quantizer_functions import create_quantizer
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class Quantizer(keras.layers.Layer):
     # HGQ quantizer wrapper
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data=False, granularity="per_tensor", hgq_gamma=0):
+    def __init__(
+        self,
+        k=0.0,
+        i=0.0,
+        f=7.0,
+        overflow="SAT",
+        round_mode="RND",
+        is_heterogeneous=False,
+        is_data=False,
+        granularity="per_tensor",
+        hgq_gamma=0,
+    ):
         super().__init__()
-        self.k = k
-        self.i = i
-        self.f = f
+        self.k = float(k)
+        self.i = float(i)
+        self.f = float(f)
         self.overflow = overflow
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
@@ -24,7 +36,7 @@ class Quantizer(keras.layers.Layer):
             self.granularity = granularity.value
         else:
             self.granularity = granularity
-    
+
     def compute_dynamic_bits(self, x):
         if self.granularity == "per_channel":
             if ops.ndim(x) == 2:
@@ -43,13 +55,9 @@ class Quantizer(keras.layers.Layer):
         int_bits = ops.maximum(m, 0.0)
         frac_bits = ops.maximum(self.b - int_bits - self.k, 0.0)
         return int_bits, frac_bits
-    
+
     def build(self, input_shape):
         super().build(input_shape)
-        self.i = self.add_variable((), Constant(self.i), dtype="float32", trainable=False)
-        self.f = self.add_variable((), Constant(self.f), dtype="float32", trainable=False)
-        if self.use_hgq:
-            self.quantizer.build(input_shape)
 
     def get_total_bits(self, shape):
         if self.use_hgq:
@@ -95,3 +103,41 @@ class Quantizer(keras.layers.Layer):
         for layer_loss in self.quantizer.quantizer.losses:
             loss += layer_loss
         return loss
+
+    @classmethod
+    def from_config(cls, config):
+        use_hgq = config["is_heterogeneous"]
+        instance = cls(
+            k=config.pop("k"),
+            i=config.pop("i"),
+            f=config.pop("f"),
+            round_mode=config.pop("round_mode"),
+            overflow=config.pop("overflow"),
+            is_heterogeneous=config.pop("is_heterogeneous"),
+            is_data=config.pop("is_data"),
+            granularity=config.pop("granularity"),
+        )
+
+        if use_hgq:
+            quantizer_config = config.pop("quantizer")
+            instance.quantizer = keras.saving.deserialize_keras_object(quantizer_config)
+        return instance
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "k": self.k,
+                "i": self.i,
+                "f": self.f,
+                "overflow": self.overflow,
+                "round_mode": self.round_mode,
+                "is_data": self.is_data,
+                "hgq_gamma": self.hgq_gamma,
+                "is_heterogeneous": self.use_hgq,
+                "granularity": self.granularity,
+            }
+        )
+        if self.use_hgq:
+            config.update({"quantizer": keras.saving.serialize_keras_object(self.quantizer)})
+        return config

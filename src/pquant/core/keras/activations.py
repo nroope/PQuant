@@ -23,6 +23,7 @@ def hard_tanh(x):
 activation_registry = {"relu": relu, "tanh": tanh, "hard_tanh": hard_tanh}
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class PQActivation(keras.layers.Layer):
     def __init__(
         self,
@@ -32,8 +33,9 @@ class PQActivation(keras.layers.Layer):
         out_quant_bits: Tuple[T, T, T] = None,
         quantize_input=True,
         quantize_output=False,
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         if isinstance(config, dict):
             from pquant.core.finetuning import TuningConfig
 
@@ -51,7 +53,8 @@ class PQActivation(keras.layers.Layer):
             self.f_output = config.quantization_parameters.default_data_fractional_bits
         else:
             self.k_output, self.i_output, self.f_output = out_quant_bits
-
+        self.in_quant_bits = in_quant_bits
+        self.out_quant_bits = out_quant_bits
         self.activation_name = activation.lower()
         self.activation_function = activation_registry.get(self.activation_name)
         self.config = config
@@ -73,34 +76,34 @@ class PQActivation(keras.layers.Layer):
         self.built = False
 
     def build(self, input_shape):
-        super().build(input_shape)
         self.input_shape = (1,) + input_shape[1:]
-        self.output_quantizer = Quantizer(
-            k=self.k_output,
-            i=self.i_output,
-            f=self.f_output,
-            overflow=self.overflow_mode_data,
-            round_mode=self.round_mode,
-            is_data=True,
-            is_heterogeneous=self.use_hgq,
-            hgq_gamma=self.hgq_gamma,
-        )
-        self.input_quantizer = Quantizer(
-            k=self.k_input,
-            i=self.i_input,
-            f=self.f_input,
-            overflow=self.overflow_mode_data,
-            round_mode=self.round_mode,
-            is_data=True,
-            is_heterogeneous=self.use_hgq,
-            hgq_gamma=self.hgq_gamma,
-        )
-        if self.use_hgq:
-            self.input_quantizer.build(input_shape)
-            self.output_quantizer.build(input_shape)
+
+        if self.quantize_input:
+            self.input_quantizer = Quantizer(
+                k=self.k_input,
+                i=self.i_input,
+                f=self.f_input,
+                overflow=self.overflow_mode_data,
+                round_mode=self.round_mode,
+                is_data=True,
+                is_heterogeneous=self.use_hgq,
+                hgq_gamma=self.hgq_gamma,
+            )
+        if self.quantize_output:
+            self.output_quantizer = Quantizer(
+                k=self.k_output,
+                i=self.i_output,
+                f=self.f_output,
+                overflow=self.overflow_mode_data,
+                round_mode=self.round_mode,
+                is_data=True,
+                is_heterogeneous=self.use_hgq,
+                hgq_gamma=self.hgq_gamma,
+            )
 
         if self.use_multiplier:
             self.multiplier = self.add_weight(shape=(1,), trainable=True, initializer=keras.initializers.Constant(-1.0))
+        super().build(input_shape)
 
     def get_input_quantization_bits(self):
         return self.input_quantizer.get_quantization_bits()
@@ -118,9 +121,11 @@ class PQActivation(keras.layers.Layer):
         self.is_pretraining = False
 
     def ebops(self):
-        bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
-        bw_out = self.output_quantizer.quantizer.bits_(self.input_shape)
-        return keras.ops.sum((2.0**bw_inp) * bw_out) * 1e-4  # type: ignore
+        if self.quantize_input and self.quantize_output:
+            bw_inp = self.input_quantizer.quantizer.bits_(self.input_shape)
+            bw_out = self.output_quantizer.quantizer.bits_(self.input_shape)
+            return keras.ops.sum((2.0**bw_inp) * bw_out) * 1e-4  # type: ignore
+        return 0.0
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
@@ -162,10 +167,11 @@ class PQActivation(keras.layers.Layer):
         config.update(
             {
                 "config": self.config.get_dict(),
-                "i_input": float(self.i_input),
-                "f_input": float(self.f_input),
-                "i_output": float(self.i_output),
-                "f_output": float(self.f_output),
+                "quantize_input": self.quantize_input,
+                "quantize_output": self.quantize_output,
+                "activation": self.activation_name,
+                "in_quant_bits": self.in_quant_bits,
+                "out_quant_bits": self.out_quant_bits,
             }
         )
         return config
