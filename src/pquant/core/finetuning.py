@@ -36,23 +36,20 @@ def get_sampler(sampler_type, **kwargs):
 
 
 def log_model_by_backend(model, name, signature=None, registered_model_name=None):
+    import mlflow
+    
     backend = keras.backend.backend()
-    print("Backend:", backend)
-    print("Registry keys:", constants.LOG_FUNCTIONS_REGISTRY.keys())
-
     kwargs = {
         "artifact_path": name,
         "signature": signature,
         "registered_model_name": registered_model_name,
     }
-
-    if backend == constants.JAX_BACKEND:
-        raise NotImplementedError("JAX is not supported yet.")
-
-    if backend not in constants.LOG_FUNCTIONS_REGISTRY:
+    if backend == constants.TORCH_BACKEND:
+        return mlflow.pytorch.log_model(model, **kwargs)
+    elif backend == constants.TF_BACKEND:
+        return mlflow.tensorflow.log_model(model, **kwargs)
+    else:
         raise ValueError(f"Unsupported backend: {backend}")
-
-    return constants.LOG_FUNCTIONS_REGISTRY[backend](model, **kwargs)
 
 
 class MetricFunction(BaseModel):

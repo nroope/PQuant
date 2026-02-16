@@ -16,7 +16,7 @@ quantization_parameters:
   granularity: "per_tensor"
   use_real_tanh: false
   use_symmetric_quantization: false
-  overflow_mode_parameters: WRAP
+  overflow_mode_parameters: SAT
   overflow_mode_data: SAT
 training_parameters:
    batch_size: 128
