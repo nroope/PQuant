@@ -76,7 +76,7 @@ class PQActivation(keras.layers.Layer):
         self.built = False
 
     def build(self, input_shape):
-        self.input_shape = (1,) + input_shape[1:]
+        self.input_shape = (1,) + tuple(input_shape[1:])
 
         if self.quantize_input:
             self.input_quantizer = Quantizer(
