@@ -13,9 +13,12 @@ class Quantizer(nn.Module):
         super().__init__()
         self.k = torch.nn.Parameter(torch.tensor(k), requires_grad=False)
         self.overflow = overflow
+        self.b_init = k + i + f
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
         self.is_data = is_data
+        self.i_init = i
+        self.f_init = f
         self.quantizer = create_quantizer(self.k, i, f, self.overflow, self.round_mode, self.use_hgq, self.is_data)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
@@ -63,27 +66,30 @@ class Quantizer(nn.Module):
 
         m = torch.ceil(torch.log2(abs_x + 1e-6))
         int_bits = torch.clamp(m, min=0)
-        frac_bits = torch.clamp(self.b - int_bits - self.k, min=0)
+        b = self.b if hasattr(self, "b") else self.k + self.i_init + self.f_init
+        frac_bits = torch.clamp(b - int_bits - self.k, min=0)
         return int_bits, frac_bits
 
     def forward(self, x):
         if self.use_hgq:
             x = self.quantizer(x, training=self.training)
-            if not hasattr(self, "f"):
-                _, i, f = self.get_quantization_bits()
-                self.initialize_quantization_parameters(i, f)
+            _, i, f = self.get_quantization_bits()
+            self.initialize_quantization_parameters(i, f)
             return x
         else:
+            if not self.training or self.final_compression_done:
+                self.quantizer(x, k=self.k, i=self.i, f=self.f, training=self.training)
             if self.granularity == 'per_tensor':
-                i, f = self.i, self.f
+                self.initialize_quantization_parameters(self.i_init, self.f_init)
+                _, i, f = self.get_quantization_bits()
             else:
                 i, f = self.compute_dynamic_bits(x)
+            self.initialize_quantization_parameters(i, f)
             self.i.data = i
             self.f.data = f
-            if not hasattr(self, "f"):
-                _, i, f = self.get_quantization_bits()
-                self.initialize_quantization_parameters(i, f)
+            _, i, f = self.get_quantization_bits()
         x = self.quantizer(x, k=self.k, i=i, f=f, training=self.training)
+        return x
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
@@ -110,10 +116,12 @@ class Quantizer(nn.Module):
         self.final_compression_done.data = torch.tensor(True)
 
     def initialize_quantization_parameters(self, i, f):
+        if hasattr(self, "f"):
+            return
         # Lazy initialization
         self.i = torch.nn.Parameter(torch.tensor(i), requires_grad=False)
         self.f = torch.nn.Parameter(torch.tensor(f), requires_grad=False)
-        self.b = torch.nn.Parameter(torch.tensor(self.k + i + f), requires_grad=False)
+        self.b = torch.nn.Parameter(torch.tensor(self.k.detach().clone() + i + f), requires_grad=False)
 
     def reload_from_local(self):
         if not self.use_hgq:
