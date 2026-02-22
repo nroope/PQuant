@@ -452,7 +452,7 @@ class FITcompress:
         for _, module in model.named_modules():
             if isinstance(module, (PQDense, PQConv2d)):
                 for name_param, matrix_param in list(module.named_parameters()):
-                    if name_param.endswith('weight'):
+                    if name_param.endswith('_weight'):
                         matrix_param.data = nn.parameter.Parameter(params[i].to(self.device))
                         matrix_param.collect = True
                         i += 1

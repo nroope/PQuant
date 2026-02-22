@@ -6,9 +6,9 @@ from keras import ops
 class ActivationPruning(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         super().__init__(*args, **kwargs)
         self.config = config
         self.act_type = "relu"
@@ -29,7 +29,8 @@ class ActivationPruning(keras.layers.Layer):
                 self.shape = (input_shape[0], 1, 1)
             else:
                 self.shape = (input_shape[0], 1, 1, 1)
-        self.mask = ops.ones(self.shape)
+        self.mask = self.add_weight(shape=self.shape, initializer="ones", trainable=False)
+        self.mask_placeholder = ops.ones(self.shape)
 
     def collect_output(self, output, training):
         """
@@ -37,7 +38,7 @@ class ActivationPruning(keras.layers.Layer):
         linear/convolution layer are over 0. Every t_delta steps, uses these values to update
         the mask to prune those channels and neurons that are active less than a given threshold
         """
-        if not training or self.is_pretraining:
+        if not training or self.is_pretraining or self.is_finetuning:
             # Don't collect during validation
             return
         if self.activations is None:
@@ -56,15 +57,19 @@ class ActivationPruning(keras.layers.Layer):
             self.total = 0
             self.batches_collected = 0
             if self.layer_type == "linear":
-                self.mask = ops.expand_dims(ops.cast((pct_active > self.threshold), pct_active.dtype), 1)
+                self.mask_placeholder = ops.expand_dims(ops.cast((pct_active > self.threshold), pct_active.dtype), 1)
             else:
                 pct_active = ops.reshape(pct_active, (pct_active.shape[0], -1))
                 pct_active_avg = ops.mean(pct_active, axis=-1)
                 pct_active_above_threshold = ops.cast((pct_active_avg > self.threshold), pct_active_avg.dtype)
                 if len(output.shape) == 3:
-                    self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1])
+                    self.mask_placeholder = ops.reshape(
+                        pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1]
+                    )
                 else:
-                    self.mask = ops.reshape(pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1, 1])
+                    self.mask_placeholder = ops.reshape(
+                        pct_active_above_threshold, list(pct_active_above_threshold.shape) + [1, 1, 1]
+                    )
             self.activations *= 0.0
 
     def call(self, weight):  # Mask is only updated every t_delta step, using collect_output
@@ -97,6 +102,7 @@ class ActivationPruning(keras.layers.Layer):
     def post_epoch_function(self, epoch, total_epochs):
         if self.is_pretraining is False:
             self.t += 1
+        self.mask.assign(self.mask_placeholder)
         pass
 
     def get_config(self):

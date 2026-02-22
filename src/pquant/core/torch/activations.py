@@ -37,9 +37,9 @@ class PQActivation(nn.Module):
     ):
         super().__init__()
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         self.config = config
         if in_quant_bits is None:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
@@ -91,6 +91,7 @@ class PQActivation(nn.Module):
             is_data=True,
             is_heterogeneous=self.use_hgq,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         self.input_quantizer = Quantizer(
             k=self.k_input,
@@ -100,7 +101,8 @@ class PQActivation(nn.Module):
             round_mode=self.round_mode,
             is_data=True,
             is_heterogeneous=self.use_hgq,
-            hgq_gamma=self.hgq_gamma,     
+            hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         if self.use_hgq:
             self.input_quantizer.quantizer.build(input_shape)

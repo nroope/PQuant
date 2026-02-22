@@ -37,9 +37,9 @@ class PQActivation(keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         if in_quant_bits is None:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
             self.i_input = config.quantization_parameters.default_data_integer_bits
@@ -88,6 +88,7 @@ class PQActivation(keras.layers.Layer):
                 is_data=True,
                 is_heterogeneous=self.use_hgq,
                 hgq_gamma=self.hgq_gamma,
+                place="datalane",
             )
         if self.quantize_output:
             self.output_quantizer = Quantizer(
@@ -99,6 +100,7 @@ class PQActivation(keras.layers.Layer):
                 is_data=True,
                 is_heterogeneous=self.use_hgq,
                 hgq_gamma=self.hgq_gamma,
+                place="datalane",
             )
 
         if self.use_multiplier:

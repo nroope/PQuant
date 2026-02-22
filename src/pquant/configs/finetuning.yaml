@@ -50,7 +50,7 @@ fitcompress_parameters:
   greedy_astar : true
   approximate : true
   f_lambda : 0.5
-finetuning_parameters:
+hpo_parameters:
     experiment_name: resnet_18_experiment_4
     epochs: 2
     model_name: resnet18
