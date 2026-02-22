@@ -51,7 +51,7 @@ fitcompress_parameters:
   approximate : true
   f_lambda : 0.5
 hpo_parameters:
-    experiment_name: resnet_18_experiment_4
+    experiment_name: experiment_name
     epochs: 2
     model_name: resnet18
     num_trials: 1
