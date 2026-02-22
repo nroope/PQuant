@@ -42,7 +42,7 @@ training_parameters:
   fine_tuning_epochs: 85
   pretraining_epochs: 0
   pruning_first: true
-  rewind: post-ticket-search
+  rewind: post-training-stage
   rounds: 3
   save_weights_epoch: 2
 batch_size: 256
