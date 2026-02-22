@@ -26,7 +26,7 @@ class DSTPruningModel(BasePruningModel):
 
 class FITCompressPruningModel(BasePruningModel):
     pruning_method: Literal["fitcompress"] = "fitcompress"
-    min_frac_bit: float = Field(default=2.0)
+    min_frac_bits: float = Field(default=2.0)
 
 
 class PDPPruningModel(BasePruningModel):

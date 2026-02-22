@@ -13,7 +13,7 @@ class Sampler(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
-class BaseFinetuningModel(BaseModel):
+class BaseHyperparameterOptimizationModel(BaseModel):
     experiment_name: str = Field(default="experiment_1")
     model_name: str = Field(default="example_model")
     sampler: Sampler = Field(default_factory=Sampler)

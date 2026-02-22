@@ -20,6 +20,7 @@ class Quantizer(keras.layers.Layer):
         is_data=False,
         granularity="per_tensor",
         hgq_gamma=0,
+        place="datalane",
     ):
         super().__init__()
         self.k_init = float(k)
@@ -30,8 +31,9 @@ class Quantizer(keras.layers.Layer):
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
         self.is_data = is_data
+        self.place = place
         self.quantizer = create_quantizer(
-            self.k_init, self.i_init, self.f_init, self.overflow, self.round_mode, self.use_hgq, self.is_data
+            self.k_init, self.i_init, self.f_init, self.overflow, self.round_mode, self.use_hgq, self.is_data, place
         )
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
@@ -128,6 +130,7 @@ class Quantizer(keras.layers.Layer):
             is_heterogeneous=config.pop("is_heterogeneous"),
             is_data=config.pop("is_data"),
             granularity=config.pop("granularity"),
+            place=config.pop("place"),
         )
 
         if use_hgq:
@@ -148,6 +151,7 @@ class Quantizer(keras.layers.Layer):
                 "hgq_gamma": self.hgq_gamma,
                 "is_heterogeneous": self.use_hgq,
                 "granularity": self.granularity,
+                "place": self.place,
             }
         )
         if self.use_hgq:
