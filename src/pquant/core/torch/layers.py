@@ -602,9 +602,12 @@ class PQConv1d(PQWeightBiasBase, nn.Conv1d):
         return s.format(**self.__dict__)
 
 
-def add_compression_layers(model, config):
+def add_compression_layers(model, config, input_shape=None):
     model = add_quantized_activations_to_model_layer(model, config)
     model = add_pruning_to_model(model, config)
+    model.to("cuda")
+    if input_shape is not None:
+        model(torch.rand(input_shape).to("cuda"))
     return model
 
 
