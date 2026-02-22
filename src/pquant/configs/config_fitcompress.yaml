@@ -44,3 +44,12 @@ training_parameters:
   rewind: never
   rounds: 1
   save_weights_epoch: -1
+hpo_parameters:
+    experiment_name: experiment_name
+    model_name: jet_tagger
+    num_trials: 1
+    sampler:
+      type: RandomSampler
+    hyperparameter_search:
+      numerical: {}
+      categorical: {}

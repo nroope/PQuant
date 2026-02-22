@@ -1,5 +1,5 @@
 pruning_parameters:
-  disable_pruning_for_layers: [] # Disable pruning for these layers, even if enable_pruning is true
+  disable_pruning_for_layers: []
   enable_pruning: true
   pruning_method: activation_pruning
   threshold: 0.2
@@ -46,3 +46,12 @@ training_parameters:
   rewind: never
   rounds: 1
   save_weights_epoch: -1
+hpo_parameters:
+    experiment_name: experiment_name
+    model_name: jet_tagger
+    num_trials: 1
+    sampler:
+      type: RandomSampler
+    hyperparameter_search:
+      numerical: {}
+      categorical: {}

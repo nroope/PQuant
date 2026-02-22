@@ -1733,7 +1733,7 @@ def post_training_prune(model, config, calibration_data):
     return remove_compression_layers(model, config)
 
 
-def get_ebops(model):
+def get_ebops(model, **kwargs):
     ebops = 0
     for m in model.modules():
         if isinstance(m, (PQWeightBiasBase)):
