@@ -11,8 +11,10 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from pquant.core import constants
-from pquant.data_models.finetuning_model import BaseFinetuningModel
 from pquant.data_models.fitcompress_model import BaseFitCompressModel
+from pquant.data_models.hyperparameter_optimization_model import (
+    BaseHyperparameterOptimizationModel,
+)
 from pquant.data_models.pruning_model import (
     ActivationPruningModel,
     AutoSparsePruningModel,
@@ -37,7 +39,7 @@ def get_sampler(sampler_type, **kwargs):
 
 def log_model_by_backend(model, name, signature=None, registered_model_name=None):
     import mlflow
-    
+
     backend = keras.backend.backend()
     kwargs = {
         "artifact_path": name,
@@ -63,8 +65,8 @@ class MetricFunction(BaseModel):
         return direction
 
 
-class TuningConfig(BaseModel):
-    finetuning_parameters: BaseFinetuningModel
+class PQConfig(BaseModel):
+    hpo_parameters: BaseHyperparameterOptimizationModel
     pruning_parameters: Annotated[
         Union[
             CSPruningModel,
@@ -102,7 +104,7 @@ class TuningConfig(BaseModel):
         pruning_model_cls = constants.PRUNING_MODEL_REGISTRY.get(pruning_method, BasePruningModel)
 
         return cls(
-            finetuning_parameters=BaseFinetuningModel(**config.get("finetuning_parameters", {})),
+            hpo_parameters=BaseHyperparameterOptimizationModel(**config.get("hpo_parameters", {})),
             pruning_parameters=pruning_model_cls(**config.get("pruning_parameters", {})),
             quantization_parameters=BaseQuantizationModel(**config.get("quantization_parameters", {})),
             training_parameters=BaseTrainingModel(**config.get("training_parameters", {})),
@@ -114,7 +116,7 @@ class TuningConfig(BaseModel):
 
 
 class TuningTask:
-    def __init__(self, config: TuningConfig):
+    def __init__(self, config: PQConfig):
         self.config = config
         self.hyperparameters = {}
         self.objectives: Dict[str, MetricFunction] = {}
@@ -192,7 +194,7 @@ class TuningTask:
         return self._scheduler_function
 
     def set_hyperparameters(self):
-        hp_config = self.config.finetuning_parameters.hyperparameter_search
+        hp_config = self.config.hpo_parameters.hyperparameter_search
         numerical_params = hp_config.numerical
         categorical_params = hp_config.categorical
 
@@ -300,7 +302,7 @@ class TuningTask:
                 signature = infer_signature(sample_input.cpu().numpy(), sample_output.detach().cpu().numpy())
 
                 mlflow.log_text(yaml.safe_dump(self.get_dict()), "config.yaml")
-                model_name = self.config.finetuning_parameters.model_name
+                model_name = self.config.hpo_parameters.model_name
                 log_model_by_backend(
                     model=trained_model,
                     name=model_name,
@@ -311,25 +313,25 @@ class TuningTask:
         return objectives if len(objectives) > 1 else objectives[0]
 
     def run_optimization(self, model, **kwargs):
-        finetuning_parameters = self.config.finetuning_parameters
+        hpo_parameters = self.config.hpo_parameters
         if self.enable_mlflow:
             import mlflow
-            
+
             if not self.tracking_uri:
                 raise ValueError("Tracking URI must be set when MLflow logging is enabled.")
             mlflow.set_tracking_uri(self.tracking_uri)
-            mlflow.set_experiment(finetuning_parameters.experiment_name)
+            mlflow.set_experiment(hpo_parameters.experiment_name)
 
-        sampler = get_sampler(finetuning_parameters.sampler.type, **finetuning_parameters.sampler.params)
+        sampler = get_sampler(hpo_parameters.sampler.type, **hpo_parameters.sampler.params)
         study = optuna.create_study(
-            study_name=finetuning_parameters.experiment_name,
+            study_name=hpo_parameters.experiment_name,
             storage=self.storage_db,
             sampler=sampler,
             load_if_exists=True,
             directions=[metric_object.direction for _, metric_object in self.objectives.items()],
         )
 
-        num_trials = finetuning_parameters.num_trials
+        num_trials = hpo_parameters.num_trials
         study.optimize(
             lambda trial: self.objective(
                 trial,
@@ -349,61 +351,61 @@ def ap_config():
     yaml_name = "config_ap.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def autosparse_config():
     yaml_name = "config_autosparse.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def cs_config():
     yaml_name = "config_cs.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def dst_config():
     yaml_name = "config_dst.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def fitcompress_config():
     yaml_name = "config_fitcompress.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def mdmm_config():
     yaml_name = "config_mdmm.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def pdp_config():
     yaml_name = "config_pdp.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def wanda_config():
     yaml_name = "config_wanda.yaml"
     parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(parent, "configs", yaml_name)
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def load_from_file(path):
-    return TuningConfig.load_from_file(path)
+    return PQConfig.load_from_file(path)
 
 
 def load_from_dictionary(config):
-    return TuningConfig.load_from_config(config)
+    return PQConfig.load_from_config(config)

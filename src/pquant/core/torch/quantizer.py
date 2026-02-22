@@ -8,7 +8,17 @@ from pquant.core.quantizer_functions import create_quantizer
 
 class Quantizer(nn.Module):
     def __init__(
-        self, k, i, f, overflow, round_mode, is_heterogeneous, is_data=False, granularity='per_tensor', hgq_gamma=0
+        self,
+        k,
+        i,
+        f,
+        overflow,
+        round_mode,
+        is_heterogeneous,
+        is_data=False,
+        granularity='per_tensor',
+        hgq_gamma=0,
+        place="datalane",
     ):
         super().__init__()
         self.k = torch.nn.Parameter(torch.tensor(k), requires_grad=False)
@@ -19,7 +29,7 @@ class Quantizer(nn.Module):
         self.is_data = is_data
         self.i_init = i
         self.f_init = f
-        self.quantizer = create_quantizer(self.k, i, f, self.overflow, self.round_mode, self.use_hgq, self.is_data)
+        self.quantizer = create_quantizer(self.k, i, f, self.overflow, self.round_mode, self.use_hgq, self.is_data, place)
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
         if isinstance(granularity, Enum):
@@ -27,6 +37,8 @@ class Quantizer(nn.Module):
         else:
             self.granularity = granularity
         self.final_compression_done = nn.Parameter(torch.tensor(False), requires_grad=False)
+        if self.granularity == 'per_tensor':
+            self.initialize_quantization_parameters(self.i_init, self.f_init)
 
     def get_quantization_bits(self):
         if self.use_hgq:
@@ -77,10 +89,7 @@ class Quantizer(nn.Module):
             self.initialize_quantization_parameters(i, f)
             return x
         else:
-            if not self.training or self.final_compression_done:
-                self.quantizer(x, k=self.k, i=self.i, f=self.f, training=self.training)
             if self.granularity == 'per_tensor':
-                self.initialize_quantization_parameters(self.i_init, self.f_init)
                 _, i, f = self.get_quantization_bits()
             else:
                 i, f = self.compute_dynamic_bits(x)

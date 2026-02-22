@@ -19,7 +19,7 @@ from keras.layers import (
 from keras.src.layers.input_spec import InputSpec
 from keras.src.ops.operation_utils import compute_pooling_output_shape
 
-from pquant.core.finetuning import TuningConfig
+from pquant.core.hyperparameter_optimization import PQConfig
 from pquant.core.keras.activations import PQActivation
 from pquant.core.keras.quantizer import Quantizer
 from pquant.core.utils import get_pruning_layer
@@ -39,12 +39,13 @@ class PQWeightBiasBase(keras.layers.Layer):
         weight_quant_bits: Tuple[T, T, T] = None,
         bias_quant_bits: Tuple[T, T, T] = None,
         out_quant_bits: Tuple[T, T, T] = None,
+        enable_pruning=None,
         *args,
         **kwargs,
     ):
         super().__init__(**kwargs)
         if isinstance(config, dict):
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         if in_quant_bits is not None:
             self.k_input, self.i_input, self.f_input = in_quant_bits
         else:
@@ -87,7 +88,7 @@ class PQWeightBiasBase(keras.layers.Layer):
         self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
         self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
-        self.enable_pruning = config.pruning_parameters.enable_pruning
+        self.enable_pruning = enable_pruning if enable_pruning is not None else config.pruning_parameters.enable_pruning
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.granularity = config.quantization_parameters.granularity
@@ -109,6 +110,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             is_data=False,
             granularity=self.granularity,
             hgq_gamma=self.hgq_gamma,
+            place="weight",
         )
 
         # if self.use_bias:
@@ -121,6 +123,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             is_heterogeneous=self.use_hgq,
             is_data=False,
             hgq_gamma=self.hgq_gamma,
+            place="bias",
         )
         self.input_quantizer = Quantizer(
             k=ops.convert_to_tensor(self.k_input),
@@ -131,6 +134,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             is_heterogeneous=self.use_hgq,
             is_data=True,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         self.output_quantizer = Quantizer(
             k=ops.convert_to_tensor(self.k_output),
@@ -141,6 +145,7 @@ class PQWeightBiasBase(keras.layers.Layer):
             is_heterogeneous=self.use_hgq,
             is_data=True,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
 
     def set_enable_pruning(self, enable_pruning):
@@ -295,6 +300,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
         weight_quant_bits: Tuple[T, T, T] = None,
         bias_quant_bits: Tuple[T, T, T] = None,
         out_quant_bits: Tuple[T, T, T] = None,
+        enable_pruning=None,
         **kwargs,
     ):
         super().__init__(
@@ -321,6 +327,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             weight_quant_bits=weight_quant_bits,
             bias_quant_bits=bias_quant_bits,
             out_quant_bits=out_quant_bits,
+            enable_pruning=enable_pruning,
             **kwargs,
         )
         self.depthwise_regularizer = depthwise_regularizer
@@ -500,6 +507,7 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
         weight_quant_bits: Tuple[T, T, T] = None,
         bias_quant_bits: Tuple[T, T, T] = None,
         out_quant_bits: Tuple[T, T, T] = None,
+        enable_pruning=None,
         **kwargs,
     ):
         super().__init__(
@@ -527,6 +535,7 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
             weight_quant_bits=weight_quant_bits,
             bias_quant_bits=bias_quant_bits,
             out_quant_bits=out_quant_bits,
+            enable_pruning=enable_pruning,
             **kwargs,
         )
 
@@ -725,6 +734,7 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
         weight_quant_bits: Tuple[T, T, T] = None,
         bias_quant_bits: Tuple[T, T, T] = None,
         out_quant_bits: Tuple[T, T, T] = None,
+        enable_pruning=None,
         strides=1,
         padding="valid",
         data_format=None,
@@ -767,6 +777,7 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
             weight_quant_bits=weight_quant_bits,
             bias_quant_bits=bias_quant_bits,
             out_quant_bits=out_quant_bits,
+            enable_pruning=enable_pruning,
             **kwargs,
         )
 
@@ -883,6 +894,7 @@ class PQDense(PQWeightBiasBase):
         weight_quant_bits: Tuple[T, T, T] = None,
         bias_quant_bits: Tuple[T, T, T] = None,
         out_quant_bits: Tuple[T, T, T] = None,
+        enable_pruning=None,
         use_bias=True,
         kernel_initializer="glorot_uniform",
         bias_initializer="zeros",
@@ -901,6 +913,7 @@ class PQDense(PQWeightBiasBase):
             weight_quant_bits=weight_quant_bits,
             bias_quant_bits=bias_quant_bits,
             out_quant_bits=out_quant_bits,
+            enable_pruning=enable_pruning,
             **kwargs,
         )
         self.weight_transpose = (1, 0)
@@ -993,8 +1006,6 @@ class PQDense(PQWeightBiasBase):
         if bias is not None:
             x = ops.add(x, bias)
         x = self.post_forward(x, training)
-        if self.use_hgq and self.enable_quantization:
-            self.add_loss(self.hgq_loss())
         return x
 
     def get_config(self):
@@ -1077,6 +1088,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             is_heterogeneous=self.use_hgq,
             is_data=True,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         self.weight_quantizer = Quantizer(
             k=1.0,
@@ -1086,6 +1098,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
+            place="weight",
         )
         self.bias_quantizer = Quantizer(
             k=1.0,
@@ -1095,6 +1108,7 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
             overflow=self.overflow_mode_parameters,
             is_data=False,
             is_heterogeneous=self.use_hgq,
+            place="bias",
         )
         self.input_quantizer.build(input_shape)
         self.weight_quantizer.build(self.moving_variance.shape)
@@ -1256,6 +1270,7 @@ class PQAvgPoolBase(keras.layers.Layer):
             is_heterogeneous=self.use_hgq,
             is_data=True,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         self.output_quantizer = Quantizer(
             k=1.0,
@@ -1266,6 +1281,7 @@ class PQAvgPoolBase(keras.layers.Layer):
             is_heterogeneous=self.use_hgq,
             is_data=True,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         if self.use_hgq:
             self.input_quantizer.build(input_shape)
@@ -1636,19 +1652,10 @@ def get_layer_keep_ratio(model):
                 PQDense,
             ),
         ):
-            if layer.pruning_first:
-                weight = ops.transpose(layer.pruning_layer.get_hard_mask(), layer.weight_transpose_back) * layer._kernel
-                if layer.enable_quantization:
-                    weight = layer.weight_quantizer(weight)
-                weight = weight
-            else:
-                weight = layer._kernel
-                if layer.enable_quantization:
-                    weight = layer.weight_quantizer(weight)
-                weight = ops.transpose(layer.pruning_layer.get_hard_mask(), layer.weight_transpose_back) * weight
-                total_w += ops.size(weight)
-                rem = ops.count_nonzero(weight)
-                remaining_weights += rem
+            weight = layer.kernel
+            total_w += ops.size(weight)
+            rem = ops.count_nonzero(weight)
+            remaining_weights += rem
         elif isinstance(layer, PQSeparableConv2d):
             depthwise_weight = ops.cast(layer.depthwise_conv.kernel, layer.depthwise_conv.kernel.dtype)
             pointwise_weight = ops.cast(layer.pointwise_conv.kernel, layer.pointwise_conv.kernel.dtype)
@@ -1690,12 +1697,12 @@ def get_layer_keep_ratio(model):
 
 
 def is_training_stage(layer):
-    return False if layer.pruning_layer.is_finetuning and layer.pruning_layer.is_pretraining else True
+    return False if layer.pruning_layer.is_finetuning or layer.pruning_layer.is_pretraining else True
 
 
 def get_model_losses(model, losses):
     for layer in model.layers:
-        loss = 0
+        loss = 0.0
         if isinstance(
             layer,
             (
