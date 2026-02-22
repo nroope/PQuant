@@ -343,8 +343,10 @@ class TuningTask:
             n_trials=num_trials,
             n_jobs=1,
         )
-
-        return study.best_params
+        if len(self.objectives.keys()) == 1:
+            return study.best_params
+        else:
+            return study.best_trials
 
 
 def ap_config():
