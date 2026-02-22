@@ -1444,9 +1444,9 @@ def apply_final_compression(module):
 
 def call_post_round_functions(model, rewind, rounds, r):
     last_round = r == rounds - 1
-    if rewind == "round":
+    if rewind == "every-round":
         rewind_weights_functions(model)
-    elif rewind == "post-ticket-search" and last_round:
+    elif rewind == "post-training-stage" and last_round:
         rewind_weights_functions(model)
     elif not last_round:
         post_round_functions(model)
