@@ -608,6 +608,7 @@ def add_compression_layers(model, config, input_shape=None):
     model.to("cuda")
     if input_shape is not None:
         model(torch.rand(input_shape).to("cuda"))
+        model.to("cuda")
     return model
 
 
