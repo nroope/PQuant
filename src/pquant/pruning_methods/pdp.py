@@ -31,6 +31,8 @@ class PDP(keras.layers.Layer):
                     shape = (input_shape[0], 1, 1)
                 else:
                     shape = (input_shape[0], 1, 1, 1)
+        else:
+            shape = input_shape
         self.mask = self.add_weight(shape=shape, initializer="ones", name="mask", trainable=False)
         self.flat_weight_size = ops.cast(ops.size(self.mask), self.mask.dtype)
         super().build(input_shape)
