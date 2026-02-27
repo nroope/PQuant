@@ -7,9 +7,9 @@ class Wanda(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         self.config = config
         self.act_type = "relu"
         self.t = 0
@@ -20,6 +20,7 @@ class Wanda(keras.layers.Layer):
         self.done = False
         self.sparsity = self.config.pruning_parameters.sparsity
         self.is_pretraining = True
+        self.is_finetuning = False
         self.N = self.config.pruning_parameters.N
         self.M = self.config.pruning_parameters.M
         self.t_start_collecting_batch = self.config.pruning_parameters.t_start_collecting_batch
@@ -124,7 +125,7 @@ class Wanda(keras.layers.Layer):
         pass
 
     def pre_finetune_function(self):
-        pass
+        self.is_finetuning = True
 
     def calculate_additional_loss(self):
         return 0

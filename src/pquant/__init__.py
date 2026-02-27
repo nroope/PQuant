@@ -6,11 +6,13 @@ import sys
 backend = os.getenv("KERAS_BACKEND", "tensorflow")
 if backend == "torch":
     from . import configs, pruning_methods
-    from .core.finetuning import (
+    from .core.hyperparameter_optimization import (
+        PQConfig,
         ap_config,
         autosparse_config,
         cs_config,
         dst_config,
+        fitcompress_config,
         load_from_dictionary,
         load_from_file,
         mdmm_config,
@@ -24,6 +26,7 @@ if backend == "torch":
         get_ebops,
         get_layer_keep_ratio,
         get_model_losses,
+        load_torch_hgq_model,
         post_training_prune,
     )
     from .core.torch.train import train_model
@@ -49,14 +52,18 @@ if backend == "torch":
     _forwards.append("mdmm_config")
     _forwards.append("pdp_config")
     _forwards.append("wanda_config")
+    _forwards.append("fitcompress_config")
     _forwards.append("load_from_file")
     _forwards.append("load_from_dictionary")
     _forwards.append("get_ebops")
+    _forwards.append("load_torch_hgq_model")
+    _forwards.append("PQConfig")
     __all__ = _forwards
 
 else:
     from . import configs, pruning_methods
-    from .core.finetuning import (
+    from .core.hyperparameter_optimization import (
+        PQConfig,
         ap_config,
         autosparse_config,
         cs_config,
@@ -101,4 +108,5 @@ else:
     _forwards.append("wanda_config")
     _forwards.append("load_from_file")
     _forwards.append("load_from_dictionary")
+    _forwards.append("PQConfig")
     __all__ = _forwards

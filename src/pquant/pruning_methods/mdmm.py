@@ -20,15 +20,16 @@ class MDMM(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         self.config = config
         self.layer_type = layer_type
         self.constraint_layer = None
         self.penalty_loss = None
         self.built = False
         self.is_finetuning = False
+        self.is_pretraining = True
 
     def build(self, input_shape):
         pruning_parameters = self.config.pruning_parameters
@@ -121,7 +122,7 @@ class MDMM(keras.layers.Layer):
         pass
 
     def post_pre_train_function(self):
-        pass
+        self.is_pretraining = False
 
     def post_round_function(self):
         pass

@@ -7,23 +7,33 @@ class PDP(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         self.init_r = ops.convert_to_tensor(config.pruning_parameters.sparsity)
         self.epsilon = ops.convert_to_tensor(config.pruning_parameters.epsilon)
         self.r = config.pruning_parameters.sparsity
         self.temp = config.pruning_parameters.temperature
         self.is_pretraining = True
         self.config = config
-        self.fine_tuning = False
+        self.is_finetuning = False
         self.layer_type = layer_type
 
     def build(self, input_shape):
         input_shape_concatenated = list(input_shape) + [1]
         self.softmax_shape = input_shape_concatenated
         self.t = ops.ones(input_shape_concatenated) * 0.5
-        self.mask = ops.ones(input_shape)
+        if self.config.pruning_parameters.structured_pruning:
+            if self.layer_type == "linear":
+                shape = (input_shape[0], 1)
+            else:
+                if len(input_shape) == 3:
+                    shape = (input_shape[0], 1, 1)
+                else:
+                    shape = (input_shape[0], 1, 1, 1)
+        else:
+            shape = input_shape
+        self.mask = self.add_weight(shape=shape, initializer="ones", name="mask", trainable=False)
         self.flat_weight_size = ops.cast(ops.size(self.mask), self.mask.dtype)
         super().build(input_shape)
 
@@ -38,7 +48,7 @@ class PDP(keras.layers.Layer):
         pass
 
     def get_hard_mask(self, weight=None):
-        if self.fine_tuning:
+        if self.is_finetuning:
             return self.mask
         if weight is None:
             return ops.cast((self.mask >= 0.5), self.mask.dtype)
@@ -49,12 +59,13 @@ class PDP(keras.layers.Layer):
                 mask = self.get_mask_structured_linear(weight)
         else:
             mask = self.get_mask(weight)
-        self.mask = ops.cast((mask >= 0.5), mask.dtype)
+        self.mask.assign(ops.cast((mask >= 0.5), mask.dtype))
         return self.mask
 
     def pre_finetune_function(self):
-        self.fine_tuning = True
-        self.mask = ops.cast((self.mask >= 0.5), self.mask.dtype)
+        self.is_finetuning = True
+        if hasattr(self, "mask"):
+            self.mask.assign(ops.cast((self.mask >= 0.5), self.mask.dtype))
 
     def get_mask_structured_linear(self, weight):
         """
@@ -63,7 +74,7 @@ class PDP(keras.layers.Layer):
         """
         if self.is_pretraining:
             return self.mask
-        norm = ops.norm(weight, axis=0, ord=2, keepdims=True)
+        norm = ops.norm(weight, axis=1, ord=2, keepdims=True)
         norm_flat = ops.ravel(norm)
         """ Do top_k for all neuron norms. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
@@ -75,11 +86,11 @@ class PDP(keras.layers.Layer):
         Wt = W_all[lim + 1]
         # norm = ops.expand_dims(norm, -1)
         t = ops.ones(norm.shape) * 0.5 * (Wh + Wt)
-        soft_input = ops.concatenate((t**2, norm**2), axis=0) / self.temp
-        softmax_result = ops.softmax(soft_input, axis=0)
-        _, mw = ops.unstack(softmax_result, axis=0)
-        mw = ops.expand_dims(mw, 0)
-        self.mask = mw
+        soft_input = ops.concatenate((t**2, norm**2), axis=1) / self.temp
+        softmax_result = ops.softmax(soft_input, axis=1)
+        _, mw = ops.unstack(softmax_result, axis=1)
+        mw = ops.expand_dims(mw, -1)
+        self.mask.assign(mw)
         return mw
 
     def get_mask_structured_channel(self, weight):
@@ -89,8 +100,9 @@ class PDP(keras.layers.Layer):
         """
         if self.is_pretraining:
             return self.mask
-        weight_reshaped = ops.reshape(weight, (weight.shape[0], weight.shape[1], -1))
-        norm = ops.norm(weight_reshaped, axis=2, ord=2)
+        weight_reshaped = ops.reshape(weight, (weight.shape[0], -1))
+        norm = ops.norm(weight_reshaped, axis=1, ord=2)
+
         norm_flat = ops.ravel(norm)
         """ Do top_k for all channel norms. Returns sorted array, just use the values on both
         sides of the threshold (sparsity * size(norm)) to calculate t directly """
@@ -109,12 +121,11 @@ class PDP(keras.layers.Layer):
         diff = len(weight.shape) - len(mw.shape)
         for _ in range(diff):
             mw = ops.expand_dims(mw, -1)
-        self.mask = mw
+        self.mask.assign(mw)
         return mw
 
     def get_mask(self, weight):
         if self.is_pretraining:
-            self.mask = ops.ones(weight.shape)
             return self.mask
         weight_reshaped = ops.reshape(weight, self.softmax_shape)
         abs_weight_flat = ops.ravel(ops.abs(weight))
@@ -130,11 +141,11 @@ class PDP(keras.layers.Layer):
         softmax_result = ops.softmax(soft_input, axis=-1)
         _, mw = ops.unstack(softmax_result, axis=-1)
         mask = ops.reshape(mw, weight.shape)
-        self.mask = mask
+        self.mask.assign(mask)
         return mask
 
     def call(self, weight):
-        if self.fine_tuning:
+        if self.is_finetuning:
             mask = self.mask
         else:
             if self.config.pruning_parameters.structured_pruning:
@@ -159,10 +170,5 @@ class PDP(keras.layers.Layer):
 
     def get_config(self):
         config = super().get_config()
-        config.update(
-            {
-                "config": self.config.get_dict(),
-                "layer_type": self.layer_type,
-            }
-        )
+        config.update({"config": self.config.get_dict(), "layer_type": self.layer_type, "mask": self.mask})
         return config

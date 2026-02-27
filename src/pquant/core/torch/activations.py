@@ -37,9 +37,9 @@ class PQActivation(nn.Module):
     ):
         super().__init__()
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         self.config = config
         if in_quant_bits is None:
             self.k_input = config.quantization_parameters.default_data_keep_negatives
@@ -62,12 +62,14 @@ class PQActivation(nn.Module):
         self.use_hgq = config.quantization_parameters.use_high_granularity_quantization
         self.is_pretraining = True
         self.round_mode = config.quantization_parameters.round_mode
-        self.overflow = config.quantization_parameters.overflow
+        self.overflow_mode_parameters = config.quantization_parameters.overflow_mode_parameters
+        self.overflow_mode_data = config.quantization_parameters.overflow_mode_data
         self.use_multiplier = config.quantization_parameters.use_relu_multiplier
         self.hgq_beta = config.quantization_parameters.hgq_beta
         self.hgq_gamma = config.quantization_parameters.hgq_gamma
         self.hgq_heterogeneous = config.quantization_parameters.hgq_heterogeneous
         self.use_fitcompress = config.fitcompress_parameters.enable_fitcompress
+        self.granularity = config.quantization_parameters.granularity
 
         self.post_fitcompress_calibration = False
         self.saved_inputs = []
@@ -84,21 +86,23 @@ class PQActivation(nn.Module):
             k=self.k_output,
             i=self.i_output,
             f=self.f_output,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_data=True,
             is_heterogeneous=self.use_hgq,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         self.input_quantizer = Quantizer(
             k=self.k_input,
             i=self.i_input,
             f=self.f_input,
-            overflow=self.overflow,
+            overflow=self.overflow_mode_data,
             round_mode=self.round_mode,
             is_data=True,
             is_heterogeneous=self.use_hgq,
             hgq_gamma=self.hgq_gamma,
+            place="datalane",
         )
         if self.use_hgq:
             self.input_quantizer.quantizer.build(input_shape)

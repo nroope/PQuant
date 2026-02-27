@@ -38,7 +38,8 @@ If you require additional parameters for the training or optimization loops, ple
 | `layer_specific`                 | dict     | `{}`        | Dictionary for per-layer quantization overrides.                       |
 | `use_hgq`                        | bool     | `false`     | Enable or disable High Granularity Quantization (HGQ).                 |
 | `use_real_tanh`                  | bool     | `false`     | Use a real `tanh` instead of hard/approximate `tanh`.                  |
-| `overflow`                       | str      | `"SAT"`     | Overflow handling mode (`SAT`, `SAT_SYM`, `WRAP`, `WRAP_SM`).          |
+| `overflow_mode_data`                       | str      | `"SAT"`     | Overflow handling mode for input and output quantizers(`SAT`, `SAT_SYM`, `WRAP`, `WRAP_SM`).          |
+| `overflow_mode_parameters`                       | str      | `"SAT"`     | Overflow handling mode for weight and biases quantizers(`SAT`, `SAT_SYM`, `WRAP`, `WRAP_SM`).          |
 | `round_mode`                     | str      | `"RND"`     | Rounding mode (`TRN`, `RND`, `RND_CONV`, `RND_ZERO`, etc.).            |
 | `use_relu_multiplier`            | bool     | `true`      | Enable a learned bit-shift multiplier inside ReLU layers.              |
 

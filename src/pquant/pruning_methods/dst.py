@@ -34,9 +34,9 @@ class DST(keras.layers.Layer):
     def __init__(self, config, layer_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if isinstance(config, dict):
-            from pquant.core.finetuning import TuningConfig
+            from pquant.core.hyperparameter_optimization import PQConfig
 
-            config = TuningConfig.load_from_config(config)
+            config = PQConfig.load_from_config(config)
         self.config = config
         self.is_pretraining = True
         self.layer_type = layer_type

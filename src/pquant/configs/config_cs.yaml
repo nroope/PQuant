@@ -12,18 +12,20 @@ quantization_parameters:
   default_data_keep_negatives: 0.
   default_data_integer_bits: 0.
   default_data_fractional_bits: 7.
+  granularity: "per_tensor"
   quantize_input: true
   quantize_output: false
   enable_quantization: true
   hgq_beta: 1e-5
   hgq_gamma: 0.0003
   hgq_heterogeneous: True
-  layer_specific: []
+  layer_specific: {}
   use_high_granularity_quantization: false
   use_real_tanh: false
-  use_relu_multiplier: true
+  use_relu_multiplier: false
   use_symmetric_quantization: false
-  overflow: SAT
+  overflow_mode_parameters: SAT
+  overflow_mode_data: SAT
   round_mode: RND
 fitcompress_parameters:
   enable_fitcompress : false
@@ -39,20 +41,16 @@ training_parameters:
   epochs: 85
   fine_tuning_epochs: 85
   pretraining_epochs: 0
-  pruning_first: false
-  rewind: post-ticket-search
+  pruning_first: true
+  rewind: post-training-stage
   rounds: 3
   save_weights_epoch: 2
-batch_size: 256
-cosine_tmax: 200
-gamma: 0.1
-l2_decay: 0.0001
-label_smoothing: 0.0
-lr: 0.1
-lr_schedule: multistep
-milestones:
-- 56
-- 71
-momentum: 0.9
-optimizer: sgd
-plot_frequency: 100
+hpo_parameters:
+    experiment_name: experiment_name
+    model_name: jet_tagger
+    num_trials: 1
+    sampler:
+      type: RandomSampler
+    hyperparameter_search:
+      numerical: {}
+      categorical: {}

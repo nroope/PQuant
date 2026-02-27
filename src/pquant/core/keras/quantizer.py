@@ -1,29 +1,78 @@
+from enum import Enum
+
 import keras
-from keras.initializers import Constant
+from keras import ops
 
 from pquant.core.quantizer_functions import create_quantizer
 
 
+@keras.saving.register_keras_serializable(package="PQuant")
 class Quantizer(keras.layers.Layer):
     # HGQ quantizer wrapper
-    def __init__(self, k, i, f, overflow, round_mode, is_heterogeneous, is_data, hgq_gamma=0):
+    def __init__(
+        self,
+        k=0.0,
+        i=0.0,
+        f=7.0,
+        overflow="SAT",
+        round_mode="RND",
+        is_heterogeneous=False,
+        is_data=False,
+        granularity="per_tensor",
+        hgq_gamma=0,
+        place="datalane",
+    ):
         super().__init__()
-        self.k = k
-        self.i = i
-        self.f = f
+        self.k_init = float(k)
+        self.i_init = float(i)
+        self.f_init = float(f)
+        self.b_init = self.k_init + self.i_init + self.f_init
         self.overflow = overflow
         self.round_mode = round_mode
         self.use_hgq = is_heterogeneous
-        self.quantizer = create_quantizer(self.k, self.i, self.f, overflow, round_mode, is_heterogeneous, is_data)
+        self.is_data = is_data
+        self.place = place
+        self.quantizer = create_quantizer(
+            self.k_init, self.i_init, self.f_init, self.overflow, self.round_mode, self.use_hgq, self.is_data, place
+        )
         self.is_pretraining = False
         self.hgq_gamma = hgq_gamma
+        if isinstance(granularity, Enum):
+            self.granularity = granularity.value
+        else:
+            self.granularity = granularity
+
+    def compute_dynamic_bits(self, x):
+        if self.granularity == "per_channel":
+            if ops.ndim(x) == 2:
+                abs_x = ops.max(ops.abs(x), axis=0, keepdims=True)
+            elif ops.ndim(x) == 3:
+                abs_x = ops.max(ops.abs(x), axis=(0, 1), keepdims=True)
+            elif ops.ndim(x) == 4:
+                abs_x = ops.max(ops.abs(x), axis=(0, 1, 2), keepdims=True)
+            else:
+                raise ValueError("Unsupported tensor rank")
+        elif self.granularity == "per_weight":
+            abs_x = ops.abs(x)
+        else:
+            raise ValueError(f"compute_dynamic_bits called for granularity={self.granularity}")
+        m = ops.ceil(ops.log(abs_x + 1e-6) / ops.log(2.0))
+        int_bits = ops.maximum(m, 0.0)
+        b = self.b if hasattr(self, "b") else self.b_init
+        frac_bits = ops.maximum(b - int_bits - self.k_init, 0.0)
+        return int_bits, frac_bits
 
     def build(self, input_shape):
+        if self.granularity == "per_tensor":
+            self.k = self.add_weight(shape=(), initializer=keras.initializers.Constant(self.k_init), trainable=False)
+            self.i = self.add_weight(shape=(), initializer=keras.initializers.Constant(self.i_init), trainable=False)
+            self.f = self.add_weight(shape=(), initializer=keras.initializers.Constant(self.f_init), trainable=False)
+        else:
+            i, _ = self.compute_dynamic_bits(keras.ops.ones(input_shape))
+            self.k = self.add_weight(shape=i.shape, initializer=keras.initializers.Constant(self.k_init), trainable=False)
+            self.i = self.add_weight(shape=i.shape, initializer=keras.initializers.Constant(self.i_init), trainable=False)
+            self.f = self.add_weight(shape=i.shape, initializer=keras.initializers.Constant(self.f_init), trainable=False)
         super().build(input_shape)
-        self.i = self.add_variable((), Constant(self.i), dtype="float32", trainable=False)
-        self.f = self.add_variable((), Constant(self.f), dtype="float32", trainable=False)
-        if self.use_hgq:
-            self.quantizer.build(input_shape)
 
     def get_total_bits(self, shape):
         if self.use_hgq:
@@ -49,16 +98,62 @@ class Quantizer(keras.layers.Layer):
         self.is_pretraining = True
 
     def call(self, x, training=None):
-        if not self.built:
-            self.build(x.shape)
         if self.use_hgq:
-            x = self.quantizer(x, training=training)
+            return self.quantizer(x, training=training)
+        if not training:
+            return self.quantizer(x, k=self.k, i=self.i, f=self.f, training=training)
+        elif self.granularity == "per_tensor":
+            i, f = self.i, self.f
         else:
-            x = self.quantizer(x, k=self.k, i=self.i, f=self.f, training=training)
-        return x
+            i, f = self.compute_dynamic_bits(x)
+            self.i.assign(i)
+            self.f.assign(f)
+        return self.quantizer(x, k=self.k, i=i, f=f, training=training)
 
     def hgq_loss(self):
         if self.is_pretraining or not self.use_hgq:
             return 0.0
-        loss = (keras.ops.sum(self.quantizer.quantizer.i) + keras.ops.sum(self.quantizer.quantizer.f)) * self.hgq_gamma
+        loss = 0
+        for layer_loss in self.quantizer.quantizer.losses:
+            loss += layer_loss
         return loss
+
+    @classmethod
+    def from_config(cls, config):
+        use_hgq = config["is_heterogeneous"]
+        instance = cls(
+            k=config.pop("k"),
+            i=config.pop("i"),
+            f=config.pop("f"),
+            round_mode=config.pop("round_mode"),
+            overflow=config.pop("overflow"),
+            is_heterogeneous=config.pop("is_heterogeneous"),
+            is_data=config.pop("is_data"),
+            granularity=config.pop("granularity"),
+            place=config.pop("place"),
+        )
+
+        if use_hgq:
+            quantizer_config = config.pop("quantizer")
+            instance.quantizer = keras.saving.deserialize_keras_object(quantizer_config)
+        return instance
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "k": self.k_init,
+                "i": self.i_init,
+                "f": self.f_init,
+                "overflow": self.overflow,
+                "round_mode": self.round_mode,
+                "is_data": self.is_data,
+                "hgq_gamma": self.hgq_gamma,
+                "is_heterogeneous": self.use_hgq,
+                "granularity": self.granularity,
+                "place": self.place,
+            }
+        )
+        if self.use_hgq:
+            config.update({"quantizer": keras.saving.serialize_keras_object(self.quantizer)})
+        return config
