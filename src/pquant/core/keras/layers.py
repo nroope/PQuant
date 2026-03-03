@@ -242,8 +242,7 @@ class PQWeightBiasBase(keras.layers.Layer):
         config.update(
             {
                 "config": self.config.model_dump(),
-                "layer_type": getattr(self, "layer_type", None),
-
+                "layer_type": self.layer_type,
                 "quantize_input": self.quantize_input,
                 "quantize_output": self.quantize_output,
                 "enable_pruning": self.enable_pruning,
