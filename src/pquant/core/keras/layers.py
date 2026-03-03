@@ -27,7 +27,7 @@ from pquant.core.utils import get_pruning_layer
 T = TypeVar("T")
 
 
-@keras.saving.register_keras_serializable(package="PQuant")
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQWeightBiasBase(keras.layers.Layer):
     def __init__(
         self,
@@ -73,7 +73,8 @@ class PQWeightBiasBase(keras.layers.Layer):
             self.i_output = config.quantization_parameters.default_data_integer_bits
             self.f_output = config.quantization_parameters.default_data_fractional_bits
 
-        self.pruning_layer = get_pruning_layer(config=config, layer_type=layer_type)
+        self.layer_type = layer_type
+        self.pruning_layer = get_pruning_layer(config=config, layer_type=self.layer_type)
         self.pruning_method = config.pruning_parameters.pruning_method
         self.quantize_input = quantize_input
         self.quantize_output = quantize_output
@@ -234,44 +235,45 @@ class PQWeightBiasBase(keras.layers.Layer):
         collect_x = self.handle_transpose(x, self.data_transpose, self.do_transpose_data)
         self.pruning_layer.collect_output(collect_x, training)
 
-    @classmethod
-    def from_config(cls, config):
-        # Deserialize all sublayers first
-        input_quantizer = keras.saving.deserialize_keras_object(config.pop("input_quantizer"))
-        weight_quantizer = keras.saving.deserialize_keras_object(config.pop("weight_quantizer"))
-        bias_quantizer = keras.saving.deserialize_keras_object(config.pop("bias_quantizer"))
-        output_quantizer = keras.saving.deserialize_keras_object(config.pop("output_quantizer"))
-
-        instance = cls(**config)
-        instance.input_quantizer = input_quantizer
-        instance.weight_quantizer = weight_quantizer
-        instance.bias_quantizer = bias_quantizer
-
-        if True:
-            instance.output_quantizer = output_quantizer
-        return instance
 
     def get_config(self):
         config = super().get_config()
+
         config.update(
             {
-                "config": self.config,
-                "input_quantizer": keras.saving.serialize_keras_object(self.input_quantizer),
-                "weight_quantizer": keras.saving.serialize_keras_object(self.weight_quantizer),
-                "bias_quantizer": keras.saving.serialize_keras_object(self.bias_quantizer),
+                "config": self.config.model_dump(),
+                "layer_type": getattr(self, "layer_type", None),
+
                 "quantize_input": self.quantize_input,
                 "quantize_output": self.quantize_output,
-                "in_quant_bits": self.in_quant_bits,
-                "weight_quant_bits": self.weight_quant_bits,
-                "bias_quant_bits": self.bias_quant_bits,
-                "out_quant_bits": self.out_quant_bits,
+                "enable_pruning": self.enable_pruning,
+
+                "in_quant_bits": (
+                    float(self.k_input),
+                    float(self.i_input),
+                    float(self.f_input),
+                ),
+                "weight_quant_bits": (
+                    float(self.k_weight),
+                    float(self.i_weight),
+                    float(self.f_weight),
+                ),
+                "bias_quant_bits": (
+                    float(self.k_bias),
+                    float(self.i_bias),
+                    float(self.f_bias),
+                ),
+                "out_quant_bits": (
+                    float(self.k_output),
+                    float(self.i_output),
+                    float(self.f_output),
+                ),
             }
         )
-        config.update({"output_quantizer": keras.saving.serialize_keras_object(self.output_quantizer)})
         return config
 
 
-@keras.saving.register_keras_serializable(package="PQuant")
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
     def __init__(
         self,
@@ -313,7 +315,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
             activation=None,
             use_bias=use_bias,
             depthwise_initializer=depthwise_initializer,
-            bias_initializer=bias_regularizer,
+            bias_initializer=bias_initializer,
             depthwise_regularizer=depthwise_regularizer,
             bias_regularizer=bias_regularizer,
             activity_regularizer=activity_regularizer,
@@ -464,7 +466,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
     def apply_final_compression(self):
         self._kernel.assign(self.kernel)
         if self._bias is not None:
-            self._bias.assign = self.bias
+            self._bias.assign(self.bias)
         self.final_compression_done = True
 
     def extra_repr(self) -> str:
@@ -480,7 +482,7 @@ class PQDepthwiseConv2d(PQWeightBiasBase, keras.layers.DepthwiseConv2D):
         )
 
 
-@keras.saving.register_keras_serializable(package="PQuant")
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
     def __init__(
         self,
@@ -543,7 +545,7 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
         self.do_transpose_data = self.data_format == "channels_last"
-        self.use_biase = use_bias
+        self.use_bias = use_bias
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -641,7 +643,7 @@ class PQConv2d(PQWeightBiasBase, keras.layers.Conv2D):
         return x
 
 
-@keras.saving.register_keras_serializable(package="PQuant")
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQSeparableConv2d(Layer):
     def __init__(
         self,
@@ -667,7 +669,7 @@ class PQSeparableConv2d(Layer):
         quantize_output=False,
         **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self.weight_transpose = (3, 2, 0, 1)
         self.weight_transpose_back = (2, 3, 1, 0)
         self.data_transpose = (0, 3, 1, 2)
@@ -719,9 +721,28 @@ class PQSeparableConv2d(Layer):
         x = self.depthwise_conv(x, training=training)
         x = self.pointwise_conv(x, training=training)
         return x
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "config": self.depthwise_conv.config.model_dump(),
+                "filters": self.pointwise_conv.filters,
+                "kernel_size": self.depthwise_conv.kernel_size,
+                "strides": self.depthwise_conv.strides,
+                "padding": self.depthwise_conv.padding,
+                "data_format": self.depthwise_conv.data_format,
+                "dilation_rate": self.depthwise_conv.dilation_rate,
+                "depth_multiplier": self.depthwise_conv.depth_multiplier,
+                "use_bias": self.pointwise_conv.use_bias,
+                "quantize_input": self.depthwise_conv.quantize_input,
+                "quantize_output": self.pointwise_conv.quantize_output,
+            }
+        )
+        return config
+    
 
-
-@keras.saving.register_keras_serializable(package="PQuant")
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
     def __init__(
         self,
@@ -882,7 +903,7 @@ class PQConv1d(PQWeightBiasBase, keras.layers.Conv1D):
         return x
 
 
-@keras.saving.register_keras_serializable(package="PQuant")
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQDense(PQWeightBiasBase):
     def __init__(
         self,
@@ -996,7 +1017,7 @@ class PQDense(PQWeightBiasBase):
     def apply_final_compression(self):
         self._kernel.assign(self.kernel)
         if self._bias is not None:
-            self._bias.assign = self.bias
+            self._bias.assign(self.bias)
         self.final_compression_done = True
 
     def call(self, x, training=None):
@@ -1020,6 +1041,7 @@ class PQDense(PQWeightBiasBase):
         return config
 
 
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQBatchNormalization(keras.layers.BatchNormalization):
     def __init__(
         self,
@@ -1215,8 +1237,18 @@ class PQBatchNormalization(keras.layers.BatchNormalization):
 
     def post_pre_train_function(self):
         self.is_pretraining = False
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "config": self.config.model_dump(),
+                "quantize_input": self.quantize_input,
+            }
+        )
+        return config
 
-
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQAvgPoolBase(keras.layers.Layer):
     def __init__(
         self,
@@ -1333,20 +1365,25 @@ class PQAvgPoolBase(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "i_input": self.i_input,
-                "f_input": self.f_input,
-                "i_output": self.i_output,
-                "f_output": self.f_output,
-                "is_pretraining": self.is_pretraining,
-                "overflow": self.overflow_mode_data,
-                "hgq_gamma": self.hgq_gamma,
-                "hgq_heterogeneous": self.hgq_heterogeneous,
-                "pooling": self.pooling,
-            }
+            "config": self.config.model_dump(),
+            "quantize_input": self.quantize_input,
+            "quantize_output": self.quantize_output,
+            "in_quant_bits": (
+                float(self.k_input),
+                float(self.i_input),
+                float(self.f_input),
+            ),
+            "out_quant_bits": (
+                float(self.k_output),
+                float(self.i_output),
+                float(self.f_output),
+            ),
+        }
         )
         return config
+    
 
-
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQAvgPool1d(PQAvgPoolBase, keras.layers.AveragePooling1D):
     def __init__(
         self,
@@ -1384,7 +1421,18 @@ class PQAvgPool1d(PQAvgPoolBase, keras.layers.AveragePooling1D):
             self.add_loss(self.hgq_loss())
         return x
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "pool_size": self.pool_size,
+            "strides": self.strides,
+            "padding": self.padding,
+            "data_format": self.data_format,
+        })
+        return config
 
+
+@keras.saving.register_keras_serializable(package="PQuantML")
 class PQAvgPool2d(PQAvgPoolBase, keras.layers.AveragePooling2D):
     def __init__(
         self,
@@ -1420,6 +1468,16 @@ class PQAvgPool2d(PQAvgPoolBase, keras.layers.AveragePooling2D):
         if self.use_hgq and self.enable_quantization:
             self.add_loss(self.hgq_loss())
         return x
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "pool_size": self.pool_size,
+            "strides": self.strides,
+            "padding": self.padding,
+            "data_format": self.data_format,
+        })
+        return config
 
 
 def call_post_round_functions(model, rewind, rounds, r):
@@ -2152,7 +2210,7 @@ def get_enable_pruning(layer, config):
         enable_pruning_depthwise = enable_pruning_pointwise = True
         if layer.name + "_depthwise" in config.pruning_parameters.disable_pruning_for_layers:
             enable_pruning_depthwise = False
-        if layer.name + "pointwise" in config.pruning_parameters.disable_pruning_for_layers:
+        if layer.name + "_pointwise" in config.pruning_parameters.disable_pruning_for_layers:
             enable_pruning_pointwise = False
         return enable_pruning_depthwise, enable_pruning_pointwise
     else:
@@ -2223,7 +2281,7 @@ def populate_config_with_all_layers(model, config):
         elif isinstance(
             layer, (Activation, ReLU, AveragePooling1D, AveragePooling2D, AveragePooling3D, PQActivation, PQAvgPoolBase)
         ):
-            custom_scheme.layer_specific[layer.name] = {
+            custom_scheme["layer_specific"][layer.name] = {
                 "input": {"quantize": True, "integer_bits": 0.0, "fractional_bits": 7.0},
                 "output": {"quantize": True, "integer_bits": 0.0, "fractional_bits": 7.0},
             }
@@ -2248,7 +2306,7 @@ def post_training_prune(model, config, calibration_data):
             model = add_compression_layers(model, config, inputs.shape)
             post_pretrain_functions(model, config)
         model(inputs, training=True)  # True so pruning works
-    return apply_final_compression(model, config)
+    return apply_final_compression(model)
 
 
 def get_ebops(model, **kwargs):
